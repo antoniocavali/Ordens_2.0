@@ -9,9 +9,9 @@ import {
   type ContractListItem,
   type ContractStatus,
 } from '@ordens/contracts';
-import { AsyncCombobox, Badge, Button, Card, Drawer, Field, Input, Select, Skeleton, Textarea, Tooltip, type ComboOption } from '@ordens/ui';
+import { AsyncCombobox, Badge, Button, Card, cn, Drawer, Field, Input, Select, Skeleton, Textarea, Tooltip, type ComboOption } from '@ordens/ui';
 import { useQuery } from '@tanstack/react-query';
-import { Check, FileSignature } from 'lucide-react';
+import { AlertTriangle, Check, FileSignature } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -31,6 +31,8 @@ const FREIGHT_LABEL: Record<string, string> = { CIF: 'CIF', FOB: 'FOB', THIRD_PA
 
 function BalanceBar({ c }: { c: ContractListItem }) {
   const b = c.balances;
+  // Contratos criados antes das regras de saldo (ou por integração) podem estar excedidos: sinalizar, nunca esconder.
+  const exceeded = b.balance.startsWith('-');
   const unit = c.unit.code === 'T' ? 't' : c.unit.code.toLowerCase();
   return (
     <Tooltip
@@ -52,11 +54,17 @@ function BalanceBar({ c }: { c: ContractListItem }) {
       <div className="space-y-1.5">
         <div className="flex items-baseline justify-between gap-2 tabular">
           <span className="font-medium">{formatQty(b.contracted, unit)}</span>
-          <span className="text-[11px] text-subtle">saldo {formatQty(b.balance, unit)}</span>
+          {exceeded ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-danger">
+              <AlertTriangle className="size-3" aria-hidden /> excedido em {formatQty(b.balance.replace('-', ''), unit)}
+            </span>
+          ) : (
+            <span className="text-[11px] text-subtle">saldo {formatQty(b.balance, unit)}</span>
+          )}
         </div>
-        <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+        <div className={cn('flex h-1.5 overflow-hidden rounded-full bg-surface-3', exceeded && 'ring-1 ring-danger/60')} aria-hidden>
           <div className="h-full bg-success" style={{ width: `${ratio(b.loaded, b.contracted)}%` }} />
-          <div className="h-full bg-primary/50" style={{ width: `${Math.max(0, ratio(b.committed, b.contracted) - ratio(b.loaded, b.contracted))}%` }} />
+          <div className={cn('h-full', exceeded ? 'bg-danger/70' : 'bg-primary/50')} style={{ width: `${Math.max(0, ratio(b.committed, b.contracted) - ratio(b.loaded, b.contracted))}%` }} />
         </div>
       </div>
     </Tooltip>
@@ -189,7 +197,10 @@ function ContractDrawer({ id, open, onClose }: { id: string | null; open: boolea
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <Stat label="Em ordens" value={formatQty(c.balances.committed, 't')} />
                   <Stat label="Carregado" value={formatQty(c.balances.loaded, 't')} />
-                  <Stat label="Saldo físico" value={formatQty(c.balances.balance, 't')} />
+                  <Stat
+                    label={c.balances.balance.startsWith('-') ? 'Excedido' : 'Saldo físico'}
+                    value={<span className={c.balances.balance.startsWith('-') ? 'text-danger' : ''}>{formatQty(c.balances.balance.replace('-', ''), 't')}</span>}
+                  />
                   <Stat label="Saldo financeiro" value={c.balances.valueBalance ? formatMoney(c.balances.valueBalance, c.currency, true) : '—'} />
                 </div>
                 <Card className="p-3">

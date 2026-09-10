@@ -128,6 +128,8 @@ export function AsyncCombobox({
           id={id}
           type="button"
           role="combobox"
+          disabled={disabled}
+          aria-disabled={disabled || undefined}
           aria-expanded={open}
           aria-controls={listId}
           aria-haspopup="listbox"

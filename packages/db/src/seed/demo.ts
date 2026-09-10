@@ -251,11 +251,13 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
   const gestor = userIds['gestor@graoforte.demo']!;
 
   // ─── Contratos ───
-  const contract = (number: string, seller: string, buyer: string, commodity: string, quantity: string, unitPrice: string, crop: string) =>
-    tx.contract.create({
+  // Numeração igual à automática da API (CT-AAAA-NNNN), avançando a sequência do tenant.
+  const contract = async (_label: string, seller: string, buyer: string, commodity: string, quantity: string, unitPrice: string, crop: string) => {
+    const seq = await nextSequence(tx, tenantId, 'contract', now.getUTCFullYear());
+    return tx.contract.create({
       data: {
         tenantId,
-        number,
+        number: `CT-${now.getUTCFullYear()}-${String(seq).padStart(4, '0')}`,
         sellerPartnerId: seller,
         buyerPartnerId: buyer,
         commodityId: commodities[commodity]!.id,
@@ -271,6 +273,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         status: 'ACTIVE',
       },
     });
+  };
 
   const contracts = [
     { c: await contract('CT-2026-001', joao.id, abc.id, 'MILHO', '12000', '1250.00', '25/26'), seller: joao.id, buyer: abc.id, commodity: 'MILHO' },
@@ -301,16 +304,22 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     [orgNutri.id]: userIds['comprador.nutri@graoforte.demo'],
   };
 
+  // Saldo por contrato: ordens não-rascunho só usam contrato enquanto houver saldo (mesma regra da publicação).
+  const committed = new Map<string, number>(contracts.map((k) => [k.c.id, 0]));
+
   for (let i = 0; i < statusPlan.length; i++) {
     const status = statusPlan[i]!;
-    const useContract = r.next() < 0.8;
     const k = r.pick(contracts);
+    const qtyPreview = quantities[i % quantities.length]!;
+    const fits = committed.get(k.c.id)! + qtyPreview <= Number(k.c.quantity);
+    const useContract = r.next() < 0.8 && (status === 'DRAFT' || fits);
+    if (useContract && status !== 'DRAFT' && status !== 'CANCELLED') committed.set(k.c.id, committed.get(k.c.id)! + qtyPreview);
     const seller = useContract ? k.seller : r.pick([joao.id, maria.id, valeVerde.id]);
     const buyer = useContract ? k.buyer : r.pick([abc.id, nutri.id, exporta.id]);
     const commodityCode = useContract ? k.commodity : r.pick(['MILHO', 'SOJA', 'MILHETO', 'TRIGO']);
     const commodity = commodities[commodityCode]!;
     const farmRow = r.pick(farmsBySeller[seller]!);
-    const qty = r.pick(quantities);
+    const qty = qtyPreview;
     const startOffset = status === 'COMPLETED' ? -r.int(40, 60) : r.int(-25, 30);
     const starts = dateOnly(addDays(now, startOffset));
     const ends = addDays(starts, r.int(10, 35));
