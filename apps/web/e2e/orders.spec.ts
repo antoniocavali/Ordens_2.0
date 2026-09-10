@@ -70,12 +70,14 @@ test.describe('Ordens de Carregamento', () => {
     const farmPage = await farmCtx.newPage();
     await login(farmPage, 'fazenda.joao@graoforte.demo');
     await farmPage.goto('/ordens');
+    const viewRegistered = farmPage.waitForResponse((r) => r.url().endsWith('/views') && r.request().method() === 'POST' && r.ok());
     await farmPage.getByRole('link', { name: number }).click();
     await expect(farmPage.getByRole('heading', { name: number })).toBeVisible();
+    await viewRegistered;
     await farmCtx.close();
 
     await page.goto(`/ordens?q=${encodeURIComponent(number)}`);
-    await expect(page.getByRole('button', { name: /Fazenda: Versão atual visualizada/ })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByLabel(/Fazenda: Versão atual visualizada/).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('Fazenda não vê o botão Nova Ordem nem acessa a criação', async ({ page }) => {
