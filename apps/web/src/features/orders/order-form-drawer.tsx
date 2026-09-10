@@ -511,9 +511,9 @@ const PRIORITY_LABEL: Record<string, string> = { LOW: 'Baixa', NORMAL: 'Normal',
 function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseFormReturn<FormValues>; orderId: string | null; onNotice: (m: string | null) => void; isDraft: boolean }) {
   const { control, register, setValue, formState } = form;
   const errors = formState.errors;
-  const [contract, seller, farm, buyer, commodity, quantity, unitPrice, unitId, currency] = useWatch({
+  const [contract, seller, farm, buyer, quantity, unitPrice, unitId, currency] = useWatch({
     control,
-    name: ['contract', 'seller', 'farm', 'buyer', 'commodity', 'quantity', 'unitPrice', 'unitId', 'currency'],
+    name: ['contract', 'seller', 'farm', 'buyer', 'quantity', 'unitPrice', 'unitId', 'currency'],
   });
   const units = useUnits();
   const unitLabel = units.data?.find((u) => u.id === unitId)?.label ?? '';

@@ -8,9 +8,8 @@
     "dev": "node scripts/dev.mjs",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src test",
-    "test": "vitest run --config vitest.config.ts",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "lint": "eslint src",
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1128.0",

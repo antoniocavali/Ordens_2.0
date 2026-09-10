@@ -16,7 +16,6 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
-import type { z } from 'zod';
 import { StatusBadge } from '@/features/orders/indicators';
 import { lookups, useUnits } from '@/features/orders/orders-api';
 import { FormSection, handleSaveError, span, Stat, useInvalidateRegistry } from '@/features/registry/form-utils';

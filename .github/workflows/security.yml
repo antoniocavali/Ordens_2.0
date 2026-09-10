@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  pull-requests: read
 
 jobs:
   gitleaks:
@@ -28,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln,misconfig,secret

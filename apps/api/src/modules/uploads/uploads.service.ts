@@ -210,7 +210,7 @@ export class UploadsService {
 
   private async assertEntityVisible(tx: Tx, entityType: string, entityId: string) {
     const auth = currentAuth();
-    let found: unknown = null;
+    let found: unknown;
     switch (entityType) {
       case 'loading_order':
         found = await tx.loadingOrder.findUnique({ where: { id: entityId }, select: { id: true } });

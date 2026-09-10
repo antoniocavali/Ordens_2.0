@@ -13,7 +13,7 @@ import { ClamAvScanner, NoopScanner, type Scanner } from '../scanner.js';
 const SNIFF_BYTES = 4_100;
 
 function looksLikeXml(head: Buffer): boolean {
-  const text = head.subarray(0, 200).toString('utf8').replace(/^﻿/, '').trimStart();
+  const text = head.subarray(0, 200).toString('utf8').replace(/^\uFEFF/, '').trimStart();
   return text.startsWith('<?xml') || text.startsWith('<');
 }
 

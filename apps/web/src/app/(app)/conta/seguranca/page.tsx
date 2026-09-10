@@ -138,7 +138,6 @@ function TwoFactorCard() {
 
       {setup ? (
         <div className="mt-5 grid gap-6 sm:grid-cols-[200px_1fr]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={setup.qrCodeDataUrl} alt="QR Code para configurar o aplicativo autenticador" className="size-[200px] rounded-lg bg-white p-2 ring-1 ring-border" />
           <form
             className="space-y-3"

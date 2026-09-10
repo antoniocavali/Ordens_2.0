@@ -1,4 +1,4 @@
-import { LoadStatus, OrderStatus, Scope } from './enums.js';
+import { type LoadStatus, type OrderStatus, type Scope } from './enums.js';
 
 type Transitions<S extends string> = Record<S, readonly S[]>;
 

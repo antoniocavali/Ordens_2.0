@@ -1,10 +1,9 @@
 'use client';
 
-import { zodResolver } from '@hookform/resolvers/zod';
 import { farmInputSchema, UF, type FarmDetail, type FarmListItem } from '@ordens/contracts';
 import { AsyncCombobox, Button, Drawer, Field, Input, Select, Skeleton, Textarea, Tooltip, type ComboOption } from '@ordens/ui';
 import { useQuery } from '@tanstack/react-query';
-import { Archive, ArchiveRestore, Check, MapPin, MapPinOff, Sprout } from 'lucide-react';
+import { Archive, Check, MapPin, MapPinOff, Sprout } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';

@@ -14,5 +14,11 @@ allowBuilds:
   msgpackr-extract: true
   '@scarf/scarf': false
 
+# Correções de segurança em dependências transitivas (pnpm audit).
+overrides:
+  multer: '>=2.3.0'
+  deepmerge-ts: '>=8.0.0'
+  mysql2: '>=3.22.0'
+
 minimumReleaseAgeExclude:
   - zod@4.6.1

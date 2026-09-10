@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Scope, THEMES } from '../enums.js';
+import { type Scope, type THEMES } from '../enums.js';
 import type { Permission } from '../permissions.js';
 
 export const PASSWORD_MIN_LENGTH = 12;
