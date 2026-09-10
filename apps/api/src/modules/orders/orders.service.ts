@@ -48,9 +48,19 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.version_created': 'Nova versão gerada',
   'order.release_created': 'Liberação criada',
   'order.viewed': 'Ordem visualizada',
+  'order.appointment_created': 'Agendamento realizado',
+  'order.load_created': 'Carga criada',
+  'order.load_status': 'Carga atualizada',
 };
 
-const EXTERNAL_TIMELINE = new Set(['order.published', 'order.version_created', 'order.release_created']);
+const EXTERNAL_TIMELINE = new Set([
+  'order.published',
+  'order.version_created',
+  'order.release_created',
+  'order.appointment_created',
+  'order.load_created',
+  'order.load_status',
+]);
 
 /** Serializa valores para comparação/snapshot (decimais normalizados, datas AAAA-MM-DD). */
 function normalize(field: string, value: unknown): unknown {
@@ -674,6 +684,6 @@ export class OrdersService {
 function pickPublicContext(after: unknown): Record<string, unknown> | null {
   if (!after || typeof after !== 'object') return null;
   const a = after as Record<string, unknown>;
-  const allowed = ['version', 'sequence', 'quantity', 'validUntil', 'releasedTotal'];
+  const allowed = ['version', 'sequence', 'quantity', 'validUntil', 'releasedTotal', 'loadNumber', 'statusLabel', 'scheduledOn', 'plates'];
   return Object.fromEntries(Object.entries(a).filter(([k]) => allowed.includes(k)));
 }
