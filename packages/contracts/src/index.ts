@@ -8,3 +8,5 @@ export * from './schemas/auth.js';
 export * from './schemas/users.js';
 export * from './schemas/uploads.js';
 export * from './schemas/orders.js';
+export * from './schemas/registry.js';
+export * from './documents.js';

@@ -25,6 +25,8 @@ const rewrite = (v) =>
     .replace('http://minio:9000', `http://localhost:${port('MINIO_HOST_PORT', '9000')}`);
 
 const env = { ...Object.fromEntries(Object.entries(fileEnv).map(([k, v]) => [k, rewrite(v)])) };
+env.LOG_PRETTY ??= 'true';
+if (env.LOG_PRETTY === 'false') env.LOG_PRETTY = 'true'; // no host há devDependencies
 env.SMTP_HOST = 'localhost';
 env.SMTP_PORT = port('MAILPIT_SMTP_HOST_PORT', '1025');
 env.API_INTERNAL_URL = `http://localhost:${port('API_HOST_PORT', '4000')}`;

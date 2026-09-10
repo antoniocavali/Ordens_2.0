@@ -1,4 +1,4 @@
-import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from './cn';
 
 export const inputBase =
@@ -13,6 +13,32 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   <textarea ref={ref} className={cn(inputBase, 'min-h-20 resize-y py-2 leading-relaxed', className)} {...props} />
 ));
 Textarea.displayName = 'Textarea';
+
+const CHEVRON =
+  'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%238a86a0%27 stroke-width=%272%27%3E%3Cpath d=%27m6 9 6 6 6-6%27/%3E%3C/svg%3E")';
+
+export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  options: readonly { value: string; label: string }[];
+  placeholder?: string;
+}
+
+/** Select nativo estilizado — para listas curtas e fixas (use AsyncCombobox para listas grandes). */
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(({ options, placeholder, className, style, ...props }, ref) => (
+  <select
+    ref={ref}
+    {...props}
+    className={cn(inputBase, 'h-9 appearance-none bg-[length:16px] bg-[right_10px_center] bg-no-repeat pr-8', className)}
+    style={{ backgroundImage: CHEVRON, ...style }}
+  >
+    {placeholder !== undefined ? <option value="">{placeholder}</option> : null}
+    {options.map((o) => (
+      <option key={o.value} value={o.value}>
+        {o.label}
+      </option>
+    ))}
+  </select>
+));
+Select.displayName = 'Select';
 
 export interface FieldProps {
   label: string;

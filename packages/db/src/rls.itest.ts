@@ -177,6 +177,34 @@ describe('isolamento entre organizações do mesmo tenant', () => {
   });
 });
 
+describe('cadastros', () => {
+  const partnersWithRoles = (ctx: DbContext) =>
+    db.run(ctx, (tx) =>
+      tx.$queryRaw<{ id: string; roles: string[] }[]>`
+        select p.id, array(select r.role::text from partner_roles r where r.partner_id = p.id) as roles
+        from business_partners p`,
+    );
+
+  it('listagem de parceiros com papéis não entra em recursão de políticas (Matriz e Fazenda)', async () => {
+    const internal = await partnersWithRoles(matriz(A));
+    expect(internal.length).toBeGreaterThanOrEqual(4);
+    const external = await partnersWithRoles(farm(A, 0));
+    expect(external.map((p) => p.id)).toContain(A.sellers[0]);
+    expect(external.map((p) => p.id)).not.toContain(A.sellers[1]);
+  });
+
+  it('Fazenda não altera papéis de parceiros', async () => {
+    await expect(
+      db.run(farm(A, 0), (tx) => tx.partnerRoleAssignment.create({ data: { partnerId: A.sellers[0], role: 'CARRIER', tenantId: A.tenantId } })),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('Comprador não lê motoristas nem veículos', async () => {
+    const drivers = await db.run(buyer(A, 0), (tx) => tx.driver.findMany());
+    expect(drivers).toHaveLength(0);
+  });
+});
+
 describe('integridade', () => {
   it('rejeita fazenda que não pertence ao vendedor (trigger)', async () => {
     await expect(

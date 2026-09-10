@@ -167,6 +167,18 @@ enum ScanStatus {
   @@map("scan_status")
 }
 
+enum VehicleType {
+  TRUCK_TRACTOR
+  TRAILER
+  SEMI_TRAILER
+  BITRAIN
+  ROAD_TRAIN
+  TRUCK
+  OTHER
+
+  @@map("vehicle_type")
+}
+
 enum DocumentKind {
   NFE_XML
   PDF
@@ -542,9 +554,13 @@ model BusinessPartner {
   updatedBy         String?      @map("updated_by") @db.Uuid
   archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(6)
 
-  roles         PartnerRoleAssignment[]
-  farms         Farm[]
-  organizations Organization[]
+  roles          PartnerRoleAssignment[]
+  farms          Farm[]
+  organizations  Organization[]
+  contacts       PartnerContact[]
+  carrierProfile CarrierProfile?
+  drivers        Driver[]
+  vehicles       Vehicle[]
 
   @@unique([tenantId, document])
   @@index([tenantId, legalName])
@@ -561,6 +577,88 @@ model PartnerRoleAssignment {
   @@id([partnerId, role])
   @@index([tenantId, role])
   @@map("partner_roles")
+}
+
+model PartnerContact {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  partnerId String   @map("partner_id") @db.Uuid
+  name      String
+  role      String?
+  phone     String?
+  email     String?
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  partner BusinessPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, partnerId])
+  @@map("partner_contacts")
+}
+
+model CarrierProfile {
+  partnerId       String    @id @map("partner_id") @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  rntrc           String?
+  rntrcExpiresAt  DateTime? @map("rntrc_expires_at") @db.Date
+  opsContactName  String?   @map("ops_contact_name")
+  opsContactPhone String?   @map("ops_contact_phone")
+  opsContactEmail String?   @map("ops_contact_email")
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  partner BusinessPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("carrier_profiles")
+}
+
+model Driver {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  carrierPartnerId String?      @map("carrier_partner_id") @db.Uuid
+  name             String
+  cpf              String
+  phone            String?
+  email            String?
+  cnhNumber        String?      @map("cnh_number")
+  cnhCategory      String?      @map("cnh_category")
+  cnhExpiresAt     DateTime?    @map("cnh_expires_at") @db.Date
+  notes            String?
+  status           RecordStatus @default(ACTIVE)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt       DateTime?    @map("archived_at") @db.Timestamptz(6)
+
+  carrier BusinessPartner? @relation(fields: [carrierPartnerId], references: [id])
+
+  @@unique([tenantId, cpf])
+  @@index([tenantId, carrierPartnerId])
+  @@map("drivers")
+}
+
+model Vehicle {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  carrierPartnerId String?      @map("carrier_partner_id") @db.Uuid
+  plate            String
+  type             VehicleType
+  capacityKg       Decimal?     @map("capacity_kg") @db.Decimal(18, 4)
+  axles            Int?
+  brand            String?
+  model            String?
+  year             Int?
+  renavam          String?
+  notes            String?
+  status           RecordStatus @default(ACTIVE)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt       DateTime?    @map("archived_at") @db.Timestamptz(6)
+
+  carrier BusinessPartner? @relation(fields: [carrierPartnerId], references: [id])
+
+  @@unique([tenantId, plate])
+  @@index([tenantId, carrierPartnerId])
+  @@map("vehicles")
 }
 
 model Farm {
@@ -582,6 +680,8 @@ model Farm {
   dailyCapacity       Decimal?     @map("daily_capacity") @db.Decimal(18, 4)
   accessRestrictions  String?      @map("access_restrictions")
   carrierInstructions String?      @map("carrier_instructions")
+  contactName         String?      @map("contact_name")
+  contactPhone        String?      @map("contact_phone")
   notes               String?
   status              RecordStatus @default(ACTIVE)
   createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)

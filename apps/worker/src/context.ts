@@ -24,7 +24,7 @@ export function createContext(env: WorkerEnv): WorkerContext {
     logger: pino({
       level: env.LOG_LEVEL,
       base: { service: 'worker' },
-      transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty', options: { singleLine: true } } : undefined,
+      transport: process.env.LOG_PRETTY === 'true' ? { target: 'pino-pretty', options: { singleLine: true } } : undefined,
     }),
     redisConnection: { url: env.REDIS_URL },
   };

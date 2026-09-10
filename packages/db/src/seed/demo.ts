@@ -148,6 +148,43 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     ['CARRIER'],
   );
 
+  // ─── Contatos, transportadoras, motoristas e veículos ───
+  await tx.partnerContact.createMany({
+    data: [
+      { tenantId, partnerId: joao.id, name: 'João da Silva', role: 'Proprietário', phone: '64999990001', isPrimary: true },
+      { tenantId, partnerId: joao.id, name: 'Marcos (gerente)', role: 'Gerente de fazenda', phone: '64999990011' },
+      { tenantId, partnerId: abc.id, name: 'Paulo Ribeiro', role: 'Recebimento', phone: '42999990003', email: 'recebimento@coopabc.demo', isPrimary: true },
+    ],
+  });
+  for (const [carrier, rntrc, name, phone] of [
+    [transAgro, '12345678', 'Sandra Lopes', '66999994001'],
+    [rodoviaSul, '87654321', 'Ricardo Alves', '45999994002'],
+  ] as const) {
+    await tx.carrierProfile.create({
+      data: { partnerId: carrier.id, tenantId, rntrc, rntrcExpiresAt: dateOnly(addDays(now, 400)), opsContactName: name, opsContactPhone: phone },
+    });
+  }
+  const drivers = [
+    ['Antônio Pereira', '39053344705', transAgro.id, 'E', 300],
+    ['Carlos Mendonça', '71428793860', transAgro.id, 'E', 20],
+    ['Edson Batista', '15350946056', rodoviaSul.id, 'E', -10],
+    ['Gilmar Souza', '86288366757', rodoviaSul.id, 'D', 600],
+  ] as const;
+  for (const [name, cpf, carrierPartnerId, cnhCategory, days] of drivers) {
+    await tx.driver.create({
+      data: { tenantId, name, cpf, carrierPartnerId, cnhCategory, cnhExpiresAt: dateOnly(addDays(now, days)), phone: `669${cpf.slice(0, 8)}` },
+    });
+  }
+  const vehicles = [
+    ['RVG1A23', 'TRUCK_TRACTOR', transAgro.id, null, 'Scania', 'R 450', 2022],
+    ['RVG2B34', 'BITRAIN', transAgro.id, '37000', 'Randon', 'Bitrem graneleiro', 2021],
+    ['PRS3C45', 'TRUCK_TRACTOR', rodoviaSul.id, null, 'Volvo', 'FH 540', 2023],
+    ['PRS4D56', 'ROAD_TRAIN', rodoviaSul.id, '57000', 'Librelato', 'Rodotrem graneleiro', 2020],
+  ] as const;
+  for (const [plate, type, carrierPartnerId, capacityKg, brand, model, year] of vehicles) {
+    await tx.vehicle.create({ data: { tenantId, plate, type, carrierPartnerId, capacityKg, brand, model, year } });
+  }
+
   // ─── Organizações ───
   const orgMatriz = await tx.organization.create({ data: { tenantId, kind: 'MATRIZ', name: 'Grão Forte Agro — Matriz' } });
   const orgJoao = await tx.organization.create({ data: { tenantId, kind: 'FARM', name: 'João da Silva — Produtor', partnerId: joao.id } });

@@ -12,9 +12,11 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PlatformModule } from './modules/platform/platform.module.js';
+import { RegistryModule } from './modules/registry/registry.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 
-const isDev = process.env.NODE_ENV !== 'production';
+// pino-pretty é dependência de desenvolvimento: só é carregado quando pedido explicitamente.
+const prettyLogs = process.env.LOG_PRETTY === 'true';
 
 @Module({
   imports: [
@@ -35,7 +37,7 @@ const isDev = process.env.NODE_ENV !== 'production';
           censor: '[redacted]',
         },
         autoLogging: { ignore: (req) => req.url?.startsWith('/health') ?? false },
-        transport: isDev ? { target: 'pino-pretty', options: { singleLine: true, translateTime: 'SYS:HH:MM:ss' } } : undefined,
+        transport: prettyLogs ? { target: 'pino-pretty', options: { singleLine: true, translateTime: 'SYS:HH:MM:ss' } } : undefined,
       },
     }),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 600 }]),
@@ -44,6 +46,7 @@ const isDev = process.env.NODE_ENV !== 'production';
     PlatformModule,
     UploadsModule,
     OrdersModule,
+    RegistryModule,
   ],
   controllers: [HealthController],
   providers: [

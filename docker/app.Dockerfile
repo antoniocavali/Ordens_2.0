@@ -68,7 +68,8 @@ RUN pnpm --filter @ordens/contracts build && pnpm --filter @ordens/db build \
  && chown -R node:node /repo/packages/db
 USER node
 WORKDIR /repo/packages/db
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node dist/seed/run.js"]
+# Sem pnpm em runtime: o binário é chamado diretamente (pnpm tentaria reinstalar como usuário não-root).
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/seed/run.js"]
 
 # ─── API ───
 FROM runtime AS api
