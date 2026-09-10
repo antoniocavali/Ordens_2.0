@@ -1,0 +1,800 @@
+// Schema principal. RLS, grants, triggers e índices especiais ficam em migrations SQL
+// (ver prisma/migrations/*_security). Documentação: docs/data-model.md
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  runtime             = "nodejs"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+
+  @@map("tenant_status")
+}
+
+enum Scope {
+  PLATFORM
+  MATRIZ
+  FARM
+  BUYER
+  CARRIER
+
+  @@map("scope_type")
+}
+
+enum OrgKind {
+  MATRIZ
+  FARM
+  BUYER
+  CARRIER
+
+  @@map("org_kind")
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+
+  @@map("record_status")
+}
+
+enum SessionStage {
+  PENDING_2FA
+  PENDING_2FA_SETUP
+  ACTIVE
+
+  @@map("session_stage")
+}
+
+enum LoginResult {
+  SUCCESS
+  INVALID_CREDENTIALS
+  LOCKED
+  TWO_FACTOR_FAILED
+  TWO_FACTOR_SUCCESS
+  INACTIVE
+
+  @@map("login_result")
+}
+
+enum PartnerRole {
+  BUYER
+  SELLER
+  PRODUCER
+  COOPERATIVE_MEMBER
+  COOPERATIVE
+  CARRIER
+  OTHER
+
+  @@map("partner_role")
+}
+
+enum PersonType {
+  PF
+  PJ
+
+  @@map("person_type")
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  CANCELLED
+
+  @@map("contract_status")
+}
+
+enum FreightMode {
+  CIF
+  FOB
+  THIRD_PARTY
+  TO_DEFINE
+
+  @@map("freight_mode")
+}
+
+enum OrderStatus {
+  DRAFT
+  PUBLISHED
+  IN_PROGRESS
+  SUSPENDED
+  COMPLETED
+  CANCELLED
+
+  @@map("order_status")
+}
+
+enum OrderPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+
+  @@map("order_priority")
+}
+
+enum OperationType {
+  PURCHASE
+  SALE
+  TRANSFER
+  STORAGE
+
+  @@map("operation_type")
+}
+
+enum ReleaseStatus {
+  ACTIVE
+  CONSUMED
+  EXPIRED
+  CANCELLED
+
+  @@map("release_status")
+}
+
+enum UploadStatus {
+  PENDING
+  UPLOADING
+  UPLOADED
+  PROCESSING
+  AVAILABLE
+  REJECTED
+  INFECTED
+  ABORTED
+  EXPIRED
+
+  @@map("upload_status")
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+  SKIPPED_DEV
+
+  @@map("scan_status")
+}
+
+enum DocumentKind {
+  NFE_XML
+  PDF
+  IMAGE
+  SPREADSHEET
+  OTHER
+
+  @@map("document_kind")
+}
+
+// ─────────────────────── Tenancy e identidade ───────────────────────
+
+model Tenant {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug            String       @unique
+  name            String
+  status          TenantStatus @default(ACTIVE)
+  require2fa      Boolean      @default(false) @map("require_2fa")
+  require2faRoles String[]     @default([]) @map("require_2fa_roles")
+  viewSlaHours    Int          @default(24) @map("view_sla_hours")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organizations Organization[]
+  memberships   Membership[]
+
+  @@map("tenants")
+}
+
+model Organization {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  kind      OrgKind
+  name      String
+  partnerId String?      @map("partner_id") @db.Uuid
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  partner     BusinessPartner? @relation(fields: [partnerId], references: [id])
+  memberships Membership[]
+  farms       Farm[]
+
+  @@index([tenantId, kind])
+  @@index([tenantId, partnerId])
+  @@map("organizations")
+}
+
+model User {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String       @unique
+  name             String
+  passwordHash     String?      @map("password_hash")
+  securityVersion  Int          @default(1) @map("security_version")
+  failedLoginCount Int          @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?    @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt      DateTime?    @map("last_login_at") @db.Timestamptz(6)
+  isPlatformAdmin  Boolean      @default(false) @map("is_platform_admin")
+  /// Espelho de two_factor_credentials.confirmed_at, legível por administradores (credenciais ficam sob RLS do próprio usuário).
+  twoFactorEnabled Boolean      @default(false) @map("two_factor_enabled")
+  status           RecordStatus @default(ACTIVE)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships         Membership[]
+  sessions            Session[]
+  twoFactorCredential TwoFactorCredential?
+  recoveryCodes       RecoveryCode[]
+  webauthnCredentials WebauthnCredential[]
+  passwordResetTokens PasswordResetToken[]
+  preference          UserPreference?
+
+  @@map("users")
+}
+
+model Membership {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  scope          Scope
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  user         User             @relation(fields: [userId], references: [id])
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  roles        MembershipRole[]
+
+  @@unique([userId, organizationId])
+  @@index([tenantId, organizationId])
+  @@map("memberships")
+}
+
+model Role {
+  code        String           @id
+  name        String
+  scope       Scope
+  permissions RolePermission[]
+  memberships MembershipRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  code        String           @id
+  description String
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleCode       String @map("role_code")
+  permissionCode String @map("permission_code")
+
+  role       Role       @relation(fields: [roleCode], references: [code], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+
+  @@id([roleCode, permissionCode])
+  @@map("role_permissions")
+}
+
+model MembershipRole {
+  membershipId String   @map("membership_id") @db.Uuid
+  roleCode     String   @map("role_code")
+  tenantId     String   @map("tenant_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleCode], references: [code])
+
+  @@id([membershipId, roleCode])
+  @@index([tenantId])
+  @@map("membership_roles")
+}
+
+model Session {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash          Bytes        @unique @map("token_hash")
+  userId             String       @map("user_id") @db.Uuid
+  activeMembershipId String?      @map("active_membership_id") @db.Uuid
+  securityVersion    Int          @map("security_version")
+  stage              SessionStage
+  ip                 String?      @db.Inet
+  userAgent          String?      @map("user_agent")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt         DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  idleExpiresAt      DateTime     @map("idle_expires_at") @db.Timestamptz(6)
+  absoluteExpiresAt  DateTime     @map("absolute_expires_at") @db.Timestamptz(6)
+  revokedAt          DateTime?    @map("revoked_at") @db.Timestamptz(6)
+  revokedReason      String?      @map("revoked_reason")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@map("sessions")
+}
+
+model LoginAttempt {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?     @map("user_id") @db.Uuid
+  email     String
+  result    LoginResult
+  ip        String?     @db.Inet
+  userAgent String?     @map("user_agent")
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([email, createdAt(sort: Desc)])
+  @@map("login_attempts")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash Bytes     @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model TwoFactorCredential {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @unique @map("user_id") @db.Uuid
+  secretEnc    Bytes     @map("secret_enc")
+  keyVersion   Int       @default(1) @map("key_version")
+  confirmedAt  DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  lastTimeStep BigInt?   @map("last_time_step")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("two_factor_credentials")
+}
+
+model RecoveryCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("recovery_codes")
+}
+
+/// Reservado para Passkeys/WebAuthn (fase futura).
+model WebauthnCredential {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  credentialId Bytes     @unique @map("credential_id")
+  publicKey    Bytes     @map("public_key")
+  signCount    BigInt    @default(0) @map("sign_count")
+  transports   String[]  @default([])
+  name         String
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("webauthn_credentials")
+}
+
+model UserPreference {
+  userId           String   @id @map("user_id") @db.Uuid
+  theme            String   @default("system")
+  sidebarCollapsed Boolean  @default(false) @map("sidebar_collapsed")
+  data             Json     @default("{}")
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_preferences")
+}
+
+model SavedView {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  resource  String
+  name      String
+  state     Json
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, userId, resource])
+  @@map("saved_views")
+}
+
+// ───────────────────── Auditoria, outbox, arquivos ─────────────────────
+
+model AuditEvent {
+  id                BigInt   @id @default(autoincrement())
+  tenantId          String?  @map("tenant_id") @db.Uuid
+  actorUserId       String?  @map("actor_user_id") @db.Uuid
+  actorMembershipId String?  @map("actor_membership_id") @db.Uuid
+  actorRole         String?  @map("actor_role")
+  entityType        String   @map("entity_type")
+  entityId          String?  @map("entity_id") @db.Uuid
+  action            String
+  before            Json?
+  after             Json?
+  metadata          Json?
+  ip                String?  @db.Inet
+  userAgent         String?  @map("user_agent")
+  sessionId         String?  @map("session_id") @db.Uuid
+  requestId         String?  @map("request_id")
+  correlationId     String?  @map("correlation_id")
+  occurredAt        DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  @@index([tenantId, entityType, entityId, occurredAt(sort: Desc)])
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([actorUserId, occurredAt(sort: Desc)])
+  @@map("audit_events")
+}
+
+model OutboxEvent {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String?   @map("tenant_id") @db.Uuid
+  type          String
+  aggregateType String    @map("aggregate_type")
+  aggregateId   String?   @map("aggregate_id") @db.Uuid
+  payload       Json
+  correlationId String?   @map("correlation_id")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+
+  @@index([createdAt])
+  @@map("outbox_events")
+}
+
+model FileUpload {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  entityType     String       @map("entity_type")
+  entityId       String       @map("entity_id") @db.Uuid
+  kind           DocumentKind
+  originalName   String       @map("original_name")
+  declaredMime   String       @map("declared_mime")
+  detectedMime   String?      @map("detected_mime")
+  sizeBytes      BigInt       @map("size_bytes")
+  bucket         String
+  objectKey      String       @unique @map("object_key")
+  multipartId    String?      @map("multipart_id")
+  sha256Declared String?      @map("sha256_declared")
+  sha256Actual   String?      @map("sha256_actual")
+  status         UploadStatus @default(PENDING)
+  scanStatus     ScanStatus   @default(PENDING) @map("scan_status")
+  rejectReason   String?      @map("reject_reason")
+  idempotencyKey String       @map("idempotency_key")
+  createdBy      String       @map("created_by") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  completedAt    DateTime?    @map("completed_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, entityType, entityId])
+  @@index([status, createdAt])
+  @@map("file_uploads")
+}
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  title     String
+  body      String?
+  data      Json      @default("{}")
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, userId, readAt, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ─────────────────────────── Cadastros ───────────────────────────
+
+model BusinessPartner {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  personType        PersonType   @map("person_type")
+  legalName         String       @map("legal_name")
+  tradeName         String?      @map("trade_name")
+  document          String
+  stateRegistration String?      @map("state_registration")
+  email             String?
+  phone             String?
+  city              String?
+  state             String?      @db.Char(2)
+  zipCode           String?      @map("zip_code")
+  address           String?
+  notes             String?
+  status            RecordStatus @default(ACTIVE)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy         String?      @map("created_by") @db.Uuid
+  updatedBy         String?      @map("updated_by") @db.Uuid
+  archivedAt        DateTime?    @map("archived_at") @db.Timestamptz(6)
+
+  roles         PartnerRoleAssignment[]
+  farms         Farm[]
+  organizations Organization[]
+
+  @@unique([tenantId, document])
+  @@index([tenantId, legalName])
+  @@map("business_partners")
+}
+
+model PartnerRoleAssignment {
+  partnerId String      @map("partner_id") @db.Uuid
+  role      PartnerRole
+  tenantId  String      @map("tenant_id") @db.Uuid
+
+  partner BusinessPartner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@id([partnerId, role])
+  @@index([tenantId, role])
+  @@map("partner_roles")
+}
+
+model Farm {
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String       @map("tenant_id") @db.Uuid
+  ownerPartnerId      String       @map("owner_partner_id") @db.Uuid
+  organizationId      String?      @map("organization_id") @db.Uuid
+  name                String
+  code                String?
+  stateRegistration   String?      @map("state_registration")
+  city                String?
+  state               String?      @db.Char(2)
+  zipCode             String?      @map("zip_code")
+  address             String?
+  latitude            Decimal?     @db.Decimal(9, 6)
+  longitude           Decimal?     @db.Decimal(9, 6)
+  loadingPoint        String?      @map("loading_point")
+  operatingHours      Json?        @map("operating_hours")
+  dailyCapacity       Decimal?     @map("daily_capacity") @db.Decimal(18, 4)
+  accessRestrictions  String?      @map("access_restrictions")
+  carrierInstructions String?      @map("carrier_instructions")
+  notes               String?
+  status              RecordStatus @default(ACTIVE)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt          DateTime?    @map("archived_at") @db.Timestamptz(6)
+
+  owner        BusinessPartner @relation(fields: [ownerPartnerId], references: [id])
+  organization Organization?   @relation(fields: [organizationId], references: [id])
+
+  @@index([tenantId, ownerPartnerId])
+  @@index([tenantId, organizationId])
+  @@map("farms")
+}
+
+model Unit {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  code        String
+  name        String
+  factorToKg  Decimal  @map("factor_to_kg") @db.Decimal(18, 6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@map("units")
+}
+
+model Commodity {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String       @map("tenant_id") @db.Uuid
+  code          String
+  name          String
+  category      String?
+  defaultUnitId String?      @map("default_unit_id") @db.Uuid
+  description   String?
+  status        RecordStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@map("commodities")
+}
+
+model Contract {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String         @map("tenant_id") @db.Uuid
+  number          String
+  sellerPartnerId String         @map("seller_partner_id") @db.Uuid
+  buyerPartnerId  String         @map("buyer_partner_id") @db.Uuid
+  commodityId     String         @map("commodity_id") @db.Uuid
+  cropYear        String?        @map("crop_year")
+  quantity        Decimal        @db.Decimal(18, 4)
+  unitId          String         @map("unit_id") @db.Uuid
+  unitPrice       Decimal?       @map("unit_price") @db.Decimal(18, 6)
+  currency        String         @default("BRL") @db.Char(3)
+  totalValue      Decimal?       @map("total_value") @db.Decimal(18, 2)
+  startsOn        DateTime?      @map("starts_on") @db.Date
+  endsOn          DateTime?      @map("ends_on") @db.Date
+  freightMode     FreightMode?   @map("freight_mode")
+  terms           String?
+  notes           String?
+  status          ContractStatus @default(ACTIVE)
+  buyerOrgId      String?        @map("buyer_org_id") @db.Uuid
+  sellerOrgId     String?        @map("seller_org_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, number])
+  @@index([tenantId, sellerPartnerId])
+  @@index([tenantId, buyerPartnerId])
+  @@index([tenantId, commodityId])
+  @@map("contracts")
+}
+
+// ─────────────────────── Ordens de Carregamento ───────────────────────
+
+model TenantSequence {
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String
+  year     Int
+  value    Int    @default(0)
+
+  @@id([tenantId, name, year])
+  @@map("tenant_sequences")
+}
+
+model LoadingOrder {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String         @map("tenant_id") @db.Uuid
+  number             String
+  externalNumber     String?        @map("external_number")
+  orderDate          DateTime?      @map("order_date") @db.Date
+  status             OrderStatus    @default(DRAFT)
+  priority           OrderPriority  @default(NORMAL)
+  operationType      OperationType? @map("operation_type")
+  version            Int            @default(0)
+  contractId         String?        @map("contract_id") @db.Uuid
+  sellerPartnerId    String?        @map("seller_partner_id") @db.Uuid
+  farmId             String?        @map("farm_id") @db.Uuid
+  buyerPartnerId     String?        @map("buyer_partner_id") @db.Uuid
+  sellerOrgId        String?        @map("seller_org_id") @db.Uuid
+  buyerOrgId         String?        @map("buyer_org_id") @db.Uuid
+  commodityId        String?        @map("commodity_id") @db.Uuid
+  cropYear           String?        @map("crop_year")
+  quantity           Decimal?       @db.Decimal(18, 4)
+  unitId             String?        @map("unit_id") @db.Uuid
+  releasedQty        Decimal        @default(0) @map("released_qty") @db.Decimal(18, 4)
+  scheduledQty       Decimal        @default(0) @map("scheduled_qty") @db.Decimal(18, 4)
+  loadedQty          Decimal        @default(0) @map("loaded_qty") @db.Decimal(18, 4)
+  inTransitQty       Decimal        @default(0) @map("in_transit_qty") @db.Decimal(18, 4)
+  receivedQty        Decimal        @default(0) @map("received_qty") @db.Decimal(18, 4)
+  cancelledQty       Decimal        @default(0) @map("cancelled_qty") @db.Decimal(18, 4)
+  /// Liberação criada automaticamente na publicação (preservada no rascunho).
+  initialReleaseQty  Decimal?       @map("initial_release_qty") @db.Decimal(18, 4)
+  unitPrice          Decimal?       @map("unit_price") @db.Decimal(18, 6)
+  currency           String         @default("BRL") @db.Char(3)
+  freightMode        FreightMode?   @map("freight_mode")
+  freightEstimate    Decimal?       @map("freight_estimate") @db.Decimal(18, 2)
+  preferredCarrierId String?        @map("preferred_carrier_id") @db.Uuid
+  loadingStartsOn    DateTime?      @map("loading_starts_on") @db.Date
+  loadingEndsOn      DateTime?      @map("loading_ends_on") @db.Date
+  tolerancePct       Decimal        @default(0) @map("tolerance_pct") @db.Decimal(9, 4)
+  destinationName    String?        @map("destination_name")
+  destinationAddress String?        @map("destination_address")
+  destinationCity    String?        @map("destination_city")
+  destinationState   String?        @map("destination_state") @db.Char(2)
+  commercialTerms    String?        @map("commercial_terms")
+  loadingInstructions String?       @map("loading_instructions")
+  internalNotes      String?        @map("internal_notes")
+  farmNotes          String?        @map("farm_notes")
+  buyerNotes         String?        @map("buyer_notes")
+  publishedAt        DateTime?      @map("published_at") @db.Timestamptz(6)
+  lastMaterialChangeAt DateTime?    @map("last_material_change_at") @db.Timestamptz(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy          String?        @map("created_by") @db.Uuid
+  updatedBy          String?        @map("updated_by") @db.Uuid
+
+  versions LoadingOrderVersion[]
+  releases LoadingOrderRelease[]
+  views    LoadingOrderView[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status, loadingStartsOn])
+  @@index([tenantId, sellerPartnerId])
+  @@index([tenantId, farmId])
+  @@index([tenantId, buyerPartnerId])
+  @@index([tenantId, commodityId])
+  @@index([tenantId, contractId])
+  @@index([tenantId, sellerOrgId])
+  @@index([tenantId, buyerOrgId])
+  @@index([tenantId, updatedAt(sort: Desc)])
+  @@map("loading_orders")
+}
+
+model LoadingOrderVersion {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  version          Int
+  materialSnapshot Json     @map("material_snapshot")
+  changedFields    Json     @default("[]") @map("changed_fields")
+  createdBy        String?  @map("created_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order LoadingOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, version])
+  @@index([tenantId])
+  @@map("loading_order_versions")
+}
+
+model LoadingOrderRelease {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String        @map("tenant_id") @db.Uuid
+  orderId      String        @map("order_id") @db.Uuid
+  sequence     Int
+  quantity     Decimal       @db.Decimal(18, 4)
+  validUntil   DateTime?     @map("valid_until") @db.Date
+  status       ReleaseStatus @default(ACTIVE)
+  notes        String?
+  orderVersion Int           @map("order_version")
+  createdBy    String?       @map("created_by") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledAt  DateTime?     @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy  String?       @map("cancelled_by") @db.Uuid
+
+  order LoadingOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, sequence])
+  @@index([tenantId])
+  @@map("loading_order_releases")
+}
+
+model LoadingOrderView {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  orderId        String   @map("order_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  side           Scope
+  userId         String   @map("user_id") @db.Uuid
+  membershipId   String   @map("membership_id") @db.Uuid
+  version        Int
+  firstViewedAt  DateTime @default(now()) @map("first_viewed_at") @db.Timestamptz(6)
+  lastViewedAt   DateTime @default(now()) @map("last_viewed_at") @db.Timestamptz(6)
+  viewCount      Int      @default(1) @map("view_count")
+  lastIp         String?  @map("last_ip") @db.Inet
+  lastUserAgent  String?  @map("last_user_agent")
+  lastSessionId  String?  @map("last_session_id") @db.Uuid
+  correlationId  String?  @map("correlation_id")
+
+  order LoadingOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, organizationId, userId, version])
+  @@index([tenantId, orderId, side, version])
+  @@map("loading_order_views")
+}

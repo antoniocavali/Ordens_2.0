@@ -1,0 +1,18 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Somente dependências explicitamente aprovadas podem executar scripts de instalação.
+allowBuilds:
+  '@prisma/engines': true
+  prisma: true
+  '@swc/core': true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+  '@nestjs/core': false
+  msgpackr-extract: true
+  '@scarf/scarf': false
+
+minimumReleaseAgeExclude:
+  - zod@4.6.1
