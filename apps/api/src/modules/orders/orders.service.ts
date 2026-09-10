@@ -63,10 +63,14 @@ function normalize(field: string, value: unknown): unknown {
   return value;
 }
 
+/** Colunas NOT NULL com default: "limpar" no formulário significa voltar ao padrão. */
+const NON_NULLABLE_DEFAULTS: Record<string, unknown> = { tolerancePct: '0', currency: 'BRL', priority: 'NORMAL' };
+
 function toPrismaData(input: OrderDraftInput): Prisma.LoadingOrderUncheckedUpdateInput {
   const data: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (value === undefined) continue;
+  for (const [key, raw] of Object.entries(input)) {
+    if (raw === undefined) continue;
+    const value = raw === null && key in NON_NULLABLE_DEFAULTS ? NON_NULLABLE_DEFAULTS[key] : raw;
     data[key] = DATE_FIELDS.has(key) && typeof value === 'string' ? new Date(`${value}T00:00:00.000Z`) : value;
   }
   return data as Prisma.LoadingOrderUncheckedUpdateInput;

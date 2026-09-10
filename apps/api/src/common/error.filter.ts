@@ -26,7 +26,8 @@ export class GlobalErrorFilter implements ExceptionFilter {
     const mapped = this.map(exception);
 
     if (mapped.status >= 500) {
-      this.logger.error({ err: exception, requestId }, 'Erro não tratado');
+      const err = exception instanceof Error ? exception : new Error(String(exception));
+      this.logger.error(`Erro não tratado [${requestId ?? '-'}]: ${err.message}`, err.stack);
     } else if (mapped.status !== 401 && mapped.status !== 404 && mapped.status !== 422) {
       this.logger.warn({ code: mapped.code, requestId, reason: (exception as Error)?.message }, 'Requisição rejeitada');
     }
