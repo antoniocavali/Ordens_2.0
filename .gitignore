@@ -1,0 +1,38 @@
+# dependências
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+build/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+packages/db/src/generated/
+
+# testes
+playwright-report/
+test-results/
+blob-report/
+
+# ambiente e segredos — NUNCA commitar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+
+# SO / editores
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
