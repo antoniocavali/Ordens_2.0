@@ -16,6 +16,7 @@
     "@ordens/contracts": "workspace:*",
     "@ordens/db": "workspace:*",
     "bullmq": "^6.3.4",
+    "fast-xml-parser": "5.11.1",
     "file-type": "^22.0.2",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.1",

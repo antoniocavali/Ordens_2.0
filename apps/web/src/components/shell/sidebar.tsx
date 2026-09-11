@@ -15,7 +15,12 @@ export function Sidebar({ collapsed, onToggle, onNavigate }: { collapsed: boolea
   const { data: me } = useMe();
   const groups = visibleNavigation(can, me?.activeMembership?.scope);
 
-  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
+  // Item mais específico vence (ex.: /documentos/nfe ativa só "Notas Fiscais", não "Central de Documentos").
+  const current = groups
+    .flatMap((g) => g.items.map((i) => i.href))
+    .filter((href) => href !== '/' && (pathname === href || pathname.startsWith(`${href}/`)))
+    .sort((a, b) => b.length - a.length)[0];
+  const isActive = (href: string) => (href === '/' ? pathname === '/' : href === current);
 
   return (
     <motion.nav

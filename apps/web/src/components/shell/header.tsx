@@ -19,16 +19,16 @@ const menuItem =
 
 function useBreadcrumb() {
   const pathname = usePathname();
-  const crumbs: { label: string; href?: string }[] = [];
-  for (const group of NAVIGATION) {
-    for (const item of group.items) {
-      if (item.href !== '/' && (pathname === item.href || pathname.startsWith(`${item.href}/`))) {
-        if (group.label) crumbs.push({ label: group.label });
-        crumbs.push({ label: item.label, href: item.href });
-        if (pathname !== item.href) crumbs.push({ label: 'Detalhe' });
-        return crumbs;
-      }
-    }
+  // Casamento mais específico: /documentos/nfe é "Notas Fiscais", não detalhe de "Central de Documentos".
+  const match = NAVIGATION.flatMap((group) => group.items.map((item) => ({ group, item })))
+    .filter(({ item }) => item.href !== '/' && (pathname === item.href || pathname.startsWith(`${item.href}/`)))
+    .sort((a, b) => b.item.href.length - a.item.href.length)[0];
+  if (match) {
+    const crumbs: { label: string; href?: string }[] = [];
+    if (match.group.label) crumbs.push({ label: match.group.label });
+    crumbs.push({ label: match.item.label, href: match.item.href });
+    if (pathname !== match.item.href) crumbs.push({ label: 'Detalhe' });
+    return crumbs;
   }
   if (pathname.startsWith('/conta')) return [{ label: 'Minha conta' }, { label: 'Segurança' }];
   return [{ label: 'Visão geral' }];

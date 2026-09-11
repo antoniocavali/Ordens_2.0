@@ -135,6 +135,44 @@ export const DocumentKind = {
 export type DocumentKind = (typeof DocumentKind)[keyof typeof DocumentKind];
 export const DOCUMENT_KINDS = values(DocumentKind);
 
+export const InvoiceOrigin = { FARM: 'FARM', MATRIZ: 'MATRIZ' } as const;
+export type InvoiceOrigin = (typeof InvoiceOrigin)[keyof typeof InvoiceOrigin];
+export const INVOICE_ORIGINS = values(InvoiceOrigin);
+
+export const InvoiceStatus = {
+  VALID: 'VALID',
+  DIVERGENT: 'DIVERGENT',
+  REJECTED: 'REJECTED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
+export const INVOICE_STATUSES = values(InvoiceStatus);
+
+export const OccurrenceType = {
+  WEIGHT_DIVERGENCE: 'WEIGHT_DIVERGENCE',
+  QUALITY: 'QUALITY',
+  DELAY: 'DELAY',
+  DOCUMENT: 'DOCUMENT',
+  VEHICLE: 'VEHICLE',
+  ACCIDENT: 'ACCIDENT',
+  OTHER: 'OTHER',
+} as const;
+export type OccurrenceType = (typeof OccurrenceType)[keyof typeof OccurrenceType];
+export const OCCURRENCE_TYPES = values(OccurrenceType);
+
+export const OccurrenceSeverity = { LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', CRITICAL: 'CRITICAL' } as const;
+export type OccurrenceSeverity = (typeof OccurrenceSeverity)[keyof typeof OccurrenceSeverity];
+export const OCCURRENCE_SEVERITIES = values(OccurrenceSeverity);
+
+export const OccurrenceStatus = { OPEN: 'OPEN', IN_PROGRESS: 'IN_PROGRESS', RESOLVED: 'RESOLVED', CANCELLED: 'CANCELLED' } as const;
+export type OccurrenceStatus = (typeof OccurrenceStatus)[keyof typeof OccurrenceStatus];
+export const OCCURRENCE_STATUSES = values(OccurrenceStatus);
+
+/** Quem, além da Matriz, enxerga um documento ou ocorrência. */
+export const DocumentVisibility = { INTERNAL: 'INTERNAL', FARM: 'FARM', BUYER: 'BUYER', PARTIES: 'PARTIES' } as const;
+export type DocumentVisibility = (typeof DocumentVisibility)[keyof typeof DocumentVisibility];
+export const DOCUMENT_VISIBILITIES = values(DocumentVisibility);
+
 export const Theme = { LIGHT: 'light', DARK: 'dark', SYSTEM: 'system' } as const;
 export type Theme = (typeof Theme)[keyof typeof Theme];
 export const THEMES = values(Theme);

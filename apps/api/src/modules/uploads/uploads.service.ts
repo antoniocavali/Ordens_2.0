@@ -54,6 +54,12 @@ export class UploadsService {
     const auth = currentAuth();
     const m = auth.membership!;
     this.validateFile(input);
+    if (input.kind === 'NFE_XML') {
+      if (input.entityType !== 'load') {
+        throw AppError.domain(ErrorCode.UPLOAD_REJECTED, 'A NF-e (XML) deve ser anexada a uma carga.', { fields: { entityType: ['Anexe na carga'] } });
+      }
+      if (!auth.permissions.has('invoice.upload')) throw AppError.forbidden('Você não tem permissão para enviar NF-e.');
+    }
 
     const existing = await this.db.read(async (tx) => {
       await this.assertEntityVisible(tx, input.entityType, input.entityId);
@@ -85,6 +91,14 @@ export class UploadsService {
           sha256Declared: input.sha256 ?? null,
           status: multipart ? 'UPLOADING' : 'PENDING',
           idempotencyKey: input.idempotencyKey,
+          // Q18: NF-e para todas as partes; Fazenda compartilha com a Matriz; Matriz mantém interno; cadastros sempre internos.
+          visibility: !['loading_order', 'load', 'occurrence'].includes(input.entityType)
+            ? 'INTERNAL'
+            : input.kind === 'NFE_XML'
+              ? 'PARTIES'
+              : m.scope === 'FARM'
+                ? 'FARM'
+                : 'INTERNAL',
           createdBy: auth.userId,
         },
       });
@@ -223,6 +237,12 @@ export class UploadsService {
         break;
       case 'farm':
         found = await tx.farm.findUnique({ where: { id: entityId }, select: { id: true } });
+        break;
+      case 'load':
+        found = await tx.load.findUnique({ where: { id: entityId }, select: { id: true } });
+        break;
+      case 'occurrence':
+        found = await tx.occurrence.findUnique({ where: { id: entityId }, select: { id: true } });
         break;
       case 'user':
         found = entityId === auth.userId ? { id: entityId } : null;

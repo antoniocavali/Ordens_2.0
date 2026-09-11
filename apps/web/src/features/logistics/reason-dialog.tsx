@@ -13,6 +13,8 @@ export function ReasonDialog({
   onCancel,
   onConfirm,
   loading,
+  tone = 'danger',
+  fieldLabel = 'Motivo',
 }: {
   open: boolean;
   title: string;
@@ -21,6 +23,9 @@ export function ReasonDialog({
   onCancel: () => void;
   onConfirm: (reason: string) => void;
   loading?: boolean;
+  /** `primary` para confirmações não destrutivas (ex.: resolver ocorrência). */
+  tone?: 'danger' | 'primary';
+  fieldLabel?: string;
 }) {
   const [reason, setReason] = useState('');
   useEffect(() => {
@@ -33,14 +38,14 @@ export function ReasonDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[71] w-[min(440px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface p-6 shadow-lg ring-1 ring-border">
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-muted">{description}</Dialog.Description>
-          <Field label="Motivo" required className="mt-4">
+          <Field label={fieldLabel} required className="mt-4">
             {(a) => <Textarea {...a} autoFocus rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />}
           </Field>
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="ghost" onClick={onCancel}>
               Voltar
             </Button>
-            <Button variant="danger" disabled={reason.trim().length < 3} loading={loading} onClick={() => onConfirm(reason.trim())}>
+            <Button variant={tone === 'primary' ? 'primary' : 'danger'} disabled={reason.trim().length < 3} loading={loading} onClick={() => onConfirm(reason.trim())}>
               {confirmLabel}
             </Button>
           </div>

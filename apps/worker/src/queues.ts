@@ -2,6 +2,7 @@ import type { JobsOptions } from 'bullmq';
 
 export const QUEUE = {
   FILE_PROCESSING: 'file-processing',
+  INVOICES: 'invoices',
   EMAIL: 'email',
   NOTIFICATIONS: 'notifications',
   MAINTENANCE: 'upload-maintenance',
@@ -28,6 +29,7 @@ export interface OutboxJob {
 /** Roteamento de eventos de domínio para filas. */
 export const ROUTES: Record<string, string[]> = {
   'upload.completed': [QUEUE.FILE_PROCESSING],
+  'upload.available': [QUEUE.INVOICES],
   'auth.password_reset_requested': [QUEUE.EMAIL],
   'user.invited': [QUEUE.EMAIL],
   'order.published': [QUEUE.NOTIFICATIONS],

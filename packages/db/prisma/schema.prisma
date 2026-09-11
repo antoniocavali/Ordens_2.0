@@ -534,6 +534,10 @@ model FileUpload {
   status         UploadStatus @default(PENDING)
   scanStatus     ScanStatus   @default(PENDING) @map("scan_status")
   rejectReason   String?      @map("reject_reason")
+  /// Visibilidade para Fazenda/Comprador; organizações herdadas da entidade por trigger (migration 0700).
+  visibility     DocumentVisibility @default(INTERNAL)
+  sellerOrgId    String?      @map("seller_org_id") @db.Uuid
+  buyerOrgId     String?      @map("buyer_org_id") @db.Uuid
   idempotencyKey String       @map("idempotency_key")
   createdBy      String       @map("created_by") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -993,6 +997,133 @@ model LoadStatusHistory {
 
   @@index([tenantId, loadId, occurredAt])
   @@map("load_status_history")
+}
+
+// ─────────────────────── Fiscal e ocorrências (Fase 8) ───────────────────────
+
+enum InvoiceOrigin {
+  FARM
+  MATRIZ
+
+  @@map("invoice_origin")
+}
+
+enum InvoiceStatus {
+  VALID
+  DIVERGENT
+  REJECTED
+  CANCELLED
+
+  @@map("invoice_status")
+}
+
+enum OccurrenceType {
+  WEIGHT_DIVERGENCE
+  QUALITY
+  DELAY
+  DOCUMENT
+  VEHICLE
+  ACCIDENT
+  OTHER
+
+  @@map("occurrence_type")
+}
+
+enum OccurrenceSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("occurrence_severity")
+}
+
+enum OccurrenceStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+
+  @@map("occurrence_status")
+}
+
+enum DocumentVisibility {
+  INTERNAL
+  FARM
+  BUYER
+  PARTIES
+
+  @@map("document_visibility")
+}
+
+/// Unicidade da chave ativa por tenant é índice parcial (SQL da migration 0700).
+model Invoice {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String        @map("tenant_id") @db.Uuid
+  loadId             String        @map("load_id") @db.Uuid
+  orderId            String        @map("order_id") @db.Uuid
+  sellerOrgId        String?       @map("seller_org_id") @db.Uuid
+  buyerOrgId         String?       @map("buyer_org_id") @db.Uuid
+  fileUploadId       String?       @unique @map("file_upload_id") @db.Uuid
+  origin             InvoiceOrigin
+  status             InvoiceStatus @default(VALID)
+  accessKey          String?       @map("access_key") @db.Char(44)
+  number             String?
+  series             String?
+  issuedAt           DateTime?     @map("issued_at") @db.Timestamptz(6)
+  issuerDocument     String?       @map("issuer_document")
+  issuerName         String?       @map("issuer_name")
+  recipientDocument  String?       @map("recipient_document")
+  recipientName      String?       @map("recipient_name")
+  totalValue         Decimal?      @map("total_value") @db.Decimal(18, 2)
+  netWeightKg        Decimal?      @map("net_weight_kg") @db.Decimal(18, 4)
+  grossWeightKg      Decimal?      @map("gross_weight_kg") @db.Decimal(18, 4)
+  quantity           Decimal?      @db.Decimal(18, 4)
+  quantityUnit       String?       @map("quantity_unit")
+  productDescription String?       @map("product_description")
+  plate              String?
+  protocolStatus     String?       @map("protocol_status")
+  divergences        Json          @default("[]")
+  rejectReason       String?       @map("reject_reason")
+  cancelReason       String?       @map("cancel_reason")
+  createdBy          String?       @map("created_by") @db.Uuid
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, loadId])
+  @@index([tenantId, status])
+  @@map("invoices")
+}
+
+model Occurrence {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  orderId           String             @map("order_id") @db.Uuid
+  loadId            String?            @map("load_id") @db.Uuid
+  sellerOrgId       String?            @map("seller_org_id") @db.Uuid
+  buyerOrgId        String?            @map("buyer_org_id") @db.Uuid
+  number            String
+  type              OccurrenceType
+  severity          OccurrenceSeverity @default(MEDIUM)
+  status            OccurrenceStatus   @default(OPEN)
+  title             String
+  description       String?
+  visibility        DocumentVisibility @default(INTERNAL)
+  responsibleUserId String?            @map("responsible_user_id") @db.Uuid
+  dueOn             DateTime?          @map("due_on") @db.Date
+  resolution        String?
+  resolvedAt        DateTime?          @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy        String?            @map("resolved_by") @db.Uuid
+  source            String             @default("MANUAL")
+  createdBy         String?            @map("created_by") @db.Uuid
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, orderId])
+  @@index([tenantId, loadId])
+  @@map("occurrences")
 }
 
 model LoadingOrderView {
