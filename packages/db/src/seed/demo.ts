@@ -170,10 +170,12 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     ['Edson Batista', '15350946056', rodoviaSul.id, 'E', -10],
     ['Gilmar Souza', '86288366757', rodoviaSul.id, 'D', 600],
   ] as const;
+  const driverIds: Record<string, string> = {};
   for (const [name, cpf, carrierPartnerId, cnhCategory, days] of drivers) {
-    await tx.driver.create({
+    const d = await tx.driver.create({
       data: { tenantId, name, cpf, carrierPartnerId, cnhCategory, cnhExpiresAt: dateOnly(addDays(now, days)), phone: `669${cpf.slice(0, 8)}` },
     });
+    driverIds[name] = d.id;
   }
   const vehicles = [
     ['RVG1A23', 'TRUCK_TRACTOR', transAgro.id, null, 'Scania', 'R 450', 2022],
@@ -181,9 +183,15 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     ['PRS3C45', 'TRUCK_TRACTOR', rodoviaSul.id, null, 'Volvo', 'FH 540', 2023],
     ['PRS4D56', 'ROAD_TRAIN', rodoviaSul.id, '57000', 'Librelato', 'Rodotrem graneleiro', 2020],
   ] as const;
+  const vehicleIds: Record<string, string> = {};
   for (const [plate, type, carrierPartnerId, capacityKg, brand, model, year] of vehicles) {
-    await tx.vehicle.create({ data: { tenantId, plate, type, carrierPartnerId, capacityKg, brand, model, year } });
+    vehicleIds[plate] = (await tx.vehicle.create({ data: { tenantId, plate, type, carrierPartnerId, capacityKg, brand, model, year } })).id;
   }
+  // Conjuntos válidos (motorista com CNH em dia + veículos da mesma transportadora).
+  const fleets = [
+    { carrierPartnerId: transAgro.id, driverId: driverIds['Antônio Pereira']!, tractorVehicleId: vehicleIds.RVG1A23!, trailerVehicleId: vehicleIds.RVG2B34!, plates: ['RVG1A23', 'RVG2B34'], truckT: 37 },
+    { carrierPartnerId: rodoviaSul.id, driverId: driverIds['Gilmar Souza']!, tractorVehicleId: vehicleIds.PRS3C45!, trailerVehicleId: vehicleIds.PRS4D56!, plates: ['PRS3C45', 'PRS4D56'], truckT: 50 },
+  ];
 
   // ─── Organizações ───
   const orgMatriz = await tx.organization.create({ data: { tenantId, kind: 'MATRIZ', name: 'Grão Forte Agro — Matriz' } });
@@ -421,23 +429,86 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     }
     if (status === 'COMPLETED') released = qty;
 
-    // Totais operacionais demonstrativos. Serão derivados de cargas reais a partir da Fase 7.
-    const loaded = status === 'IN_PROGRESS' ? Math.round(released * r.int(20, 70) / 100) : status === 'COMPLETED' ? qty : 0;
-    const received = status === 'COMPLETED' ? qty : Math.round(loaded * r.int(30, 80) / 100);
-    const inTransit = Math.max(0, loaded - received);
-    const scheduled = status === 'IN_PROGRESS' || status === 'PUBLISHED' ? Math.max(0, Math.round((released - loaded) * r.int(0, 60) / 100)) : 0;
     await tx.loadingOrder.update({
       where: { id: order.id },
-      data: {
-        releasedQty: String(released),
-        loadedQty: String(loaded),
-        receivedQty: String(received),
-        inTransitQty: String(inTransit),
-        scheduledQty: String(scheduled),
-        cancelledQty: status === 'CANCELLED' ? String(qty) : '0',
-        updatedAt: addDays(createdAt, version + releaseCount),
-      },
+      data: { releasedQty: String(released), cancelledQty: status === 'CANCELLED' ? String(qty) : '0' },
     });
+
+    // Totais operacionais nascem de cargas e agendamentos reais (recalc_order_quantities).
+    const fleet = r.pick(fleets);
+    const split = (total: number) => {
+      const parts: number[] = [];
+      for (let left = total; left > 0; left -= fleet.truckT) parts.push(Math.min(fleet.truckT, left));
+      return parts;
+    };
+    const fleetData = {
+      carrierPartnerId: fleet.carrierPartnerId,
+      driverId: fleet.driverId,
+      tractorVehicleId: fleet.tractorVehicleId,
+      trailerVehicleId: fleet.trailerVehicleId,
+      plates: fleet.plates,
+    };
+    const loadedTarget = status === 'IN_PROGRESS' ? Math.round((released * r.int(20, 70)) / 100) : status === 'COMPLETED' ? qty : 0;
+    const trucks = split(loadedTarget);
+    const receivedTrucks = status === 'COMPLETED' ? trucks.length : Math.floor((trucks.length * r.int(30, 80)) / 100);
+    let sequence = 0;
+    for (const [t, tons] of trucks.entries()) {
+      sequence++;
+      const finalStatus = t < receivedTrucks ? 'COMPLETED' : r.pick(['LOADED', 'IN_TRANSIT', 'ARRIVED'] as const);
+      const loadingDate = addDays(createdAt, 2 + t);
+      const netKg = tons * 1000;
+      const tareKg = 16_000 + r.int(0, 3000);
+      const load = await tx.load.create({
+        data: {
+          tenantId,
+          orderId: order.id,
+          number: `${number}-C${String(sequence).padStart(2, '0')}`,
+          sequence,
+          loadingDate: dateOnly(loadingDate),
+          expectedQty: String(tons),
+          ...fleetData,
+          tareKg: String(tareKg),
+          grossKg: String(tareKg + netKg),
+          netKg: String(netKg),
+          receivedQty: finalStatus === 'COMPLETED' ? (tons - r.int(0, 60) / 1000).toFixed(3) : null,
+          status: finalStatus,
+          createdBy: creator.userId,
+          createdAt: loadingDate,
+        },
+      });
+      const path = ['SCHEDULED', 'LOADING', 'LOADED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as const;
+      const steps = path.slice(0, path.indexOf(finalStatus) + 1);
+      await tx.loadStatusHistory.createMany({
+        data: steps.map((to, i) => ({
+          tenantId,
+          loadId: load.id,
+          fromStatus: i === 0 ? null : steps[i - 1],
+          toStatus: to,
+          actorUserId: creator.userId,
+          occurredAt: new Date(loadingDate.getTime() + i * 3 * 3_600_000),
+        })),
+      });
+    }
+    if (status === 'IN_PROGRESS' || status === 'PUBLISHED') {
+      const scheduledTarget = Math.max(0, Math.round(((released - loadedTarget) * r.int(0, 60)) / 100));
+      for (const [i, tons] of split(scheduledTarget).entries()) {
+        await tx.appointment.create({
+          data: {
+            tenantId,
+            orderId: order.id,
+            scheduledOn: dateOnly(addDays(now, i + r.int(0, 3))),
+            windowStart: '07:00',
+            windowEnd: '11:00',
+            expectedQty: String(tons),
+            ...fleetData,
+            status: 'CONFIRMED',
+            createdBy: creator.userId,
+          },
+        });
+      }
+    }
+    await tx.$executeRaw`select recalc_order_quantities(${order.id}::uuid)`;
+    await tx.loadingOrder.update({ where: { id: order.id }, data: { updatedAt: addDays(createdAt, version + releaseCount) } });
 
     // Visualizações (faróis)
     const fresh = await tx.loadingOrder.findUniqueOrThrow({ where: { id: order.id }, select: { sellerOrgId: true, buyerOrgId: true } });
