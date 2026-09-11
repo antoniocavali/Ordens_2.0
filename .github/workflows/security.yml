@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
   pull-requests: read
 
 jobs:
@@ -23,24 +22,23 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: 'false'
 
   trivy-fs:
     name: Dependências e configuração
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      # Relatório no próprio log: o upload SARIF para code scanning exige GitHub Advanced Security em repositório privado.
       - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
-          scanners: vuln,misconfig,secret
+          scanners: vuln,secret,misconfig
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          format: sarif
-          output: trivy.sarif
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy.sarif
+          format: table
+          exit-code: '1'
 
   audit:
     name: pnpm audit

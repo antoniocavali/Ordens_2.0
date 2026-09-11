@@ -10,7 +10,8 @@ ENV PNPM_HOME=/pnpm \
     CI=true \
     HUSKY=0 \
     NEXT_TELEMETRY_DISABLED=1
-RUN apk add --no-cache libc6-compat \
+RUN apk upgrade --no-cache \
+ && apk add --no-cache libc6-compat \
  && npm install -g pnpm@12.3.4 --allow-scripts=pnpm
 WORKDIR /repo
 
@@ -56,7 +57,8 @@ RUN pnpm turbo run build --filter=@ordens/api --filter=@ordens/worker --filter=@
 
 # ─── Runtime base (sem pnpm, usuário não-root) ───
 FROM node:${NODE_VERSION}-alpine AS runtime
-RUN apk add --no-cache libc6-compat tini
+# apk upgrade: aplica correções de segurança do Alpine publicadas após a imagem base (ex.: OpenSSL).
+RUN apk upgrade --no-cache && apk add --no-cache libc6-compat tini
 ENV NODE_ENV=production
 WORKDIR /app
 USER node
