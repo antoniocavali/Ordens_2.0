@@ -17,9 +17,19 @@ describe('permissões', () => {
     }
   });
 
-  it('comprador é somente leitura', () => {
+  it('comprador é somente leitura (pode abrir atendimento, não gerencia nada)', () => {
     const perms = [...permissionsForRoles(['BUYER_USER'])];
-    expect(perms.every((p) => p.endsWith('.read') || p.startsWith('dashboard.'))).toBe(true);
+    // Abrir conversa de atendimento não altera dados operacionais.
+    expect(perms.every((p) => p.endsWith('.read') || p.startsWith('dashboard.') || p === 'support.use')).toBe(true);
+    expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload'))).toBe(false);
+  });
+
+  it('só a Matriz operacional atende demandas; todos os perfis abrem conversas', () => {
+    for (const role of ['MATRIZ_ADMIN', 'MATRIZ_MANAGER', 'MATRIZ_OPERATOR'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(true);
+    for (const role of ['MATRIZ_VIEWER', 'FARM_ADMIN', 'FARM_OPERATOR', 'BUYER_USER', 'CARRIER_USER'] as const) {
+      expect(permissionsForRoles([role]).has('support.manage')).toBe(false);
+      expect(permissionsForRoles([role]).has('support.use')).toBe(true);
+    }
   });
 });
 

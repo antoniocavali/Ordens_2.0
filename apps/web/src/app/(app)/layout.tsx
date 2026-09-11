@@ -3,8 +3,9 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { CommandPalette } from '@/components/shell/command-palette';
+import { ChatWidget } from '@/features/support/chat-widget';
 import { Header } from '@/components/shell/header';
 import { Sidebar } from '@/components/shell/sidebar';
 import { Logo } from '@/features/auth/auth-showcase';
@@ -78,6 +79,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <Suspense>
+        <ChatWidget />
+      </Suspense>
     </div>
   );
 }
