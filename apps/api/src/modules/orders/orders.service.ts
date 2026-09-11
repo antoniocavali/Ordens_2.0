@@ -22,7 +22,7 @@ import { AppError } from '../../common/errors.js';
 import { currentAuth, currentRequest } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { dec, day, toDetail, toListItem } from './orders.mapper.js';
-import { buildListFilters, orderSelectSql, type OrderRow } from './orders.queries.js';
+import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
 
@@ -109,9 +109,32 @@ export class OrdersService {
     const filters = buildListFilters(query);
     return this.db.read(async (tx) => {
       const sla = await this.slaHours(tx);
-      const rows = await tx.$queryRaw<OrderRow[]>(
-        orderSelectSql({ slaHours: sla, ...filters, limit: query.pageSize, offset: (query.page - 1) * query.pageSize }),
-      );
+      const offset = (query.page - 1) * query.pageSize;
+
+      // Sem filtro de farol: pagina os ids primeiro e só calcula faróis e nomes das linhas da página.
+      if (!filters.needsSignals) {
+        const ids = await tx.$queryRaw<{ id: string; total_count: bigint }[]>(orderIdsSql({ ...filters, limit: query.pageSize, offset }));
+        // Página além do fim não traz linhas (nem o total da janela): só então conta separadamente.
+        const total = ids.length
+          ? Number(ids[0]!.total_count)
+          : offset > 0
+            ? Number((await tx.$queryRaw<{ total: bigint }[]>(orderCountSql(filters)))[0]?.total ?? 0)
+            : 0;
+        const rows = ids.length
+          ? await tx.$queryRaw<OrderRow[]>(
+              orderSelectSql({
+                slaHours: sla,
+                where: Prisma.sql`lo.id in (${Prisma.join(ids.map((r) => Prisma.sql`${r.id}::uuid`))})`,
+                orderBy: filters.orderBy,
+                limit: ids.length,
+                offset: 0,
+              }),
+            )
+          : [];
+        return { items: rows.map((r) => toListItem(r, auth.membership!.scope)), total, page: query.page, pageSize: query.pageSize };
+      }
+
+      const rows = await tx.$queryRaw<OrderRow[]>(orderSelectSql({ slaHours: sla, ...filters, limit: query.pageSize, offset }));
       return {
         items: rows.map((r) => toListItem(r, auth.membership!.scope)),
         total: Number(rows[0]?.total_count ?? 0),

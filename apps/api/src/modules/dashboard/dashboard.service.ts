@@ -50,6 +50,9 @@ export class DashboardService {
       const periodStart = Prisma.sql`((${periodFrom}::date)::timestamp at time zone ${TZ})`;
       const seriesStart = Prisma.sql`((${seriesFrom}::date)::timestamp at time zone ${TZ})`;
       const commodity = (alias: string) => (q.commodityId ? Prisma.sql`${Prisma.raw(alias)}.commodity_id = ${q.commodityId}::uuid` : Prisma.sql`true`);
+      // Junta a ordem só com filtro de commodity: sem ele, evita uma verificação RLS de ordem por linha.
+      const orderFilterJoin = (alias: string) =>
+        q.commodityId ? Prisma.sql`join loading_orders lo on lo.id = ${Prisma.raw(alias)}.order_id and lo.commodity_id = ${q.commodityId}::uuid` : Prisma.empty;
       const ordersCte = Prisma.sql`
         with o as (
           select lo.*, coalesce(u.factor_to_kg, 1000) / 1000.0 as tf
@@ -90,16 +93,20 @@ export class DashboardService {
         ${ordersCte}
         select
           count(*) filter (where o.status = 'DRAFT') as drafts,
-          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.seller_org_id is not null and coalesce(fv.v, 0) < o.version) as farm_pending,
-          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.buyer_org_id is not null and coalesce(bv.v, 0) < o.version) as buyer_pending,
-          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.seller_org_id is not null and coalesce(fv.v, 0) < o.version
+          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.seller_org_id is not null and coalesce(vv.fv, 0) < o.version) as farm_pending,
+          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.buyer_org_id is not null and coalesce(vv.bv, 0) < o.version) as buyer_pending,
+          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.seller_org_id is not null and coalesce(vv.fv, 0) < o.version
             and now() - coalesce(o.last_material_change_at, o.published_at, o.created_at) > make_interval(hours => ${sla}::int)) as farm_overdue,
-          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.buyer_org_id is not null and coalesce(bv.v, 0) < o.version
+          count(*) filter (where o.status in ('PUBLISHED', 'IN_PROGRESS') and o.buyer_org_id is not null and coalesce(vv.bv, 0) < o.version
             and now() - coalesce(o.last_material_change_at, o.published_at, o.created_at) > make_interval(hours => ${sla}::int)) as buyer_overdue,
           count(*) filter (where o.status in ${ACTIVE} and o.quantity is not null and o.loaded_qty > o.quantity * (1 + o.tolerance_pct / 100)) as over_tolerance
         from o
-        left join lateral (select max(v.version) as v from loading_order_views v where v.order_id = o.id and v.side = 'FARM') fv on true
-        left join lateral (select max(v.version) as v from loading_order_views v where v.order_id = o.id and v.side = 'BUYER') bv on true
+        -- Última versão visualizada por lado, agregada uma única vez (em vez de duas subconsultas por ordem).
+        left join (
+          select v.order_id, max(v.version) filter (where v.side = 'FARM') as fv, max(v.version) filter (where v.side = 'BUYER') as bv
+          from loading_order_views v
+          group by v.order_id
+        ) vv on vv.order_id = o.id
       `);
 
       // ─── Logística e fiscal ───
@@ -109,31 +116,34 @@ export class DashboardService {
             select 1 from invoices i where i.load_id = l.id and i.origin = 'FARM' and i.status in ('VALID', 'DIVERGENT'))) as awaiting_invoice,
           count(*) filter (where l.status in ('SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING') and l.loading_date < ${today}::date) as late,
           count(*) filter (where l.status in ('IN_TRANSIT', 'ARRIVED')) as in_transit
-        from loads l join loading_orders lo on lo.id = l.order_id
-        where ${commodity('lo')}
+        from loads l ${orderFilterJoin('l')}
       `);
+      // Uma passada agregada por carga: XML rejeitado sem nota ativa e notas divergentes.
       const [inv] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
         select
-          count(distinct i.load_id) filter (where i.status = 'REJECTED' and not exists (
-            select 1 from invoices a where a.load_id = i.load_id and a.status in ('VALID', 'DIVERGENT'))) as rejected_open,
-          count(*) filter (where i.status = 'DIVERGENT') as divergent
-        from invoices i join loading_orders lo on lo.id = i.order_id
-        where ${commodity('lo')}
+          count(*) filter (where per_load.has_rejected and not per_load.has_active) as rejected_open,
+          coalesce(sum(per_load.divergent), 0) as divergent
+        from (
+          select i.load_id,
+            bool_or(i.status in ('VALID', 'DIVERGENT')) as has_active,
+            bool_or(i.status = 'REJECTED') as has_rejected,
+            count(*) filter (where i.status = 'DIVERGENT') as divergent
+          from invoices i ${orderFilterJoin('i')}
+          group by i.load_id
+        ) per_load
       `);
       const [appt] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
         select
           count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED') and a.carrier_partner_id is null and a.scheduled_on >= ${today}::date) as without_carrier,
           count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED', 'CHECKED_IN') and a.scheduled_on = ${today}::date) as today
-        from appointments a join loading_orders lo on lo.id = a.order_id
-        where ${commodity('lo')}
+        from appointments a ${orderFilterJoin('a')}
       `);
       const [occ] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
         select
           count(*) filter (where oc.status in ('OPEN', 'IN_PROGRESS')) as open,
           count(*) filter (where oc.status in ('OPEN', 'IN_PROGRESS') and oc.due_on < ${today}::date) as overdue,
           count(*) filter (where oc.status in ('OPEN', 'IN_PROGRESS') and oc.severity in ('HIGH', 'CRITICAL')) as severe
-        from occurrences oc join loading_orders lo on lo.id = oc.order_id
-        where ${commodity('lo')}
+        from occurrences oc ${orderFilterJoin('oc')}
       `);
       let blockedDocs: Dec = 0;
       if (isMatriz) {
@@ -145,28 +155,23 @@ export class DashboardService {
       }
 
       // ─── Séries e distribuições ───
-      const loadedDaily = await tx.$queryRaw<{ day: string; t: Dec }[]>(Prisma.sql`
-        select to_char((h.occurred_at at time zone ${TZ})::date, 'YYYY-MM-DD') as day,
-          sum(coalesce(l.net_kg / 1000.0, l.expected_qty * coalesce(u.factor_to_kg, 1000) / 1000.0)) as t
-        from load_status_history h
-        join loads l on l.id = h.load_id
+      // Série diária em uma passada pelas cargas, pelos momentos gravados (carregado/recebido) e seus índices parciais.
+      const daily = await tx.$queryRaw<{ day: string; loaded_t: Dec; received_t: Dec }[]>(Prisma.sql`
+        select to_char((d.at at time zone ${TZ})::date, 'YYYY-MM-DD') as day,
+          sum(d.t) filter (where d.kind = 'L') as loaded_t,
+          sum(d.t) filter (where d.kind = 'R') as received_t
+        from loads l
         join loading_orders lo on lo.id = l.order_id
         left join units u on u.id = lo.unit_id
-        where h.to_status = 'LOADED' and h.occurred_at >= ${seriesStart} and ${commodity('lo')}
+        cross join lateral (values
+          ('L', l.loaded_at, coalesce(l.net_kg / 1000.0, l.expected_qty * coalesce(u.factor_to_kg, 1000) / 1000.0)),
+          ('R', l.received_at, coalesce(l.received_qty * coalesce(u.factor_to_kg, 1000) / 1000.0, l.net_kg / 1000.0, 0))
+        ) d(kind, at, t)
+        where (l.loaded_at >= ${seriesStart} or l.received_at >= ${seriesStart}) and d.at >= ${seriesStart} and ${commodity('lo')}
         group by 1
       `);
-      const receivedDaily = await tx.$queryRaw<{ day: string; t: Dec }[]>(Prisma.sql`
-        select to_char((h.occurred_at at time zone ${TZ})::date, 'YYYY-MM-DD') as day,
-          sum(coalesce(l.received_qty * coalesce(u.factor_to_kg, 1000) / 1000.0, l.net_kg / 1000.0, 0)) as t
-        from load_status_history h
-        join loads l on l.id = h.load_id
-        join loading_orders lo on lo.id = l.order_id
-        left join units u on u.id = lo.unit_id
-        where h.to_status = 'RECEIVED' and h.occurred_at >= ${seriesStart} and ${commodity('lo')}
-        group by 1
-      `);
-      const loadedByDay = new Map(loadedDaily.map((r) => [r.day, r.t]));
-      const receivedByDay = new Map(receivedDaily.map((r) => [r.day, r.t]));
+      const loadedByDay = new Map(daily.map((r) => [r.day, r.loaded_t]));
+      const receivedByDay = new Map(daily.map((r) => [r.day, r.received_t]));
 
       const todayByStatus = await tx.$queryRaw<{ status: string; n: Dec }[]>(Prisma.sql`
         select l.status::text as status, count(*) as n
