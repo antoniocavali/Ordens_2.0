@@ -1,19 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { login, password } from './helpers';
 
 /**
  * Fluxo crítico do vertical slice: login → tema persiste → Ctrl+K → Nova Ordem no drawer →
  * cascata Vendedor→Fazenda → rascunho → publicar → farol da Fazenda.
  * Requer ambiente com seed demo e E2E_PASSWORD.
  */
-const password = process.env.E2E_PASSWORD ?? '';
-
-async function login(page: Page, email: string) {
-  await page.goto('/login');
-  await page.getByLabel('E-mail').fill(email);
-  await page.getByLabel('Senha', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page).toHaveURL('/');
-}
 
 test.describe('Ordens de Carregamento', () => {
   test.skip(!password, 'Defina E2E_PASSWORD com a senha demo');
