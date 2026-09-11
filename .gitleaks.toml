@@ -4,7 +4,8 @@ title = "Ordens — configuração do Gitleaks"
 useDefault = true
 
 # Falsos positivos revisados: referências a variáveis de ambiente, não valores literais.
-[[allowlists]]
+# Sintaxe [allowlist] (singular) é aceita por todas as versões do gitleaks usadas pela action.
+[allowlist]
 description = "Credenciais S3 lidas de variáveis de ambiente validadas (env.S3_SECRET_KEY)"
 regexTarget = "line"
 regexes = ['''secretAccessKey:\s*env\.S3_SECRET_KEY''']

@@ -58,7 +58,10 @@ RUN pnpm turbo run build --filter=@ordens/api --filter=@ordens/worker --filter=@
 # ─── Runtime base (sem pnpm, usuário não-root) ───
 FROM node:${NODE_VERSION}-alpine AS runtime
 # apk upgrade: aplica correções de segurança do Alpine publicadas após a imagem base (ex.: OpenSSL).
-RUN apk upgrade --no-cache && apk add --no-cache libc6-compat tini
+# npm/npx/corepack embutidos na imagem Node não são usados em runtime e trazem CVEs próprias (tar, brace-expansion).
+RUN apk upgrade --no-cache && apk add --no-cache libc6-compat tini \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 ENV NODE_ENV=production
 WORKDIR /app
 USER node
