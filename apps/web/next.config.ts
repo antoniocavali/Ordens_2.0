@@ -13,7 +13,11 @@ const config: NextConfig = {
   transpilePackages: ['@ordens/ui'],
   poweredByHeader: false,
   async rewrites() {
-    return [{ source: '/api/:path*', destination: `${apiUrl}/:path*` }];
+    return [
+      { source: '/api/:path*', destination: `${apiUrl}/:path*` },
+      // Dev/compose: SSE pela mesma origem. Em produção o ingress roteia /realtime direto para a API (ADR-004).
+      { source: '/realtime/:path*', destination: `${apiUrl}/realtime/:path*` },
+    ];
   },
   async headers() {
     return [

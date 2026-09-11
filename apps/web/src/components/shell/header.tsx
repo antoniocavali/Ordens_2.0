@@ -3,7 +3,8 @@
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { Button, cn, Kbd, Tooltip } from '@ordens/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { Bell, Building2, Check, ChevronRight, HelpCircle, LogOut, Menu, Monitor, Moon, Plus, Search, ShieldCheck, Sun } from 'lucide-react';
+import { NotificationsMenu } from '@/features/notifications/notifications-menu';
+import { Building2, Check, ChevronRight, HelpCircle, LogOut, Menu, Monitor, Moon, Plus, Search, ShieldCheck, Sun } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -80,12 +81,7 @@ export function Header({ onOpenMobileNav, onOpenPalette }: { onOpenMobileNav: ()
           </Button>
         ) : null}
 
-        <Tooltip content="Notificações">
-          <Button variant="ghost" size="icon-sm" aria-label="Notificações" className="relative">
-            <Bell />
-            <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary ring-2 ring-bg" />
-          </Button>
-        </Tooltip>
+        <NotificationsMenu />
         <ThemeMenu />
         <Tooltip content="Ajuda">
           <Button variant="ghost" size="icon-sm" aria-label="Ajuda" className="hidden sm:inline-flex">

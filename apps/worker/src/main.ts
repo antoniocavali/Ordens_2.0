@@ -8,6 +8,7 @@ import { fileProcessingHandler } from './jobs/file-processing.js';
 import { invoiceProcessingHandler } from './jobs/invoice-processing.js';
 import { maintenanceHandler } from './jobs/maintenance.js';
 import { notificationsHandler } from './jobs/notifications.js';
+import { realtimeHandler } from './jobs/realtime.js';
 import { OutboxRelay } from './outbox-relay.js';
 import { DEFAULT_JOB_OPTIONS, QUEUE } from './queues.js';
 
@@ -16,12 +17,15 @@ async function main() {
   const ctx = createContext(env);
   const connection = ctx.redisConnection;
   const deadLetter = new Queue(QUEUE.DEAD_LETTER, { connection });
+  // Publicador do canal de tempo real (SSE na API). Falhas de publicação fazem o job tentar de novo.
+  const publisher = new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 });
 
   const workers = [
+    new Worker(QUEUE.REALTIME, realtimeHandler(ctx, publisher), { connection, concurrency: 10 }),
     new Worker(QUEUE.FILE_PROCESSING, fileProcessingHandler(ctx), { connection, concurrency: 4 }),
     new Worker(QUEUE.INVOICES, invoiceProcessingHandler(ctx), { connection, concurrency: 4 }),
     new Worker(QUEUE.EMAIL, emailHandler(ctx), { connection, concurrency: 5 }),
-    new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx), { connection, concurrency: 10 }),
+    new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx, publisher), { connection, concurrency: 10 }),
     new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx), { connection, concurrency: 1 }),
   ];
 
@@ -59,7 +63,7 @@ async function main() {
     health.close();
     await relay.stop();
     await Promise.allSettled([...workers.map((w) => w.close()), maintenance.close(), deadLetter.close()]);
-    await Promise.allSettled([ctx.db.disconnect(), redis.quit()]);
+    await Promise.allSettled([ctx.db.disconnect(), redis.quit(), publisher.quit()]);
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
