@@ -52,7 +52,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     router.push(href);
   };
 
-  const nav = visibleNavigation(can, me?.activeMembership?.scope).flatMap((g) => g.items.filter((i) => !i.soon));
+  const nav = visibleNavigation(can, me?.activeMembership?.scope, me?.supportQueues).flatMap((g) => g.items.filter((i) => !i.soon));
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>

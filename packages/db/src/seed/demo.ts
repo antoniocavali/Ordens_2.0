@@ -255,7 +255,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     { email: 'gestor@graoforte.demo', name: 'Rafael Lima', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_MANAGER'] },
     { email: 'operador@graoforte.demo', name: 'Bruna Costa', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_OPERATOR'] },
     { email: 'leitura@graoforte.demo', name: 'Diego Alves', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_VIEWER'] },
-    { email: 'faturamento@graoforte.demo', name: 'Luana Prado', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_BILLING_AGENT'] },
+    { email: 'faturamento@graoforte.demo', name: 'Luana Prado', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_SUPPORT_AGENT'] },
     { email: 'suporte@graoforte.demo', name: 'Marcos Teixeira', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_SUPPORT_AGENT'] },
     { email: 'fazenda.joao@graoforte.demo', name: 'João da Silva', org: orgJoao.id, scope: 'FARM', roles: ['FARM_ADMIN'] },
     { email: 'fazenda.maria@graoforte.demo', name: 'Ana Souza', org: orgMaria.id, scope: 'FARM', roles: ['FARM_OPERATOR'] },
@@ -273,6 +273,16 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
   }
   const admin = userIds['admin@graoforte.demo']!;
   const gestor = userIds['gestor@graoforte.demo']!;
+
+  // Equipe do atendimento (Q31): Operador nas duas filas; atendentes na própria fila.
+  const queueMembers: [string, ('BILLING' | 'SUPPORT')[]][] = [
+    ['operador@graoforte.demo', ['BILLING', 'SUPPORT']],
+    ['faturamento@graoforte.demo', ['BILLING']],
+    ['suporte@graoforte.demo', ['SUPPORT']],
+  ];
+  await tx.supportQueueMember.createMany({
+    data: queueMembers.flatMap(([email, queues]) => queues.map((queue) => ({ tenantId, membershipId: userIds[email]!.membershipId, queue }))),
+  });
 
   // ─── Contratos ───
   // Numeração igual à automática da API (CT-AAAA-NNNN), avançando a sequência do tenant.

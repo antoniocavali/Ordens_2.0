@@ -2,11 +2,14 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   ErrorCode,
   permissionsForRoles,
+  SUPPORT_QUEUES,
   type LoginHistoryItem,
   type MeResponse,
   type MembershipSummary,
+  type Permission,
   type SessionInfo,
   type SessionStage,
+  type SupportQueue,
   type Theme,
 } from '@ordens/contracts';
 import {
@@ -377,6 +380,8 @@ export class AuthService {
     ]);
     const summaries = memberships.map(toSummary);
     const active = summaries.find((m) => m.id === auth.membership?.id) ?? null;
+    const permissions = active ? permissionsForRoles(active.roles) : new Set<Permission>();
+    const supportQueues = active?.scope === 'MATRIZ' ? await this.supportQueuesOf(active.id, active.tenant.id, permissions) : [];
     return {
       user: {
         id: auth.userId,
@@ -389,12 +394,23 @@ export class AuthService {
       stage: auth.stage,
       activeMembership: active,
       memberships: summaries,
-      permissions: active ? [...permissionsForRoles(active.roles)] : [],
+      permissions: [...permissions],
+      supportQueues,
       csrfToken: this.sessions.csrfTokenFor(auth.sessionId),
     };
   }
 
   // ─────────────────────────── Internos ───────────────────────────
+
+  /** Filas do atendimento na membership ativa (Q31): supervisão atende todas; atendente, as cadastradas na equipe. */
+  private async supportQueuesOf(membershipId: string, tenantId: string, permissions: ReadonlySet<Permission>): Promise<SupportQueue[]> {
+    if (permissions.has('support.manage')) return [...SUPPORT_QUEUES];
+    if (!permissions.has('support.attend')) return [];
+    const rows = await this.db.run(systemCtx(currentAuth().userId, tenantId), (tx) =>
+      tx.supportQueueMember.findMany({ where: { membershipId }, select: { queue: true } }),
+    );
+    return SUPPORT_QUEUES.filter((q) => rows.some((r) => r.queue === q));
+  }
 
   async loadMemberships(userId: string) {
     return this.db.run(systemCtx(userId), (tx) =>

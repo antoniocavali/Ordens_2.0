@@ -10,7 +10,7 @@ import {
   type SupportStatus,
 } from '@ordens/contracts';
 import { AsyncCombobox, Button, Card, cn, EmptyState, Input, Skeleton } from '@ordens/ui';
-import { ArrowLeft, Flag, Headphones, LifeBuoy, LineChart, Link2, Receipt, Search, ShieldOff, UserCheck, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, Flag, Headphones, LifeBuoy, LineChart, Link2, Receipt, Search, ShieldOff, UserCheck, type LucideIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -20,6 +20,7 @@ import { KpiCard } from '@/features/orders/kpi';
 import { ApiRequestError } from '@/lib/api';
 import { formatRelative } from '@/lib/format';
 import { ConversationThread, SupportStatusBadge } from './conversation-thread';
+import { formatDuration } from './support-charts';
 import { agentLookup, useConversation, useSupportAccess, useSupportMutations, useSupportQueue, useSupportSummary } from './support-api';
 
 const TABS: { key: string; label: string; status: SupportStatus[]; supervisorOnly?: boolean }[] = [
@@ -58,6 +59,23 @@ const TEAM: Record<SupportQueue, { title: string; description: string; icon: Luc
 const PRIORITY_TONE: Record<SupportPriority, string> = { LOW: 'text-subtle', NORMAL: 'text-muted', HIGH: 'text-warning', URGENT: 'text-danger' };
 const errorMessage = (err: unknown) => (err instanceof ApiRequestError ? err.message : 'Não foi possível concluir a ação.');
 
+/** Prazo da 1ª resposta (Q30): contagem regressiva e alerta quando estoura. */
+function SlaBadge({ sla, size = 'sm' }: { sla: NonNullable<SupportConversationDto['sla']>; size?: 'sm' | 'md' }) {
+  const text = size === 'md' ? 'text-xs' : 'text-[11px]';
+  if (sla.breached) {
+    return (
+      <span className={cn('inline-flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 font-semibold text-danger', text)} title="Prazo de 1ª resposta: 1 hora">
+        <AlarmClock className="size-3" /> SLA estourado há {formatDuration(Math.max(1, -sla.minutesLeft))}
+      </span>
+    );
+  }
+  return (
+    <span className={cn('inline-flex items-center gap-1 font-medium', text, sla.minutesLeft <= 15 ? 'text-warning' : 'text-muted')} title="Prazo de 1ª resposta: 1 hora">
+      <AlarmClock className="size-3" /> responder em {sla.minutesLeft} min
+    </span>
+  );
+}
+
 function QueueItem({ c, active, showQueue, onOpen }: { c: SupportConversationDto; active: boolean; showQueue: boolean; onOpen: () => void }) {
   return (
     <button
@@ -84,9 +102,7 @@ function QueueItem({ c, active, showQueue, onOpen }: { c: SupportConversationDto
       </span>
       <span className="flex flex-wrap items-center gap-2">
         <SupportStatusBadge status={c.status} />
-        {c.waitingMinutes !== null ? (
-          <span className={cn('text-[11px] font-medium', c.waitingMinutes >= 30 ? 'text-danger' : 'text-warning')}>esperando há {c.waitingMinutes} min</span>
-        ) : null}
+        {c.sla ? <SlaBadge sla={c.sla} /> : null}
         <span className="text-[11px] text-subtle">{c.assignee ? c.assignee.name : 'Sem responsável'}</span>
       </span>
     </button>
@@ -171,7 +187,7 @@ export function SupportPanel({ team }: { team?: SupportQueue }) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className={cn('grid grid-cols-2 gap-3 md:grid-cols-3', team ? 'xl:grid-cols-6' : 'xl:grid-cols-7')}>
         {s ? (
           <>
             {team ? (
@@ -209,7 +225,14 @@ export function SupportPanel({ team }: { team?: SupportQueue }) {
               active={tab === 'resolved'}
               onClick={() => setTab('resolved')}
             />
-            {team ? <KpiCard label="Aguardando cliente" value={s.pendingCustomer} active={tab === 'customer'} onClick={() => setTab('customer')} /> : null}
+            <KpiCard
+              label="Fora do SLA (1 h)"
+              value={s.slaBreached}
+              tone={s.slaBreached ? 'danger' : 'success'}
+              hint="na fila sem 1ª resposta"
+              active={false}
+              onClick={() => setTab('queue')}
+            />
           </>
         ) : (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-23 rounded-lg" />)
@@ -306,7 +329,7 @@ export function SupportPanel({ team }: { team?: SupportQueue }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-sm font-semibold">{d.number}</span>
                         <SupportStatusBadge status={d.status} />
-                        {d.waitingMinutes !== null ? <span className="text-xs text-warning">esperando há {d.waitingMinutes} min</span> : null}
+                        {d.sla ? <SlaBadge sla={d.sla} size="md" /> : null}
                       </div>
                       <div className="truncate text-base font-medium">{d.subject ?? 'Sem assunto'}</div>
                       <div className="text-xs text-muted">

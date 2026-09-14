@@ -23,8 +23,7 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 | `MATRIZ_MANAGER` | Gestor Matriz | MATRIZ |
 | `MATRIZ_OPERATOR` | Operador Matriz | MATRIZ |
 | `MATRIZ_VIEWER` | Somente leitura Matriz | MATRIZ |
-| `MATRIZ_BILLING_AGENT` | Atendente Faturamento (leitura Matriz + fila de Faturamento) | MATRIZ |
-| `MATRIZ_SUPPORT_AGENT` | Atendente Suporte (leitura Matriz + fila de Suporte) | MATRIZ |
+| `MATRIZ_SUPPORT_AGENT` | Atendente (leitura Matriz + atendimento nas filas definidas na equipe) | MATRIZ |
 | `FARM_ADMIN` | Administrador Fazenda | FARM |
 | `FARM_OPERATOR` | Operador Fazenda | FARM |
 | `BUYER_USER` | Comprador | BUYER |
@@ -32,14 +31,13 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 
 ## Atendimento (filas)
 
-| Permissão | M_ADMIN | M_MGR | M_OPER | AT_FATUR | AT_SUPORTE | M_VIEW | Fazenda / Comprador / Transportadora |
-|---|---|---|---|---|---|---|---|
-| `support.use` (abrir conversa pelo chat) | ● | ● | ● | ● | ● | ● | ● |
-| `support.billing` (fila de Faturamento) | ● | ● | ● | ● | — | — | — |
-| `support.support` (fila de Suporte) | ● | ● | ● | — | ● | — | — |
-| `support.manage` (supervisão: todas as filas, visão geral, conversas com o assistente) | ● | ● | — | — | — | — | — |
+| Permissão | M_ADMIN | M_MGR | M_OPER | ATENDENTE | M_VIEW | Fazenda / Comprador / Transportadora |
+|---|---|---|---|---|---|---|
+| `support.use` (abrir conversa pelo chat) | ● | ● | ● | ● | ● | ● |
+| `support.attend` (pode atender; filas definidas na equipe) | ● | ● | ● | ● | — | — |
+| `support.manage` (supervisão: todas as filas, equipe, visão geral, conversas com o assistente) | ● | ● | — | — | — | — |
 
-Endpoints do painel exigem ao menos uma permissão de fila (`RequireAnyPermission`); o serviço restringe lista, detalhe, ações e indicadores às filas do usuário (Q31).
+As **filas** de cada atendente ficam em `support_queue_members` e são definidas pela supervisão na tela Atendimento → Equipe (Q31). Endpoints do painel exigem `support.attend` ou `support.manage` (`RequireAnyPermission`); o serviço restringe lista, detalhe, ações e indicadores às filas do usuário. `/auth/me` retorna `supportQueues` para a navegação.
 
 ## Matriz
 

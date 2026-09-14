@@ -7,15 +7,15 @@ import {
   permissionsForRoles,
   quantityString,
   ROLES,
-  supportQueuesFor,
-  type RoleCode,
+  SUPPORT_FIRST_RESPONSE_SLA_MINUTES,
+  supportSlaState,
 } from './index.js';
 
 describe('permissões', () => {
   it('somente papéis MATRIZ podem criar ordens', () => {
     for (const [code, role] of Object.entries(ROLES)) {
       const canCreate = (role.permissions as readonly string[]).includes('order.create');
-      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_BILLING_AGENT', 'MATRIZ_SUPPORT_AGENT'].includes(code);
+      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_SUPPORT_AGENT'].includes(code);
       expect(canCreate, code).toBe(role.scope === 'MATRIZ' && !readOnlyMatriz);
     }
   });
@@ -27,26 +27,37 @@ describe('permissões', () => {
     expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload'))).toBe(false);
   });
 
-  it('filas de atendimento por papel: supervisão vê tudo, times só a própria fila', () => {
-    const queues = (role: RoleCode) => supportQueuesFor(permissionsForRoles([role]));
-    expect(queues('MATRIZ_ADMIN')).toEqual(['BILLING', 'SUPPORT']);
-    expect(queues('MATRIZ_MANAGER')).toEqual(['BILLING', 'SUPPORT']);
-    expect(queues('MATRIZ_OPERATOR')).toEqual(['BILLING', 'SUPPORT']);
-    expect(queues('MATRIZ_BILLING_AGENT')).toEqual(['BILLING']);
-    expect(queues('MATRIZ_SUPPORT_AGENT')).toEqual(['SUPPORT']);
+  it('atendimento: supervisão para Gestor/Admin; atuar em filas para Operador e Atendente', () => {
     for (const role of ['MATRIZ_ADMIN', 'MATRIZ_MANAGER'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(true);
-    for (const role of ['MATRIZ_OPERATOR', 'MATRIZ_BILLING_AGENT', 'MATRIZ_SUPPORT_AGENT'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(false);
+    for (const role of ['MATRIZ_ADMIN', 'MATRIZ_MANAGER', 'MATRIZ_OPERATOR', 'MATRIZ_SUPPORT_AGENT'] as const) expect(permissionsForRoles([role]).has('support.attend')).toBe(true);
+    for (const role of ['MATRIZ_OPERATOR', 'MATRIZ_SUPPORT_AGENT'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(false);
     for (const role of ['MATRIZ_VIEWER', 'FARM_ADMIN', 'FARM_OPERATOR', 'BUYER_USER', 'CARRIER_USER'] as const) {
-      expect(queues(role)).toEqual([]);
+      expect(permissionsForRoles([role]).has('support.attend')).toBe(false);
       expect(permissionsForRoles([role]).has('support.use')).toBe(true);
     }
   });
 
-  it('atendentes de fila não operam logística nem cadastros', () => {
-    for (const role of ['MATRIZ_BILLING_AGENT', 'MATRIZ_SUPPORT_AGENT'] as const) {
-      const perms = [...permissionsForRoles([role])];
-      expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload') || (p.startsWith('order.') && p !== 'order.read'))).toBe(false);
+  it('atendente não opera logística nem cadastros', () => {
+    const perms = [...permissionsForRoles(['MATRIZ_SUPPORT_AGENT'])];
+    expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload') || (p.startsWith('order.') && p !== 'order.read'))).toBe(false);
+  });
+});
+
+describe('SLA do atendimento', () => {
+  const queuedAt = new Date('2026-09-15T12:00:00Z');
+  const at = (minutes: number) => queuedAt.getTime() + minutes * 60_000;
+
+  it('conta 1 hora a partir da entrada na fila enquanto aguarda atendente', () => {
+    expect(SUPPORT_FIRST_RESPONSE_SLA_MINUTES).toBe(60);
+    expect(supportSlaState({ status: 'WAITING', queuedAt }, at(45))).toEqual({ dueAt: '2026-09-15T13:00:00.000Z', breached: false, minutesLeft: 15 });
+    expect(supportSlaState({ status: 'WAITING', queuedAt }, at(90))).toMatchObject({ breached: true, minutesLeft: -30 });
+  });
+
+  it('não se aplica fora da fila', () => {
+    for (const status of ['BOT', 'OPEN', 'PENDING_CUSTOMER', 'RESOLVED', 'CLOSED'] as const) {
+      expect(supportSlaState({ status, queuedAt }, at(90))).toBeNull();
     }
+    expect(supportSlaState({ status: 'WAITING', queuedAt: null }, at(90))).toBeNull();
   });
 });
 

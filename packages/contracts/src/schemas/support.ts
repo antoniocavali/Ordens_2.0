@@ -6,14 +6,22 @@ export const SUPPORT_QUEUES = ['BILLING', 'SUPPORT'] as const;
 export type SupportQueue = (typeof SUPPORT_QUEUES)[number];
 export const SUPPORT_QUEUE_LABELS: Record<SupportQueue, string> = { BILLING: 'Faturamento', SUPPORT: 'Suporte' };
 
-/** Permissão que dá acesso a cada fila (time). `support.manage` (supervisão) acessa todas (Q31). */
-export const SUPPORT_QUEUE_PERMISSION = { BILLING: 'support.billing', SUPPORT: 'support.support' } as const satisfies Record<SupportQueue, string>;
+/** Prazo para a 1ª resposta de quem aguarda atendente na fila (Q30). */
+export const SUPPORT_FIRST_RESPONSE_SLA_MINUTES = 60;
 
-/** Filas que um conjunto de permissões pode atender. */
-export function supportQueuesFor(permissions: Iterable<string>): SupportQueue[] {
-  const set = new Set(permissions);
-  if (set.has('support.manage')) return [...SUPPORT_QUEUES];
-  return SUPPORT_QUEUES.filter((q) => set.has(SUPPORT_QUEUE_PERMISSION[q]));
+export interface SupportSla {
+  dueAt: string;
+  breached: boolean;
+  /** Negativo quando o prazo já passou. */
+  minutesLeft: number;
+}
+
+/** SLA vale enquanto a conversa aguarda atendente, contado desde a (última) entrada na fila. */
+export function supportSlaState(c: { status: SupportStatus; queuedAt: Date | string | null }, now: number = Date.now()): SupportSla | null {
+  if (c.status !== 'WAITING' || !c.queuedAt) return null;
+  const due = new Date(c.queuedAt).getTime() + SUPPORT_FIRST_RESPONSE_SLA_MINUTES * 60_000;
+  const minutesLeft = due > now ? Math.ceil((due - now) / 60_000) : -Math.floor((now - due) / 60_000);
+  return { dueAt: new Date(due).toISOString(), breached: now > due, minutesLeft };
 }
 
 /** Slug de rota do painel de cada time. */
@@ -157,6 +165,9 @@ export const supportAnalyticsQuery = z.object({
 export type SupportAnalyticsQuery = z.infer<typeof supportAnalyticsQuery>;
 
 export const supportAssignSchema = z.object({ assigneeUserId: z.uuid().nullable() });
+
+/** Filas de um atendente na equipe (lista completa desejada). */
+export const supportTeamUpdateSchema = z.object({ queues: z.array(z.enum(SUPPORT_QUEUES)).max(SUPPORT_QUEUES.length) });
 export const supportTransitionSchema = z.object({ to: z.enum(SUPPORT_STATUSES) });
 export const supportUpdateSchema = z
   .object({ queue: z.enum(SUPPORT_QUEUES).optional(), priority: z.enum(SUPPORT_PRIORITIES).optional() })
@@ -193,6 +204,8 @@ export interface SupportConversationDto {
   updatedAt: string;
   /** Minutos desde que entrou (ou voltou, por transferência/reabertura) na fila; null fora da fila. */
   waitingMinutes: number | null;
+  /** Prazo da 1ª resposta enquanto aguarda atendente; null fora da fila. */
+  sla: SupportSla | null;
   allowedTransitions: SupportStatus[];
 }
 
@@ -209,6 +222,27 @@ export interface SupportSummary {
   resolvedToday: number;
   oldestWaitingMinutes: number | null;
   avgFirstResponseMinutes: number | null;
+  /** Na fila sem resposta além do SLA. */
+  slaBreached: number;
+}
+
+export interface SupportTeamMember {
+  membershipId: string;
+  userId: string;
+  name: string;
+  email: string;
+  roles: string[];
+  /** Gestor/Administrador: atende todas as filas. */
+  supervisor: boolean;
+  /** Papel permite atuar como atendente. */
+  canAttend: boolean;
+  queues: SupportQueue[];
+}
+
+export interface SupportTeamUpdateResult {
+  member: SupportTeamMember;
+  /** Conversas que ficaram sem responsável por saída de fila. */
+  releasedConversations: number;
 }
 
 /** Faixas do tempo até a 1ª resposta (minutos, limite superior exclusivo). */
@@ -241,6 +275,10 @@ export interface SupportAnalytics {
     avgResolutionMinutes: number | null;
     /** % das conversas encaminhadas no período que já foram resolvidas ou encerradas. */
     resolutionRate: number | null;
+    /** % das respondidas no período com 1ª resposta dentro do SLA. */
+    firstResponseWithinSlaRate: number | null;
+    /** Agora: na fila além do SLA. */
+    slaBreachedNow: number;
   };
   previous: { opened: number; resolved: number; avgFirstResponseMinutes: number | null };
   daily: { day: string; opened: number; resolved: number }[];

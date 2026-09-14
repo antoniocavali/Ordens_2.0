@@ -59,6 +59,10 @@ await shot(manager.page, 'indicadores-supervisao', true);
 await manager.page.goto(`${BASE}/atendimento`);
 await manager.page.getByRole('heading', { name: 'Atendimento · Visão geral' }).waitFor();
 await shot(manager.page, 'visao-geral');
+await manager.page.goto(`${BASE}/atendimento/equipe`);
+await manager.page.getByRole('heading', { name: 'Equipe do atendimento' }).waitFor();
+await manager.page.getByRole('switch').first().waitFor();
+await shot(manager.page, 'equipe');
 await manager.context.close();
 
 const mobile = await session('gestor@graoforte.demo', { width: 390, height: 844 });

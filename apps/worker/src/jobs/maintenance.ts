@@ -1,12 +1,17 @@
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { systemContext } from '@ordens/db';
+import type { Job } from 'bullmq';
+import type { Redis } from 'ioredis';
 import type { WorkerContext } from '../context.js';
+import { notifySupportSla } from './support-sla.js';
 
 const STALE_MS = 24 * 3_600_000;
 
-/** Aborta multiparts órfãos e expira envios nunca concluídos. */
-export function maintenanceHandler(ctx: WorkerContext) {
-  return async () => {
+/** Rotinas agendadas: expira envios órfãos e cobra o SLA do atendimento. */
+export function maintenanceHandler(ctx: WorkerContext, publisher: Redis) {
+  return async (job: Job) => {
+    if (job.name === 'support-sla') return notifySupportSla(ctx, publisher);
+
     const cutoff = new Date(Date.now() - STALE_MS);
     const stale = await ctx.db.system((tx) =>
       tx.fileUpload.findMany({

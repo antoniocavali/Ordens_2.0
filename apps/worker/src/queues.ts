@@ -52,4 +52,5 @@ export const ROUTES: Record<string, string[]> = {
   'support.assigned': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'support.status_changed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'support.updated': [QUEUE.REALTIME],
+  'support.team_updated': [QUEUE.REALTIME],
 };

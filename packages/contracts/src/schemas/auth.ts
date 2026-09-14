@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type Scope, type THEMES } from '../enums.js';
 import type { Permission } from '../permissions.js';
+import type { SupportQueue } from './support.js';
 
 export const PASSWORD_MIN_LENGTH = 12;
 
@@ -81,6 +82,8 @@ export interface MeResponse {
   activeMembership: MembershipSummary | null;
   memberships: MembershipSummary[];
   permissions: Permission[];
+  /** Filas do atendimento que o usuário atende na membership ativa (Q31). */
+  supportQueues: SupportQueue[];
   csrfToken: string;
 }
 

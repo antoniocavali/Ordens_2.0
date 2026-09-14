@@ -43,9 +43,8 @@ export const PERMISSIONS = {
   'report.export': 'Exportar relatórios',
   'settings.manage': 'Gerenciar configurações do tenant',
   'support.use': 'Abrir conversas de atendimento',
-  'support.billing': 'Atender a fila de Faturamento',
-  'support.support': 'Atender a fila de Suporte',
-  'support.manage': 'Supervisionar o atendimento (todas as filas e indicadores)',
+  'support.attend': 'Atuar como atendente (filas definidas na equipe do atendimento)',
+  'support.manage': 'Supervisionar o atendimento (todas as filas, equipe e indicadores)',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -79,9 +78,8 @@ const MATRIZ_OPERATE: Permission[] = [
   'occurrence.manage',
   'document.upload',
   'invoice.upload',
-  // Operador atende as duas filas, sem supervisão (Q31).
-  'support.billing',
-  'support.support',
+  // Pode atender; as filas são definidas pela supervisão na equipe (Q31).
+  'support.attend',
 ];
 
 const MATRIZ_MANAGE: Permission[] = [
@@ -131,8 +129,7 @@ export const ROLES = {
   MATRIZ_MANAGER: { name: 'Gestor Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_MANAGE },
   MATRIZ_OPERATOR: { name: 'Operador Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_OPERATE },
   MATRIZ_VIEWER: { name: 'Somente leitura Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_READ },
-  MATRIZ_BILLING_AGENT: { name: 'Atendente Faturamento', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'support.billing'] },
-  MATRIZ_SUPPORT_AGENT: { name: 'Atendente Suporte', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'support.support'] },
+  MATRIZ_SUPPORT_AGENT: { name: 'Atendente', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'support.attend'] },
   FARM_ADMIN: {
     name: 'Administrador Fazenda',
     scope: Scope.FARM,

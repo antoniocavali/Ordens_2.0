@@ -6,8 +6,10 @@ import {
   ErrorCode,
   findOrderNumber,
   permissionsForRoles,
+  ROLES,
   SUPPORT_AGENT_TRANSITIONS,
   SUPPORT_BOT_OPTIONS,
+  SUPPORT_FIRST_RESPONSE_SLA_MINUTES,
   SUPPORT_QUEUE_LABELS,
   SUPPORT_QUEUES,
   SUPPORT_RESPONSE_BUCKETS,
@@ -18,9 +20,10 @@ import {
   supportAssignSchema,
   supportMessageSchema,
   supportQueueQuery,
-  supportQueuesFor,
+  supportSlaState,
   supportStartSchema,
   supportSummaryQuery,
+  supportTeamUpdateSchema,
   supportTransitionSchema,
   supportUpdateSchema,
   type CursorPage,
@@ -38,12 +41,14 @@ import {
   type SupportQueueQuery,
   type SupportStatus,
   type SupportSummary,
+  type SupportTeamMember,
+  type SupportTeamUpdateResult,
 } from '@ordens/contracts';
 import { nextSequence, Prisma, type Tx, type UnitOfWorkScope } from '@ordens/db';
 import type { z } from 'zod';
 import { RequireAnyPermission, RequirePermission } from '../../common/decorators.js';
 import { AppError } from '../../common/errors.js';
-import { currentAuth } from '../../common/request-context.js';
+import { currentAuth, type AuthState } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { oneOf, uniq } from '../fiscal/fiscal.util.js';
@@ -53,23 +58,57 @@ type BotState = { step?: 'CHOOSE_QUEUE' | 'DESCRIBE' | 'DONE'; attempts?: number
 type MessageInput = z.output<typeof supportMessageSchema>;
 /** Recorte de filas de uma consulta do atendimento; `includeNoQueue` = conversas ainda com o assistente (supervisão). */
 type QueueScope = { queues: SupportQueue[]; includeNoQueue: boolean };
+/** Filas atendidas pelo usuário da requisição (Q31). */
+type Access = { queues: SupportQueue[]; supervisor: boolean };
 type SqlRow = Record<string, bigint | Prisma.Decimal | number | string | null>;
 
 const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
 const TZ = 'America/Sao_Paulo';
+const SLA = SUPPORT_FIRST_RESPONSE_SLA_MINUTES;
 const AGENT_OPTION: SupportBotOption = { action: 'AGENT', label: 'Falar com um atendente', hint: 'Vai direto para a fila de atendimento' };
 const BOT_MENU: SupportBotOption[] = [...SUPPORT_BOT_OPTIONS, AGENT_OPTION];
 /** Tentativas do assistente sem entender o assunto antes de encaminhar ao Suporte (Q27). */
 const MAX_BOT_ATTEMPTS = 2;
-const STAFF: Parameters<typeof RequireAnyPermission> = ['support.billing', 'support.support', 'support.manage'];
+const STAFF: Parameters<typeof RequireAnyPermission> = ['support.attend', 'support.manage'];
 const ACTIVE_WORK = Prisma.sql`('WAITING', 'OPEN', 'PENDING_CUSTOMER')`;
 const REQUESTER_KIND_LABELS: Record<string, string> = { MATRIZ: 'Matriz', FARM: 'Fazendas', BUYER: 'Compradores', CARRIER: 'Transportadoras', UNKNOWN: 'Outros' };
+const TEAM_SELECT = {
+  id: true,
+  userId: true,
+  roles: { select: { roleCode: true } },
+  supportQueues: { select: { queue: true } },
+  user: { select: { name: true, email: true, status: true } },
+} satisfies Prisma.MembershipSelect;
+type TeamRow = Prisma.MembershipGetPayload<{ select: typeof TEAM_SELECT }>;
+
 const preview = (text: string) => (text.length > 120 ? `${text.slice(0, 117)}…` : text);
 const minutes = (v: unknown) => (v === null || v === undefined ? null : Math.round(Number(v)));
 const count = (v: unknown) => Number(v ?? 0);
+const roleName = (code: string) => (ROLES as Record<string, { name: string }>)[code]?.name ?? code;
+
+/** Membro da equipe: supervisão atende todas as filas; demais, as filas cadastradas (se o papel permite atender). */
+function toTeamMember(m: TeamRow): SupportTeamMember {
+  const roles = m.roles.map((r) => r.roleCode);
+  const perms = permissionsForRoles(roles);
+  const supervisor = perms.has('support.manage');
+  const canAttend = supervisor || perms.has('support.attend');
+  return {
+    membershipId: m.id,
+    userId: m.userId,
+    name: m.user.name,
+    email: m.user.email,
+    roles: roles.map(roleName),
+    supervisor,
+    canAttend,
+    queues: supervisor ? [...SUPPORT_QUEUES] : canAttend ? SUPPORT_QUEUES.filter((q) => m.supportQueues.some((s) => s.queue === q)) : [],
+  };
+}
 
 @Injectable()
 export class SupportService {
+  /** Acesso calculado uma vez por requisição. */
+  private readonly accessCache = new WeakMap<AuthState, Promise<Access>>();
+
   constructor(private readonly db: TenantDb) {}
 
   // ───────────────────────────── Cliente ─────────────────────────────
@@ -126,7 +165,7 @@ export class SupportService {
     return this.db.write(async (scope) => {
       const { tx, audit, outbox } = scope;
       const conv = await this.lock(tx, id);
-      const agent = this.isAgentFor(conv);
+      const agent = this.isAgentFor(await this.access(tx), conv);
       if (!agent && conv.requesterUserId !== auth.userId) throw AppError.notFound('Conversa não encontrada.');
       if (conv.status === 'CLOSED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Esta conversa foi encerrada. Abra uma nova conversa para continuar.');
       const text = input.body.trim();
@@ -157,6 +196,10 @@ export class SupportService {
       }
 
       if (input.internal) throw AppError.forbidden('Notas internas são exclusivas do atendimento.');
+      // Conversa resolvida não reabre pelo cliente (Q29): outro assunto vira nova conversa.
+      if (conv.status === 'RESOLVED') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Esta conversa foi resolvida e não pode ser reaberta. Abra uma nova conversa se precisar de ajuda.');
+      }
       // Botão do assistente vira mensagem do cliente com o rótulo escolhido (o histórico mostra a escolha).
       const quickLabel = !text && input.quickReply ? BOT_MENU.find((o) => o.action === input.quickReply)?.label : undefined;
       if (text || quickLabel) await this.addMessage(tx, conv, { authorType: 'CUSTOMER', authorUserId: auth.userId, body: text || quickLabel! });
@@ -167,19 +210,10 @@ export class SupportService {
       }
       if (!text) throw AppError.validation({ fields: { body: ['Escreva uma mensagem'] } });
 
-      const now = new Date();
-      const reopen = conv.status === 'RESOLVED';
       await tx.supportConversation.update({
         where: { id },
-        data: {
-          lastMessageAt: now,
-          ...(reopen ? { status: 'WAITING', queuedAt: now, resolvedAt: null } : conv.status === 'PENDING_CUSTOMER' ? { status: 'OPEN' } : {}),
-        },
+        data: { lastMessageAt: new Date(), ...(conv.status === 'PENDING_CUSTOMER' ? { status: 'OPEN' } : {}) },
       });
-      if (reopen) {
-        await this.addMessage(tx, conv, { authorType: 'BOT', body: 'Conversa reaberta. Um atendente vai retomar por aqui.' });
-        await audit({ entityType: 'support_conversation', entityId: id, action: 'support.status_changed', before: { status: 'RESOLVED' }, after: { status: 'WAITING', reason: 'mensagem do cliente' } });
-      }
       await outbox({
         type: 'support.message_created',
         aggregateType: 'support_conversation',
@@ -209,8 +243,8 @@ export class SupportService {
 
   queue(q: SupportQueueQuery): Promise<Page<SupportConversationDto>> {
     const auth = currentAuth();
-    const scope = this.scopeFor(q.queue);
     return this.db.read(async (tx) => {
+      const scope = this.scopeFor(await this.access(tx), q.queue);
       const status = oneOf(SUPPORT_STATUSES, q.status);
       const where: Prisma.SupportConversationWhereInput = {
         AND: [
@@ -236,8 +270,8 @@ export class SupportService {
 
   summary(queue?: SupportQueue): Promise<SupportSummary> {
     const auth = currentAuth();
-    const scope = this.scopeFor(queue);
     return this.db.read(async (tx) => {
+      const scope = this.scopeFor(await this.access(tx), queue);
       const [r] = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
         select
           count(*) filter (where status = 'WAITING' and queue = 'BILLING') as waiting_billing,
@@ -247,6 +281,7 @@ export class SupportService {
           count(*) filter (where status in ${ACTIVE_WORK} and assignee_user_id is null) as unassigned,
           count(*) filter (where status in ${ACTIVE_WORK} and assignee_user_id = ${auth.userId}::uuid) as mine,
           count(*) filter (where resolved_at >= (date_trunc('day', now() at time zone ${TZ}) at time zone ${TZ})) as resolved_today,
+          count(*) filter (where status = 'WAITING' and queued_at < now() - make_interval(mins => ${SLA}::int)) as sla_breached,
           extract(epoch from now() - min(queued_at) filter (where status = 'WAITING')) / 60 as oldest_waiting,
           avg(extract(epoch from first_response_at - queued_at) / 60) filter (where first_response_at is not null and first_response_at >= queued_at and queued_at >= now() - interval '7 days') as avg_first_response
         from support_conversations c
@@ -261,15 +296,16 @@ export class SupportService {
         resolvedToday: count(r?.resolved_today),
         oldestWaitingMinutes: minutes(r?.oldest_waiting),
         avgFirstResponseMinutes: minutes(r?.avg_first_response),
+        slaBreached: count(r?.sla_breached),
       };
     });
   }
 
   /** Indicadores do período, recortados pelas filas do usuário (Q32). */
   analytics(q: SupportAnalyticsQuery): Promise<SupportAnalytics> {
-    const scope = this.scopeFor(q.queue);
     const days = q.days;
     return this.db.read(async (tx) => {
+      const scope = this.scopeFor(await this.access(tx), q.queue);
       const start = Prisma.sql`((date_trunc('day', now() at time zone ${TZ}) - make_interval(days => ${days - 1}::int)) at time zone ${TZ})`;
       const prevStart = Prisma.sql`((date_trunc('day', now() at time zone ${TZ}) - make_interval(days => ${2 * days - 1}::int)) at time zone ${TZ})`;
       const scoped = Prisma.sql`
@@ -290,6 +326,9 @@ export class SupportService {
           count(*) filter (where created_at >= ${start} and queue is null and status = 'CLOSED') as abandoned,
           count(*) filter (where status in ${ACTIVE_WORK}) as backlog,
           count(*) filter (where status in ${ACTIVE_WORK} and assignee_user_id is null) as unassigned,
+          count(*) filter (where status = 'WAITING' and queued_at < now() - make_interval(mins => ${SLA}::int)) as sla_breached_now,
+          count(*) filter (where created_at >= ${start} and first_response_at is not null) as responded,
+          count(*) filter (where created_at >= ${start} and first_response_at is not null and frt <= ${SLA}) as within_sla,
           avg(frt) filter (where created_at >= ${start} and first_response_at is not null) as avg_frt,
           percentile_cont(0.9) within group (order by frt) filter (where created_at >= ${start} and first_response_at is not null) as p90_frt,
           avg(rt) filter (where resolved_at >= ${start}) as avg_rt,
@@ -373,6 +412,7 @@ export class SupportService {
       const names = new Map(users.map((u) => [u.id, u.name]));
       const agentStats = new Map(agentRows.map((r) => [String(r.id), r]));
       const queued = count(totals?.queued);
+      const responded = count(totals?.responded);
 
       return {
         days,
@@ -389,6 +429,8 @@ export class SupportService {
           p90FirstResponseMinutes: minutes(totals?.p90_frt),
           avgResolutionMinutes: minutes(totals?.avg_rt),
           resolutionRate: queued ? Math.round((count(totals?.done_of_queued) / queued) * 100) : null,
+          firstResponseWithinSlaRate: responded ? Math.round((count(totals?.within_sla) / responded) * 100) : null,
+          slaBreachedNow: count(totals?.sla_breached_now),
         },
         previous: { opened: count(totals?.prev_opened), resolved: count(totals?.prev_resolved), avgFirstResponseMinutes: minutes(totals?.prev_avg_frt) },
         daily: daily.map((d) => ({ day: String(d.day), opened: count(d.opened), resolved: count(d.resolved) })),
@@ -423,8 +465,8 @@ export class SupportService {
   }
 
   agents(q: SupportAgentsQuery): Promise<CursorPage<LookupOption>> {
-    const scope = this.scopeFor(q.queue);
     return this.db.read(async (tx) => {
+      const scope = this.scopeFor(await this.access(tx), q.queue);
       const eligible = await this.eligibleAgents(tx, q.queue ?? null, scope.queues);
       const users = await tx.user.findMany({
         where: {
@@ -449,7 +491,7 @@ export class SupportService {
         // Responsável precisa atender a fila da conversa (Q31).
         const eligible = await this.eligibleAgents(tx, conv.queue, [...SUPPORT_QUEUES]);
         if (!eligible.includes(assigneeUserId)) {
-          throw AppError.validation({ fields: { assigneeUserId: [conv.queue ? `Selecione alguém do time de ${SUPPORT_QUEUE_LABELS[conv.queue]}` : 'Selecione um atendente da Matriz'] } });
+          throw AppError.validation({ fields: { assigneeUserId: [conv.queue ? `Selecione alguém da fila de ${SUPPORT_QUEUE_LABELS[conv.queue]}` : 'Selecione um atendente da Matriz'] } });
         }
         name = (await tx.user.findUnique({ where: { id: assigneeUserId }, select: { name: true } }))?.name ?? null;
       }
@@ -519,7 +561,66 @@ export class SupportService {
       await outbox({ type: 'support.updated', aggregateType: 'support_conversation', aggregateId: id, payload: { conversationId: id, number: conv.number, requesterUserId: conv.requesterUserId } });
       // Transferida para uma fila que o atendente não atende: a conversa sai do alcance dele (Q31).
       const after = await tx.supportConversation.findUniqueOrThrow({ where: { id } });
-      return this.canHandle(after) ? this.loadDetail(tx, id) : null;
+      return this.handles(await this.access(tx), after) ? this.loadDetail(tx, id) : null;
+    });
+  }
+
+  // ───────────────────────────── Equipe (Q31) ─────────────────────────────
+
+  team(): Promise<SupportTeamMember[]> {
+    return this.db.read(async (tx) => {
+      const rows = await tx.membership.findMany({ where: { scope: 'MATRIZ', status: 'ACTIVE', user: { status: 'ACTIVE' } }, select: TEAM_SELECT });
+      return rows.map(toTeamMember).sort((a, b) => Number(b.supervisor) - Number(a.supervisor) || Number(b.canAttend) - Number(a.canAttend) || a.name.localeCompare(b.name));
+    });
+  }
+
+  /** Define as filas de um atendente. Sair de uma fila devolve à fila as conversas dele naquela fila. */
+  updateTeamMember(membershipId: string, queues: SupportQueue[]): Promise<SupportTeamUpdateResult> {
+    const auth = currentAuth();
+    return this.db.write(async ({ tx, audit, outbox }) => {
+      const row = await tx.membership.findFirst({ where: { id: membershipId, scope: 'MATRIZ', status: 'ACTIVE' }, select: TEAM_SELECT });
+      if (!row) throw AppError.notFound('Usuário não encontrado na Matriz.');
+      const member = toTeamMember(row);
+      if (member.supervisor) throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Gestores e administradores supervisionam e já atendem todas as filas.');
+      if (!member.canAttend) {
+        throw AppError.validation({ fields: { queues: ['Este usuário não tem permissão de atendente. Atribua o papel Operador ou Atendente antes de incluí-lo em uma fila.'] } });
+      }
+      const wanted = SUPPORT_QUEUES.filter((q) => queues.includes(q));
+      const removed = member.queues.filter((q) => !wanted.includes(q));
+      const added = wanted.filter((q) => !member.queues.includes(q));
+      if (!removed.length && !added.length) return { member, releasedConversations: 0 };
+
+      if (removed.length) await tx.supportQueueMember.deleteMany({ where: { membershipId, queue: { in: removed } } });
+      if (added.length) {
+        await tx.supportQueueMember.createMany({ data: added.map((queue) => ({ tenantId: auth.membership!.tenantId, membershipId, queue, createdBy: auth.userId })) });
+      }
+
+      let released = 0;
+      if (removed.length) {
+        const orphaned = await tx.supportConversation.findMany({
+          where: { assigneeUserId: row.userId, queue: { in: removed }, status: { in: ['WAITING', 'OPEN', 'PENDING_CUSTOMER'] } },
+        });
+        for (const conv of orphaned) {
+          await tx.supportConversation.update({
+            where: { id: conv.id },
+            data: { assigneeUserId: null, ...(conv.status !== 'WAITING' ? { status: 'WAITING', queuedAt: new Date() } : {}) },
+          });
+          await this.addMessage(tx, conv, { authorType: 'SYSTEM', body: `${row.user.name} saiu da fila de ${SUPPORT_QUEUE_LABELS[conv.queue!]}. Aguardando atendimento.` });
+          await audit({
+            entityType: 'support_conversation',
+            entityId: conv.id,
+            action: 'support.assigned',
+            before: { assigneeUserId: conv.assigneeUserId, status: conv.status },
+            after: { assigneeUserId: null, status: 'WAITING', reason: 'atendente removido da fila' },
+          });
+          await outbox({ type: 'support.updated', aggregateType: 'support_conversation', aggregateId: conv.id, payload: { conversationId: conv.id, number: conv.number, requesterUserId: conv.requesterUserId } });
+          released++;
+        }
+      }
+
+      await audit({ entityType: 'support_team', entityId: membershipId, action: 'support.team_updated', before: { userId: row.userId, queues: member.queues }, after: { userId: row.userId, queues: wanted } });
+      await outbox({ type: 'support.team_updated', aggregateType: 'membership', aggregateId: membershipId, payload: { membershipId, userId: row.userId, queues: wanted } });
+      return { member: { ...member, queues: wanted }, releasedConversations: released };
     });
   }
 
@@ -595,18 +696,27 @@ export class SupportService {
 
   // ───────────────────────────── Internos ─────────────────────────────
 
-  /** Filas atendidas pelo usuário da requisição e se supervisiona (Q31). */
-  private access() {
+  /** Filas do usuário (Q31): supervisão atende todas; atendente, as filas cadastradas na equipe. */
+  private access(tx: Tx): Promise<Access> {
     const auth = currentAuth();
-    const queues = auth.membership?.scope === 'MATRIZ' ? supportQueuesFor(auth.permissions) : [];
-    return { queues, supervisor: queues.length > 0 && auth.permissions.has('support.manage') };
+    let cached = this.accessCache.get(auth);
+    if (!cached) {
+      cached = (async () => {
+        if (auth.membership?.scope !== 'MATRIZ') return { queues: [], supervisor: false };
+        if (auth.permissions.has('support.manage')) return { queues: [...SUPPORT_QUEUES], supervisor: true };
+        if (!auth.permissions.has('support.attend')) return { queues: [], supervisor: false };
+        const rows = await tx.supportQueueMember.findMany({ where: { membershipId: auth.membership.id }, select: { queue: true } });
+        return { queues: SUPPORT_QUEUES.filter((q) => rows.some((r) => r.queue === q)), supervisor: false };
+      })();
+      this.accessCache.set(auth, cached);
+    }
+    return cached;
   }
 
-  private scopeFor(requested?: SupportQueue): QueueScope {
-    const { queues, supervisor } = this.access();
-    if (!queues.length) throw AppError.forbidden();
-    if (requested && !queues.includes(requested)) throw AppError.forbidden(`Você não atende a fila de ${SUPPORT_QUEUE_LABELS[requested]}.`);
-    return { queues: requested ? [requested] : queues, includeNoQueue: !requested && supervisor };
+  private scopeFor(access: Access, requested?: SupportQueue): QueueScope {
+    if (!access.queues.length) throw AppError.forbidden('Você não está em nenhuma fila do atendimento. Peça à supervisão para incluir você na equipe.');
+    if (requested && !access.queues.includes(requested)) throw AppError.forbidden(`Você não atende a fila de ${SUPPORT_QUEUE_LABELS[requested]}.`);
+    return { queues: requested ? [requested] : access.queues, includeNoQueue: !requested && access.supervisor };
   }
 
   private scopeWhere(scope: QueueScope): Prisma.SupportConversationWhereInput {
@@ -620,25 +730,22 @@ export class SupportService {
   }
 
   /** Atende a fila da conversa (sem fila = ainda com o assistente: só supervisão). */
-  private canHandle(conv: { queue: SupportQueue | null }) {
-    const { queues, supervisor } = this.access();
-    return conv.queue ? queues.includes(conv.queue) : supervisor;
+  private handles(access: Access, conv: { queue: SupportQueue | null }) {
+    return conv.queue ? access.queues.includes(conv.queue) : access.supervisor;
   }
 
   /** Atendente: atende a fila e age em conversa aberta por outra pessoa. */
-  private isAgentFor(conv: { requesterUserId: string; queue: SupportQueue | null }) {
-    return this.canHandle(conv) && conv.requesterUserId !== currentAuth().userId;
+  private isAgentFor(access: Access, conv: { requesterUserId: string; queue: SupportQueue | null }) {
+    return this.handles(access, conv) && conv.requesterUserId !== currentAuth().userId;
   }
 
   /** Usuários da Matriz ativos que atendem `queue` (ou alguma das `within`, quando sem fila). */
   private async eligibleAgents(tx: Tx, queue: SupportQueue | null, within: SupportQueue[]): Promise<string[]> {
-    const memberships = await tx.membership.findMany({ where: { scope: 'MATRIZ', status: 'ACTIVE' }, select: { userId: true, roles: { select: { roleCode: true } } } });
+    const rows = await tx.membership.findMany({ where: { scope: 'MATRIZ', status: 'ACTIVE', user: { status: 'ACTIVE' } }, select: TEAM_SELECT });
     return uniq(
-      memberships
-        .filter((m) => {
-          const agentQueues = supportQueuesFor(permissionsForRoles(m.roles.map((r) => r.roleCode)));
-          return queue ? agentQueues.includes(queue) : agentQueues.some((x) => within.includes(x));
-        })
+      rows
+        .map(toTeamMember)
+        .filter((m) => (queue ? m.queues.includes(queue) : m.queues.some((x) => within.includes(x))))
         .map((m) => m.userId),
     );
   }
@@ -670,15 +777,16 @@ export class SupportService {
   /** Ações do painel: conversa de fila que o usuário não atende é tratada como inexistente. */
   private async lockForAgent(tx: Tx, id: string): Promise<ConversationRow> {
     const conv = await this.lock(tx, id);
-    if (!this.canHandle(conv)) throw AppError.notFound('Conversa não encontrada.');
+    if (!this.handles(await this.access(tx), conv)) throw AppError.notFound('Conversa não encontrada.');
     return conv;
   }
 
   private async loadDetail(tx: Tx, id: string): Promise<SupportConversationDetail> {
     const auth = currentAuth();
+    const access = await this.access(tx);
     const conv = await tx.supportConversation.findUnique({ where: { id } });
-    if (!conv || (conv.requesterUserId !== auth.userId && !this.canHandle(conv))) throw AppError.notFound('Conversa não encontrada.');
-    const asCustomer = !this.isAgentFor(conv);
+    if (!conv || (conv.requesterUserId !== auth.userId && !this.handles(access, conv))) throw AppError.notFound('Conversa não encontrada.');
+    const asCustomer = !this.isAgentFor(access, conv);
     const rows = await tx.supportMessage.findMany({
       where: { conversationId: id, ...(asCustomer ? { internal: false } : {}) },
       orderBy: { seq: 'asc' },
@@ -707,6 +815,7 @@ export class SupportService {
 
   private async toDtos(tx: Tx, rows: ConversationRow[]): Promise<SupportConversationDto[]> {
     if (!rows.length) return [];
+    const access = await this.access(tx);
     const [users, orgs, orders, previews] = await Promise.all([
       tx.user.findMany({ where: { id: { in: uniq(rows.flatMap((r) => [r.requesterUserId, r.assigneeUserId])) } }, select: { id: true, name: true } }),
       tx.organization.findMany({ where: { id: { in: uniq(rows.map((r) => r.requesterOrgId)) } }, select: { id: true, name: true } }),
@@ -742,7 +851,8 @@ export class SupportService {
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
       waitingMinutes: r.status === 'WAITING' && r.queuedAt ? Math.floor((now - r.queuedAt.getTime()) / 60_000) : null,
-      allowedTransitions: this.isAgentFor(r) ? [...SUPPORT_AGENT_TRANSITIONS[r.status]] : [],
+      sla: supportSlaState(r, now),
+      allowedTransitions: this.isAgentFor(access, r) ? [...SUPPORT_AGENT_TRANSITIONS[r.status]] : [],
     }));
   }
 }
@@ -786,6 +896,18 @@ export class SupportController {
   @RequireAnyPermission(...STAFF)
   agents(@Query(new ZodPipe(supportAgentsQuery)) q: SupportAgentsQuery) {
     return this.support.agents(q);
+  }
+
+  @Get('team')
+  @RequirePermission('support.manage')
+  team() {
+    return this.support.team();
+  }
+
+  @Patch('team/:membershipId')
+  @RequirePermission('support.manage')
+  updateTeamMember(@Param('membershipId', uuid) membershipId: string, @Body(new ZodPipe(supportTeamUpdateSchema)) body: z.output<typeof supportTeamUpdateSchema>) {
+    return this.support.updateTeamMember(membershipId, body.queues);
   }
 
   @Get('conversations/:id')

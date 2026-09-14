@@ -126,7 +126,7 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       return {
         userIds: [requester],
         title: `Atendimento ${String(p.number ?? '')} resolvido`,
-        body: 'Se ainda precisar de ajuda, responda na conversa para reabrir.',
+        body: 'Se precisar de mais ajuda, abra uma nova conversa pelo chat.',
         data: { conversationId, href: `/?atendimento=${conversationId}` },
       };
     }

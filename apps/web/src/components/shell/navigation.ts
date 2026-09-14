@@ -1,4 +1,4 @@
-import type { Permission, Scope } from '@ordens/contracts';
+import type { Permission, Scope, SupportQueue } from '@ordens/contracts';
 import {
   AlertTriangle,
   BarChart3,
@@ -24,6 +24,7 @@ import {
   Truck,
   UserRound,
   Users,
+  UsersRound,
   Wheat,
   type LucideIcon,
 } from 'lucide-react';
@@ -35,6 +36,10 @@ export interface NavItem {
   permission?: Permission;
   /** Basta uma destas permissões. */
   anyPermission?: Permission[];
+  /** Visível para quem atende esta fila do atendimento. */
+  supportQueue?: SupportQueue;
+  /** Visível para quem atende alguma fila do atendimento. */
+  supportAny?: boolean;
   scopes?: Scope[];
   /** Módulo de fase futura: aparece desabilitado com tooltip. */
   soon?: boolean;
@@ -87,9 +92,10 @@ export const NAVIGATION: NavGroup[] = [
     label: 'Atendimento',
     items: [
       { label: 'Visão geral', href: '/atendimento', icon: Headphones, permission: 'support.manage' },
-      { label: 'Faturamento', href: '/atendimento/faturamento', icon: Receipt, anyPermission: ['support.billing', 'support.manage'] },
-      { label: 'Suporte', href: '/atendimento/suporte', icon: LifeBuoy, anyPermission: ['support.support', 'support.manage'] },
-      { label: 'Indicadores', href: '/atendimento/indicadores', icon: LineChart, anyPermission: ['support.billing', 'support.support', 'support.manage'] },
+      { label: 'Faturamento', href: '/atendimento/faturamento', icon: Receipt, supportQueue: 'BILLING' },
+      { label: 'Suporte', href: '/atendimento/suporte', icon: LifeBuoy, supportQueue: 'SUPPORT' },
+      { label: 'Indicadores', href: '/atendimento/indicadores', icon: LineChart, supportAny: true },
+      { label: 'Equipe', href: '/atendimento/equipe', icon: UsersRound, permission: 'support.manage' },
     ],
   },
   {
@@ -110,11 +116,16 @@ export const NAVIGATION: NavGroup[] = [
   },
 ];
 
-export function visibleNavigation(can: (p: Permission) => boolean, scope: Scope | undefined): NavGroup[] {
+export function visibleNavigation(can: (p: Permission) => boolean, scope: Scope | undefined, supportQueues: readonly SupportQueue[] = []): NavGroup[] {
   return NAVIGATION.map((g) => ({
     ...g,
     items: g.items.filter(
-      (i) => (!i.permission || can(i.permission)) && (!i.anyPermission || i.anyPermission.some(can)) && (!i.scopes || (scope && i.scopes.includes(scope))),
+      (i) =>
+        (!i.permission || can(i.permission)) &&
+        (!i.anyPermission || i.anyPermission.some(can)) &&
+        (!i.supportQueue || supportQueues.includes(i.supportQueue)) &&
+        (!i.supportAny || supportQueues.length > 0) &&
+        (!i.scopes || (scope && i.scopes.includes(scope))),
     ),
   })).filter((g) => g.items.length);
 }

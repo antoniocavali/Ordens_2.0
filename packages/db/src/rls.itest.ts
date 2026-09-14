@@ -407,6 +407,32 @@ describe('atendimento (chat)', () => {
     expect(closed.status).toBe('CLOSED');
   });
 
+  it('cliente não reabre conversa resolvida; pode encerrar', async () => {
+    const [cliente] = await people();
+    const asCliente = { ...farm(A, 0), userId: cliente!.id };
+    const conv = await db.run(asCliente, (tx) => tx.supportConversation.create({ data: { ...conversationData(A, cliente!.id), queue: 'SUPPORT', status: 'WAITING' } }));
+    await db.run(matriz(A), (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { status: 'RESOLVED' } }));
+    await expect(db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { status: 'WAITING' } }))).rejects.toThrow(/apenas ao atendimento/);
+    const closed = await db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { status: 'CLOSED' } }));
+    expect(closed.status).toBe('CLOSED');
+  });
+
+  it('equipe do atendimento: só a Matriz do próprio tenant lê e altera as filas', async () => {
+    const [, , atendente] = await people();
+    const membership = await db.run(matriz(A), (tx) =>
+      // Escopo precisa casar com o tipo da organização; a política da equipe depende de quem consulta, não da membership.
+      tx.membership.create({ data: { tenantId: A.tenantId, userId: atendente!.id, organizationId: A.farmOrgs[0]!, scope: 'FARM' } }),
+    );
+    await db.run(matriz(A), (tx) => tx.supportQueueMember.create({ data: { tenantId: A.tenantId, membershipId: membership.id, queue: 'BILLING' } }));
+    expect(await db.run(farm(A, 0), (tx) => tx.supportQueueMember.findMany({ where: { membershipId: membership.id } }))).toHaveLength(0);
+    expect(await db.run(matriz(B), (tx) => tx.supportQueueMember.findMany({ where: { membershipId: membership.id } }))).toHaveLength(0);
+    await expect(
+      db.run(farm(A, 0), (tx) => tx.supportQueueMember.create({ data: { tenantId: A.tenantId, membershipId: membership.id, queue: 'SUPPORT' } })),
+    ).rejects.toThrow(/row-level security/);
+    const removed = await db.run(matriz(A), (tx) => tx.supportQueueMember.deleteMany({ where: { membershipId: membership.id } }));
+    expect(removed.count).toBe(1);
+  });
+
   it('Fazenda numera atendimento e ocorrência, mas não outras sequências', async () => {
     const { nextSequence } = await import('./sequences.js');
     const year = 2099;

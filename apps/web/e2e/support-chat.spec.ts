@@ -68,7 +68,37 @@ test.describe('Atendimento', () => {
 
     await agent.page.getByRole('button', { name: 'Resolver', exact: true }).click();
     await expect(chat.getByText('Resolvida').first()).toBeVisible({ timeout: 30_000 });
+    // Resolvida não reabre pelo cliente: sem campo de mensagem, com opção de nova conversa.
+    await expect(chat.getByText('Conversa resolvida. Precisa de mais alguma coisa?')).toBeVisible();
+    await expect(chat.getByRole('textbox', { name: 'Mensagem' })).toHaveCount(0);
+    expect((await api(page, 'POST', `/support/conversations/${conversationId}/messages`, { body: 'Ainda preciso de ajuda' })).status).toBe(422);
+    await expect(chat.getByRole('button', { name: 'Abrir nova conversa' })).toBeVisible();
     await agent.context.close();
+  });
+
+  test('supervisão define as filas de cada atendente na equipe', async ({ page, browser }) => {
+    await login(page, 'gestor@graoforte.demo');
+    await page.goto('/atendimento/equipe');
+    await expect(page.getByRole('heading', { name: 'Equipe do atendimento' })).toBeVisible();
+
+    const row = page.getByRole('row', { name: /Marcos Teixeira/ });
+    const billing = row.getByRole('switch', { name: 'Faturamento' });
+    await expect(billing).toHaveAttribute('aria-checked', 'false');
+    await expect(row.getByRole('switch', { name: 'Suporte' })).toHaveAttribute('aria-checked', 'true');
+    // Supervisão já atende todas as filas; somente leitura não pode entrar em fila.
+    await expect(page.getByRole('row', { name: /Rafael Lima/ }).getByRole('switch', { name: 'Faturamento' })).toBeDisabled();
+    await expect(page.getByRole('row', { name: /Diego Alves/ }).getByRole('switch', { name: 'Faturamento' })).toBeDisabled();
+
+    await billing.click();
+    await expect(billing).toHaveAttribute('aria-checked', 'true');
+
+    const agent = await loginAs(browser, 'suporte@graoforte.demo');
+    await agent.page.goto('/atendimento/faturamento');
+    await expect(agent.page.getByRole('heading', { name: 'Atendimento · Faturamento' })).toBeVisible();
+    await agent.context.close();
+
+    await billing.click();
+    await expect(billing).toHaveAttribute('aria-checked', 'false');
   });
 
   test('indicadores: time vê só a própria fila, supervisão compara as filas', async ({ page, browser }) => {
