@@ -15,9 +15,11 @@ export async function submitLogin(page: Page, email: string, secret: string, exp
     const responsePromise = page.waitForResponse((r) => r.url().includes('/api/auth/login') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Entrar' }).click();
     const response = await responsePromise;
-    if (response.status() === 429 && attempt < 4) {
+    // 502-504: proxy do Next enquanto a API reinicia (watch em dev, subida no CI).
+    const transient = [502, 503, 504].includes(response.status());
+    if ((response.status() === 429 || transient) && attempt < 4) {
       const headers = response.headers();
-      const wait = Number(headers['retry-after'] ?? headers['retry-after-default'] ?? 30);
+      const wait = transient ? 3 : Number(headers['retry-after'] ?? headers['retry-after-default'] ?? 30);
       await page.waitForTimeout((Number.isFinite(wait) && wait > 0 ? wait : 30) * 1000 + 500);
       continue;
     }
