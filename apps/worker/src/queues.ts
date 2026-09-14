@@ -35,6 +35,7 @@ export const ROUTES: Record<string, string[]> = {
   'auth.password_reset_requested': [QUEUE.EMAIL],
   'user.invited': [QUEUE.EMAIL],
   'order.published': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'order.publish_requested': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.version_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.release_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.release_cancelled': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],

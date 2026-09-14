@@ -2,6 +2,7 @@
 export const ACTION_LABELS: Record<string, string> = {
   'order.created': 'Ordem criada',
   'order.published': 'Ordem publicada',
+  'order.publish_requested': 'Publicação solicitada',
   'order.version_created': 'Nova versão da ordem',
   'order.release_created': 'Liberação criada',
   'order.release_cancelled': 'Liberação cancelada',
@@ -64,6 +65,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'role.archived': 'Papel arquivado',
   'role.restored': 'Papel restaurado',
   'tenant.security_policy_updated': 'Política de segurança alterada',
+  'tenant.workflow_updated': 'Workflow de publicação alterado',
   'report.exported': 'Relatório exportado',
   'auth.login.succeeded': 'Login realizado',
   'auth.login.failed': 'Falha de login',

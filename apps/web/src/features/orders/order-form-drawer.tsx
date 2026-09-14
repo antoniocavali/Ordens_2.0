@@ -13,7 +13,8 @@ import { ApiRequestError } from '@/lib/api';
 import { mulDec } from '@/lib/decimal';
 import { formatMoney, formatTime, parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { StatusBadge } from './indicators';
-import { createOrder, lookups, publishOrder, updateOrder, useInvalidateOrders, useUnits } from './orders-api';
+import { useCan } from '@/lib/session';
+import { createOrder, lookups, publishOrder, requestPublishOrder, updateOrder, useInvalidateOrders, useUnits } from './orders-api';
 
 // ───────────────────────────── Modelo do formulário ─────────────────────────────
 
@@ -173,6 +174,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
   const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
   const [confirmClose, setConfirmClose] = useState(false);
   const invalidate = useInvalidateOrders();
+  const can = useCan();
   const scrollRef = useRef<HTMLDivElement>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const currentRef = useRef<OrderDetail | null>(order);
@@ -257,11 +259,24 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watched]);
 
+  // Publicar direto ou pedir a publicação (Q40): sem order.publish, ou barrado pela dupla checagem após salvar.
+  const canPublish = can('order.publish');
+  const requestOnly = !canPublish || Boolean(current?.workflow?.blockedByFourEyes);
+
   const publish = useCallback(async () => {
     setPublishing(true);
     try {
       const saved = (await persist('manual')) as OrderDetail | null;
       if (!saved) throw new ApiRequestError(422, 'PUBLISH_REQUIREMENTS_MISSING', 'Preencha os dados comerciais antes de publicar.');
+      if (!saved.allowedActions.includes('publish') && saved.allowedActions.includes('request_publish')) {
+        const requested = await requestPublishOrder(saved.id, saved.updatedAt);
+        invalidate(requested);
+        toast.success(`Publicação da ordem ${requested.number} solicitada`, {
+          description: saved.workflow?.blockedByFourEyes ? 'Dupla checagem ativa: outra pessoa com permissão vai revisar e publicar.' : 'Quem pode publicar foi avisado.',
+        });
+        onClose();
+        return;
+      }
       const published = await publishOrder(saved.id, saved.updatedAt);
       invalidate(published);
       toast.success(`Ordem ${published.number} publicada`, { description: 'Fazenda e comprador foram notificados.' });
@@ -397,7 +412,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
               </Button>
               {isDraft ? (
                 <Button onClick={() => void publish()} loading={publishing}>
-                  {!publishing ? <Send /> : null} Salvar e publicar
+                  {!publishing ? <Send /> : null} {requestOnly ? 'Salvar e solicitar publicação' : 'Salvar e publicar'}
                 </Button>
               ) : null}
             </div>

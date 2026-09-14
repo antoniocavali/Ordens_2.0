@@ -62,6 +62,7 @@ export const createOrder = (data: OrderDraftInput) => post<OrderDetail>('/orders
 export const updateOrder = (id: string, expectedVersion: number, expectedUpdatedAt: string, data: OrderDraftInput) =>
   patch<OrderDetail>(`/orders/${id}`, { expectedVersion, expectedUpdatedAt, data });
 export const publishOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish`, { expectedUpdatedAt });
+export const requestPublishOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish-request`, { expectedUpdatedAt });
 
 export function useCreateRelease(orderId: string) {
   const invalidate = useInvalidateOrders();
