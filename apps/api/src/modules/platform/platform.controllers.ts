@@ -26,6 +26,7 @@ import { AppError } from '../../common/errors.js';
 import { actorMeta, currentAuth } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
+import { resolveAuditLabels } from './audit-labels.js';
 import { UsersService } from './users.service.js';
 
 const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
@@ -156,6 +157,7 @@ export class AuditController {
       const ids = [...new Set(rows.map((r) => r.actorUserId).filter((v): v is string => Boolean(v)))];
       const users = ids.length ? await tx.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
       const names = new Map(users.map((u) => [u.id, u.name]));
+      const labels = await resolveAuditLabels(tx, rows);
       return {
         total,
         page: q.page,
@@ -167,6 +169,7 @@ export class AuditController {
           actorRole: r.actorRole,
           entityType: r.entityType,
           entityId: r.entityId,
+          entityLabel: r.entityId ? (labels.get(`${r.entityType}:${r.entityId}`) ?? null) : null,
           action: r.action,
           before: r.before,
           after: r.after,
