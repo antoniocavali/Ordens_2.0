@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
 import { LoadsPage } from '@/features/logistics/loads-page';
+import { DocumentsPage } from '@/features/fiscal/documents-page';
+import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
 import { registerView, useInvalidateOrders, useOrder, useTimeline, useVersions, useViewHistory } from '@/features/orders/orders-api';
@@ -116,6 +118,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 ['resumo', 'Resumo'],
                 ['liberacoes', `Liberações (${o.releases.length})`],
                 ...(can('load.read') ? [['cargas', 'Cargas']] : []),
+                ...(can('occurrence.read') && o.status !== 'DRAFT' ? [['ocorrencias', 'Ocorrências']] : []),
                 ['versoes', 'Versões'],
                 ...(scope === 'MATRIZ' ? [['visualizacoes', 'Visualizações']] : []),
                 ['documentos', 'Documentos'],
@@ -214,6 +217,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </Suspense>
             </Tabs.Content>
 
+            <Tabs.Content value="ocorrencias" className="p-5 sm:p-6">
+              <OccurrencesPage embedded orderId={o.id} defaults={{ order: { id: o.id, label: o.number } }} />
+            </Tabs.Content>
+
             <Tabs.Content value="versoes" className="p-5 sm:p-6">
               <VersionsList id={o.id} />
             </Tabs.Content>
@@ -225,7 +232,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             ) : null}
 
             <Tabs.Content value="documentos" className="p-5 sm:p-6">
-              <UploadDropzone entityId={can('document.upload') ? o.id : null} disabledReason="Seu perfil não permite enviar documentos" />
+              <div className="space-y-4">
+                {can('document.upload') ? <UploadDropzone entityType="loading_order" entityId={o.id} showExisting={false} accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xlsx,.zip,.xml" /> : null}
+                <DocumentsPage embedded entityId={o.id} />
+              </div>
             </Tabs.Content>
           </Tabs.Root>
         </Card>

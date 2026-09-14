@@ -5,6 +5,7 @@ import { createContext } from './context.js';
 import { loadEnv } from './env.js';
 import { emailHandler } from './jobs/email.js';
 import { fileProcessingHandler } from './jobs/file-processing.js';
+import { invoiceProcessingHandler } from './jobs/invoice-processing.js';
 import { maintenanceHandler } from './jobs/maintenance.js';
 import { notificationsHandler } from './jobs/notifications.js';
 import { OutboxRelay } from './outbox-relay.js';
@@ -18,6 +19,7 @@ async function main() {
 
   const workers = [
     new Worker(QUEUE.FILE_PROCESSING, fileProcessingHandler(ctx), { connection, concurrency: 4 }),
+    new Worker(QUEUE.INVOICES, invoiceProcessingHandler(ctx), { connection, concurrency: 4 }),
     new Worker(QUEUE.EMAIL, emailHandler(ctx), { connection, concurrency: 5 }),
     new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx), { connection, concurrency: 10 }),
     new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx), { connection, concurrency: 1 }),

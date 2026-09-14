@@ -15,6 +15,9 @@ import { useCan } from '@/lib/session';
 import { FLEET_API_TO_FORM, FleetFields, fleetFromDto, fleetPayload, type FleetValues } from './fleet-fields';
 import { LoadStatusBadge, LoadStepper } from './load-status';
 import { useLoad, useLoadMutations } from './logistics-api';
+import { InvoiceList } from '@/features/fiscal/invoices-page';
+import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
+import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ReasonDialog } from './reason-dialog';
 
 interface Values extends FleetValues {
@@ -209,6 +212,35 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 </Field>
               </FormSection>
             </fieldset>
+
+            <FormSection title="NF-e da carga" description="Envie o XML autorizado: chave, emitente, placa e peso são conferidos automaticamente. Obrigatória para marcar como faturada pela Fazenda.">
+              <div className="space-y-3 sm:col-span-6">
+                {can('invoice.upload') && l.status !== 'CANCELLED' ? (
+                  <UploadDropzone
+                    entityType="load"
+                    entityId={l.id}
+                    accept=".xml,.pdf"
+                    title="Arraste o XML da NF-e (ou o DANFE em PDF)"
+                    hint="O XML é lido e validado; o PDF fica como anexo da carga"
+                    showExisting={false}
+                  />
+                ) : null}
+                <InvoiceList loadId={l.id} />
+              </div>
+            </FormSection>
+
+            {can('occurrence.read') ? (
+              <FormSection title="Ocorrências">
+                <div className="sm:col-span-6">
+                  <OccurrencesPage
+                    embedded
+                    orderId={l.order.id}
+                    loadId={l.id}
+                    defaults={{ order: { id: l.order.id, label: l.order.number }, load: { id: l.id, label: l.number } }}
+                  />
+                </div>
+              </FormSection>
+            ) : null}
 
             <FormSection title="Histórico">
               <ol className="space-y-3 sm:col-span-6">

@@ -48,14 +48,14 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Liberações', href: '/liberacoes', icon: PackageCheck, permission: 'order.read', soon: true },
       { label: 'Agendamentos', href: '/agendamentos', icon: CalendarClock, permission: 'appointment.read' },
       { label: 'Cargas', href: '/cargas', icon: Truck, permission: 'load.read' },
-      { label: 'Ocorrências', href: '/ocorrencias', icon: AlertTriangle, permission: 'occurrence.read', soon: true },
+      { label: 'Ocorrências', href: '/ocorrencias', icon: AlertTriangle, permission: 'occurrence.read' },
     ],
   },
   {
     label: 'Documentos',
     items: [
-      { label: 'Central de Documentos', href: '/documentos', icon: FileText, permission: 'document.read', soon: true },
-      { label: 'Notas Fiscais', href: '/documentos/nfe', icon: FileSpreadsheet, permission: 'document.read', soon: true },
+      { label: 'Central de Documentos', href: '/documentos', icon: FileText, permission: 'document.read' },
+      { label: 'Notas Fiscais', href: '/documentos/nfe', icon: FileSpreadsheet, permission: 'document.read' },
     ],
   },
   {

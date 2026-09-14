@@ -19,6 +19,7 @@ import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
+import { openOccurrence } from '../fiscal/fiscal.util.js';
 import { assertWithinReleased, fleetRefs, orderForLogistics, recalcOrder, resolveFleet } from './logistics.util.js';
 
 type LoadData = z.output<typeof loadInputSchema>;
@@ -169,9 +170,17 @@ export class LoadsService {
   transition(id: string, input: LoadTransitionInput & { expectedUpdatedAt: string }): Promise<LoadDto> {
     const auth = currentAuth();
     const scopeName = auth.membership!.scope;
-    return this.db.write(async ({ tx, audit, outbox }) => {
+    return this.db.write(async (scope) => {
+      const { tx, audit, outbox } = scope;
       const load = await this.lock(tx, id, input.expectedUpdatedAt);
       const to = input.to as LoadStatus;
+      if (to === 'FARM_INVOICED') {
+        // Q13: exige NF-e da Fazenda registrada (válida ou com divergência).
+        const invoices = await tx.invoice.count({ where: { loadId: id, origin: 'FARM', status: { in: ['VALID', 'DIVERGENT'] } } });
+        if (!invoices) {
+          throw AppError.domain(ErrorCode.INVOICE_REQUIRED, 'Anexe o XML da NF-e da Fazenda antes de marcar a carga como faturada.');
+        }
+      }
       if (!canTransitionLoad(load.status, to, scopeName)) {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, `Não é possível passar de "${LOAD_STATUS_LABELS[load.status]}" para "${LOAD_STATUS_LABELS[to]}" com seu perfil.`);
       }
@@ -205,6 +214,7 @@ export class LoadsService {
 
       await tx.load.update({ where: { id }, data });
       await tx.loadStatusHistory.create({ data: { tenantId: load.tenantId, loadId: id, fromStatus: load.status, toStatus: to, actorUserId: auth.userId, notes: input.notes ?? null } });
+      if (to === 'CHECKED') await this.openWeightDivergence(scope, id, auth.userId);
 
       const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId } });
       if (order.status === 'PUBLISHED' && !['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'CANCELLED'].includes(to)) {
@@ -221,6 +231,34 @@ export class LoadsService {
   }
 
   // ───────────────────────────── Internos ─────────────────────────────
+
+  /** Q17: recebido (em kg) fora da tolerância do peso líquido abre ocorrência automática visível à Fazenda. */
+  private async openWeightDivergence(scope: UnitOfWorkScope, loadId: string, userId: string) {
+    const { tx } = scope;
+    const load = await tx.load.findUniqueOrThrow({ where: { id: loadId } });
+    if (!load.netKg || !load.receivedQty) return;
+    const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId }, select: { tenantId: true, tolerancePct: true, unitId: true } });
+    const unit = order.unitId ? await tx.unit.findUnique({ where: { id: order.unitId }, select: { factorToKg: true } }) : null;
+    const receivedKg = new D(load.receivedQty).times(unit?.factorToKg ?? 1);
+    const diff = receivedKg.minus(load.netKg);
+    const limit = new D(load.netKg).times(D.max(order.tolerancePct, new D('0.5'))).dividedBy(100);
+    if (diff.abs().lessThanOrEqualTo(limit)) return;
+    const kg = (v: Prisma.Decimal) => v.toDecimalPlaces(0).toString();
+    await openOccurrence(scope, {
+      tenantId: order.tenantId,
+      orderId: load.orderId,
+      loadId,
+      type: 'WEIGHT_DIVERGENCE',
+      severity: 'MEDIUM',
+      title: `Divergência de ${kg(diff)} kg na carga ${load.number}`,
+      description: `Peso líquido carregado: ${kg(new D(load.netKg))} kg. Recebido: ${kg(receivedKg)} kg. Limite pela tolerância: ${kg(limit)} kg.`,
+      visibility: 'FARM',
+      responsibleUserId: null,
+      dueOn: null,
+      source: 'SYSTEM',
+      createdBy: userId,
+    });
+  }
 
   private weights(gross: string | null, tare: string | null) {
     if (gross && tare && new D(gross).lessThan(tare)) {

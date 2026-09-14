@@ -7,7 +7,7 @@ import { CheckCircle2, FileText, Loader2, RotateCcw, ShieldAlert, UploadCloud, X
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef, useState, type DragEvent } from 'react';
 import { ApiRequestError, get } from '@/lib/api';
-import { uploadFile } from './uploader';
+import { uploadFile, type UploadEntityType } from './uploader';
 
 interface QueueItem {
   key: string;
@@ -29,16 +29,32 @@ const STATUS_LABEL: Record<string, string> = {
 const fmtSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 /** Envio de documentos com fila visual, progresso individual, cancelamento e retentativa. */
-export function UploadDropzone({ entityId, disabledReason }: { entityId: string | null; disabledReason?: string }) {
+export function UploadDropzone({
+  entityType = 'loading_order',
+  entityId,
+  disabledReason,
+  accept = '.pdf,.xml,.jpg,.jpeg,.png,.webp,.csv,.xlsx,.zip',
+  title = 'Arraste arquivos ou clique para selecionar',
+  hint = 'PDF, imagens, planilhas e XML · envio direto e seguro para o armazenamento',
+  showExisting = true,
+}: {
+  entityType?: UploadEntityType;
+  entityId: string | null;
+  disabledReason?: string;
+  accept?: string;
+  title?: string;
+  hint?: string;
+  showExisting?: boolean;
+}) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
 
   const existing = useQuery({
-    queryKey: ['uploads', entityId],
-    queryFn: () => get<UploadDto[]>('/uploads', { entityType: 'loading_order', entityId }),
-    enabled: Boolean(entityId),
+    queryKey: ['uploads', entityType, entityId],
+    queryFn: () => get<UploadDto[]>('/uploads', { entityType, entityId }),
+    enabled: Boolean(entityId) && showExisting,
     refetchInterval: (q) => (q.state.data?.some((u) => u.status === 'UPLOADED' || u.status === 'PROCESSING') ? 2000 : false),
   });
 
@@ -49,14 +65,16 @@ export function UploadDropzone({ entityId, disabledReason }: { entityId: string 
       setQueue((q) => [...q.filter((i) => i.key !== key), { key, file, loaded: 0, status: 'uploading', controller }]);
       uploadFile({
         file,
-        entityType: 'loading_order',
+        entityType,
         entityId,
         signal: controller.signal,
         onProgress: ({ loaded }) => setQueue((q) => q.map((i) => (i.key === key ? { ...i, loaded } : i))),
       })
         .then(() => {
           setQueue((q) => q.map((i) => (i.key === key ? { ...i, status: 'done', loaded: file.size } : i)));
-          void qc.invalidateQueries({ queryKey: ['uploads', entityId] });
+          void qc.invalidateQueries({ queryKey: ['uploads', entityType, entityId] });
+          // NF-e e central de documentos são atualizadas pelo worker logo após a verificação.
+          void qc.invalidateQueries({ queryKey: ['fiscal'] });
           setTimeout(() => setQueue((q) => q.filter((i) => i.key !== key)), 1500);
         })
         .catch((err: Error) => {
@@ -68,7 +86,7 @@ export function UploadDropzone({ entityId, disabledReason }: { entityId: string 
           );
         });
     },
-    [entityId, qc],
+    [entityId, entityType, qc],
   );
 
   const onFiles = (files: FileList | null) => files && Array.from(files).forEach((f) => start(f));
@@ -104,9 +122,9 @@ export function UploadDropzone({ entityId, disabledReason }: { entityId: string 
         <motion.div animate={dragging ? { y: -4, scale: 1.05 } : { y: 0, scale: 1 }} className="grid size-10 place-items-center rounded-full bg-primary-soft text-primary">
           <UploadCloud className="size-5" />
         </motion.div>
-        <div className="text-sm font-medium">{entityId ? 'Arraste arquivos ou clique para selecionar' : (disabledReason ?? 'Indisponível')}</div>
-        <div className="text-xs text-subtle">PDF, XML de NF-e, imagens e planilhas · envio direto e seguro para o armazenamento</div>
-        <input ref={input} type="file" multiple hidden onChange={(e) => onFiles(e.target.files)} accept=".pdf,.xml,.jpg,.jpeg,.png,.webp,.csv,.xlsx,.zip" />
+        <div className="text-sm font-medium">{entityId ? title : (disabledReason ?? 'Indisponível')}</div>
+        <div className="text-xs text-subtle">{hint}</div>
+        <input ref={input} type="file" multiple hidden onChange={(e) => onFiles(e.target.files)} accept={accept} />
       </div>
 
       {queue.length > 1 ? (
@@ -150,22 +168,24 @@ export function UploadDropzone({ entityId, disabledReason }: { entityId: string 
             </motion.li>
           ))}
         </AnimatePresence>
-        {existing.data?.map((u) => (
-          <li key={u.id} className="flex items-center gap-3 rounded-md px-3 py-2 ring-1 ring-border/70">
-            {u.status === 'AVAILABLE' ? (
-              <FileText className="size-4 text-primary" />
-            ) : u.status === 'REJECTED' || u.status === 'INFECTED' ? (
-              <ShieldAlert className="size-4 text-danger" />
-            ) : (
-              <Loader2 className="size-4 animate-spin text-muted" />
-            )}
-            <span className="min-w-0 flex-1 truncate text-sm">{u.fileName}</span>
-            <span className="text-xs text-subtle">{fmtSize(Number(u.sizeBytes))}</span>
-            <span className={cn('text-xs', u.status === 'AVAILABLE' ? 'text-success' : u.status === 'REJECTED' || u.status === 'INFECTED' ? 'text-danger' : 'text-muted')}>
-              {STATUS_LABEL[u.status] ?? u.status}
-            </span>
-          </li>
-        ))}
+        {showExisting
+          ? existing.data?.map((u) => (
+              <li key={u.id} className="flex items-center gap-3 rounded-md px-3 py-2 ring-1 ring-border/70">
+                {u.status === 'AVAILABLE' ? (
+                  <FileText className="size-4 text-primary" />
+                ) : u.status === 'REJECTED' || u.status === 'INFECTED' ? (
+                  <ShieldAlert className="size-4 text-danger" />
+                ) : (
+                  <Loader2 className="size-4 animate-spin text-muted" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm">{u.fileName}</span>
+                <span className="text-xs text-subtle">{fmtSize(Number(u.sizeBytes))}</span>
+                <span className={cn('text-xs', u.status === 'AVAILABLE' ? 'text-success' : u.status === 'REJECTED' || u.status === 'INFECTED' ? 'text-danger' : 'text-muted')}>
+                  {STATUS_LABEL[u.status] ?? u.status}
+                </span>
+              </li>
+            ))
+          : null}
       </ul>
     </div>
   );

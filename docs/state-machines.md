@@ -84,4 +84,25 @@ stateDiagram-v2
 | COMPLETED | Concluída | MATRIZ | — |
 | CANCELLED | Cancelada | MATRIZ (FARM antes de LOADING) | estorna scheduled; +cancelled |
 
+## NF-e
+
+`VALID | DIVERGENT` são ativas (contam para o faturamento; uma chave ativa por tenant). `REJECTED` (XML inválido, não é NF-e, chave inválida, protocolo divergente, não autorizada, chave duplicada) e `CANCELLED` (cancelamento lógico com motivo) não contam. Fazenda cancela a própria nota até `AWAITING_FARM_INVOICE`; depois disso, só a Matriz. Nenhuma nota é apagada.
+
+## Ocorrência
+
+```mermaid
+stateDiagram-v2
+  [*] --> OPEN: Matriz ou Fazenda (ou sistema)
+  OPEN --> IN_PROGRESS: Matriz ou Fazenda
+  OPEN --> RESOLVED: Matriz (solução obrigatória)
+  IN_PROGRESS --> RESOLVED: Matriz (solução obrigatória)
+  OPEN --> CANCELLED: Matriz (motivo obrigatório)
+  IN_PROGRESS --> CANCELLED: Matriz (motivo obrigatório)
+  RESOLVED --> OPEN: Matriz reabre
+```
+
+Numeração `OCR-AAAA-NNNN` por tenant. Visibilidade por ocorrência (`INTERNAL`, `FARM`, `BUYER`, `PARTIES`); Fazenda só grava ocorrências visíveis a ela e não encerra (Q14, trigger `occurrences_farm_guard`).
+
+Guardas fiscais (Fase 8): `FARM_INVOICED` exige NF-e da Fazenda registrada na carga com status Válida ou Com divergência (`INVOICE_REQUIRED`, Q13). Em `CHECKED`, recebido (convertido para kg) fora da tolerância do peso líquido abre ocorrência automática "Divergência de peso", visível à Fazenda (Q17).
+
 Guardas: carregamento que ultrapasse `released_qty × (1 + tolerance_pct)` é bloqueado com erro de domínio `QUANTITY_EXCEEDS_RELEASED` (sem regra silenciosa). O workflow é configurável no futuro por tabela de transições por tenant; no MVP a tabela é código versionado.

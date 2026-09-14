@@ -234,9 +234,118 @@ describe('logística', () => {
 
   it('Fazenda recalcula totais, mas não altera campos comerciais da ordem', async () => {
     await db.run(farm(A, 0), (tx) => tx.$executeRaw`select recalc_order_quantities(${A.published[0]}::uuid)`);
+    // Regressão: o recálculo sob RLS da Fazenda não pode apagar a organização do Comprador (ela não a enxerga).
+    const order = await db.run(matriz(A), (tx) => tx.loadingOrder.findUniqueOrThrow({ where: { id: A.published[0] } }));
+    expect(order.sellerOrgId).toBe(A.farmOrgs[0]);
+    expect(order.buyerOrgId).toBe(A.buyerOrgs[0]);
     await expect(
       db.run(farm(A, 0), (tx) => tx.loadingOrder.update({ where: { id: A.published[0] }, data: { quantity: '999' } })),
     ).rejects.toThrow(/totais operacionais|42501|permission/i);
+  });
+});
+
+describe('fiscal, ocorrências e documentos', () => {
+  let sequence = 100;
+  const digits = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('');
+  const newLoad = (f: TenantFixture, i: 0 | 1) =>
+    db.run(matriz(f), (tx) =>
+      tx.load.create({ data: { tenantId: f.tenantId, orderId: f.published[i], number: `F-${randomUUID().slice(0, 8)}`, sequence: sequence++, expectedQty: '30' } }),
+    );
+  const invoiceData = (f: TenantFixture, loadId: string, status: 'VALID' | 'REJECTED' = 'VALID') => ({
+    tenantId: f.tenantId,
+    loadId,
+    orderId: f.published[0],
+    origin: 'FARM' as const,
+    status,
+    accessKey: status === 'REJECTED' ? null : digits(44),
+    number: status === 'REJECTED' ? null : '1',
+  });
+  const occurrenceData = (f: TenantFixture, visibility: 'INTERNAL' | 'FARM' | 'BUYER' | 'PARTIES') => ({
+    tenantId: f.tenantId,
+    orderId: f.published[0],
+    number: `OCR-${randomUUID().slice(0, 8)}`,
+    type: 'QUALITY' as const,
+    title: `Teste ${visibility}`,
+    visibility,
+  });
+
+  it('Fazenda e Comprador não inserem NF-e diretamente', async () => {
+    const load = await newLoad(A, 0);
+    await expect(db.run(farm(A, 0), (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }))).rejects.toThrow(/row-level security/);
+    await expect(db.run(buyer(A, 0), (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }))).rejects.toThrow(/row-level security/);
+  });
+
+  it('Comprador lê só NF-e válidas da própria ordem; Fazenda lê as da própria organização', async () => {
+    const load = await newLoad(A, 0);
+    const valid = await db.run(systemContext(A.tenantId), (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }));
+    const rejected = await db.run(systemContext(A.tenantId), (tx) => tx.invoice.create({ data: invoiceData(A, load.id, 'REJECTED') }));
+    const ids = async (ctx: DbContext) => (await db.run(ctx, (tx) => tx.invoice.findMany({ where: { loadId: load.id }, select: { id: true } }))).map((r) => r.id);
+    expect(await ids(buyer(A, 0))).toEqual([valid.id]);
+    expect(await ids(farm(A, 0))).toEqual(expect.arrayContaining([valid.id, rejected.id]));
+    expect(await ids(farm(A, 1))).toHaveLength(0);
+    expect(await ids(buyer(A, 1))).toHaveLength(0);
+    expect(await ids(matriz(B))).toHaveLength(0);
+  });
+
+  it('Fazenda só cancela a própria NF-e e ninguém apaga', async () => {
+    const load = await newLoad(A, 0);
+    const invoice = await db.run(systemContext(A.tenantId), (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }));
+    await expect(db.run(farm(A, 0), (tx) => tx.invoice.update({ where: { id: invoice.id }, data: { number: '999' } }))).rejects.toThrow(/Fazenda só pode cancelar/);
+    const cancelled = await db.run(farm(A, 0), (tx) => tx.invoice.update({ where: { id: invoice.id }, data: { status: 'CANCELLED', cancelReason: 'erro' } }));
+    expect(cancelled.status).toBe('CANCELLED');
+    await expect(db.run(matriz(A), (tx) => tx.$executeRaw`delete from invoices where id = ${invoice.id}::uuid`)).rejects.toThrow(/permission denied/);
+  });
+
+  it('ocorrências respeitam a visibilidade para Fazenda e Comprador', async () => {
+    const created = await db.run(matriz(A), async (tx) => ({
+      internal: await tx.occurrence.create({ data: occurrenceData(A, 'INTERNAL') }),
+      farm: await tx.occurrence.create({ data: occurrenceData(A, 'FARM') }),
+      parties: await tx.occurrence.create({ data: occurrenceData(A, 'PARTIES') }),
+    }));
+    const all = [created.internal.id, created.farm.id, created.parties.id];
+    const ids = async (ctx: DbContext) => (await db.run(ctx, (tx) => tx.occurrence.findMany({ where: { id: { in: all } }, select: { id: true } }))).map((r) => r.id).sort();
+    expect(await ids(farm(A, 0))).toEqual([created.farm.id, created.parties.id].sort());
+    expect(await ids(buyer(A, 0))).toEqual([created.parties.id]);
+    expect(await ids(farm(A, 1))).toHaveLength(0);
+  });
+
+  it('Fazenda abre ocorrência visível a ela, mas não interna e não a encerra; Comprador não abre', async () => {
+    await expect(db.run(farm(A, 0), (tx) => tx.occurrence.create({ data: occurrenceData(A, 'INTERNAL') }))).rejects.toThrow(/row-level security/);
+    const own = await db.run(farm(A, 0), (tx) => tx.occurrence.create({ data: occurrenceData(A, 'FARM') }));
+    await expect(
+      db.run(farm(A, 0), (tx) => tx.occurrence.update({ where: { id: own.id }, data: { status: 'RESOLVED', resolution: 'ok' } })),
+    ).rejects.toThrow(/Somente a Matriz/);
+    await expect(db.run(buyer(A, 0), (tx) => tx.occurrence.create({ data: occurrenceData(A, 'PARTIES') }))).rejects.toThrow(/row-level security|Ordem inexistente/);
+  });
+
+  it('documentos compartilhados aparecem só para as partes da ordem', async () => {
+    const upload = (visibility: 'INTERNAL' | 'PARTIES') => ({
+      tenantId: A.tenantId,
+      organizationId: A.matrizOrg,
+      entityType: 'loading_order',
+      entityId: A.published[0],
+      kind: 'PDF' as const,
+      originalName: `${visibility}.pdf`,
+      declaredMime: 'application/pdf',
+      sizeBytes: 10n,
+      bucket: 'ordens-documents',
+      objectKey: `t/${A.tenantId}/test/${randomUUID()}`,
+      idempotencyKey: randomUUID(),
+      createdBy: randomUUID(),
+      status: 'AVAILABLE' as const,
+      visibility,
+    });
+    const docs = await db.run(matriz(A), async (tx) => ({
+      internal: await tx.fileUpload.create({ data: upload('INTERNAL') }),
+      parties: await tx.fileUpload.create({ data: upload('PARTIES') }),
+    }));
+    expect(docs.parties.sellerOrgId).toBe(A.farmOrgs[0]);
+    const ids = async (ctx: DbContext) =>
+      (await db.run(ctx, (tx) => tx.fileUpload.findMany({ where: { id: { in: [docs.internal.id, docs.parties.id] } }, select: { id: true } }))).map((r) => r.id);
+    expect(await ids(buyer(A, 0))).toEqual([docs.parties.id]);
+    expect(await ids(farm(A, 0))).toEqual([docs.parties.id]);
+    expect(await ids(farm(A, 1))).toHaveLength(0);
+    expect(await ids(buyer(A, 1))).toHaveLength(0);
   });
 });
 

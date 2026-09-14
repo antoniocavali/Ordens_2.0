@@ -6,6 +6,9 @@ export interface UploadProgress {
   total: number;
 }
 
+/** Entidades que aceitam anexos pela interface. */
+export type UploadEntityType = 'loading_order' | 'load' | 'occurrence';
+
 const PART_CONCURRENCY = 4;
 const MAX_RETRIES = 4;
 
@@ -42,9 +45,10 @@ function guessMime(file: File): string {
   return ({ xml: 'application/xml', pdf: 'application/pdf', csv: 'text/csv', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' } as Record<string, string>)[ext ?? ''] ?? 'application/octet-stream';
 }
 
-export function kindForFile(file: File): DocumentKind {
+/** XML só é tratado como NF-e quando anexado a uma carga (a API recusa NF-e em outras entidades). */
+export function kindForFile(file: File, entityType: UploadEntityType): DocumentKind {
   const ext = file.name.split('.').pop()?.toLowerCase();
-  if (ext === 'xml') return 'NFE_XML';
+  if (ext === 'xml') return entityType === 'load' ? 'NFE_XML' : 'OTHER';
   if (ext === 'pdf') return 'PDF';
   if (['jpg', 'jpeg', 'png', 'webp'].includes(ext ?? '')) return 'IMAGE';
   if (['csv', 'xlsx'].includes(ext ?? '')) return 'SPREADSHEET';
@@ -57,7 +61,7 @@ export function kindForFile(file: File): DocumentKind {
  */
 export async function uploadFile(opts: {
   file: File;
-  entityType: 'loading_order';
+  entityType: UploadEntityType;
   entityId: string;
   onProgress: (p: UploadProgress) => void;
   signal: AbortSignal;
@@ -67,7 +71,7 @@ export async function uploadFile(opts: {
   const init = await post<InitiateUploadResponse>('/uploads', {
     entityType: opts.entityType,
     entityId: opts.entityId,
-    kind: kindForFile(file),
+    kind: kindForFile(file, opts.entityType),
     fileName: file.name,
     sizeBytes: file.size,
     mimeType: guessMime(file),

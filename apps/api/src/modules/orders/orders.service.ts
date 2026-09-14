@@ -51,8 +51,14 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.appointment_created': 'Agendamento realizado',
   'order.load_created': 'Carga criada',
   'order.load_status': 'Carga atualizada',
+  'order.invoice_attached': 'NF-e anexada',
+  'order.invoice_cancelled': 'NF-e cancelada',
+  'order.occurrence_opened': 'Ocorrência aberta',
+  'order.occurrence_status': 'Ocorrência atualizada',
+  'order.occurrence_resolved': 'Ocorrência resolvida',
 };
 
+// Ocorrências ficam fora da timeline externa: a visibilidade é por ocorrência (ver aba Ocorrências).
 const EXTERNAL_TIMELINE = new Set([
   'order.published',
   'order.version_created',
@@ -60,6 +66,8 @@ const EXTERNAL_TIMELINE = new Set([
   'order.appointment_created',
   'order.load_created',
   'order.load_status',
+  'order.invoice_attached',
+  'order.invoice_cancelled',
 ]);
 
 /** Serializa valores para comparação/snapshot (decimais normalizados, datas AAAA-MM-DD). */
@@ -684,6 +692,6 @@ export class OrdersService {
 function pickPublicContext(after: unknown): Record<string, unknown> | null {
   if (!after || typeof after !== 'object') return null;
   const a = after as Record<string, unknown>;
-  const allowed = ['version', 'sequence', 'quantity', 'validUntil', 'releasedTotal', 'loadNumber', 'statusLabel', 'scheduledOn', 'plates'];
+  const allowed = ['version', 'sequence', 'quantity', 'validUntil', 'releasedTotal', 'loadNumber', 'statusLabel', 'scheduledOn', 'plates', 'number'];
   return Object.fromEntries(Object.entries(a).filter(([k]) => allowed.includes(k)));
 }
