@@ -21,9 +21,9 @@ export default function TwoFactorPage() {
     setError(null);
     setLoading(true);
     try {
-      await post<LoginResponse>('/auth/2fa/verify', { code });
+      const res = await post<LoginResponse>('/auth/2fa/verify', { code });
       qc.clear();
-      router.replace('/');
+      router.replace(res.stage === 'PENDING_PASSWORD_CHANGE' ? '/login/nova-senha' : '/');
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 401 && err.code === 'UNAUTHENTICATED') router.replace('/login?expirada=1');
       setError(err instanceof ApiRequestError ? err.message : 'Não foi possível validar o código.');

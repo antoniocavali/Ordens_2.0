@@ -3,7 +3,12 @@ import {
   canTransitionLoad,
   canTransitionOrder,
   compareDecimalStrings,
+  effectivePermissions,
+  GRANTABLE_PERMISSIONS,
   orderDraftSchema,
+  PERMISSION_CODES,
+  PERMISSION_GROUPS,
+  permissionsAllowedForScope,
   permissionsForRoles,
   quantityString,
   ROLES,
@@ -40,6 +45,39 @@ describe('permissões', () => {
   it('atendente não opera logística nem cadastros', () => {
     const perms = [...permissionsForRoles(['MATRIZ_SUPPORT_AGENT'])];
     expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload') || (p.startsWith('order.') && p !== 'order.read'))).toBe(false);
+  });
+});
+
+describe('papéis personalizados e concessões', () => {
+  it('permissões efetivas somam papéis do sistema e extras conhecidos', () => {
+    const perms = effectivePermissions(['MATRIZ_VIEWER'], ['user.password.manage', 'inexistente.qualquer']);
+    expect(perms.has('order.read')).toBe(true);
+    expect(perms.has('user.password.manage')).toBe(true);
+    expect([...perms]).not.toContain('inexistente.qualquer');
+  });
+
+  it('papel personalizado não herda poderes de outro tipo de organização', () => {
+    const farm = permissionsAllowedForScope('FARM');
+    expect(farm).toContain('load.manage');
+    expect(farm).not.toContain('order.create');
+    expect(farm).not.toContain('role.manage');
+    expect(farm).not.toContain('user.password.manage');
+    expect(permissionsAllowedForScope('BUYER')).not.toContain('load.manage');
+    expect(permissionsAllowedForScope('MATRIZ')).toEqual(expect.arrayContaining(['role.manage', 'user.password.manage', 'support.manage']));
+    expect(permissionsAllowedForScope('MATRIZ')).not.toContain('tenant.manage');
+  });
+
+  it('só administrador Matriz tem senha e papéis por padrão; concessão individual é só de senha', () => {
+    expect(permissionsForRoles(['MATRIZ_ADMIN']).has('role.manage')).toBe(true);
+    expect(permissionsForRoles(['MATRIZ_ADMIN']).has('user.password.manage')).toBe(true);
+    for (const role of ['MATRIZ_MANAGER', 'MATRIZ_OPERATOR', 'FARM_ADMIN'] as const) {
+      expect(permissionsForRoles([role]).has('user.password.manage')).toBe(false);
+      expect(permissionsForRoles([role]).has('role.manage')).toBe(false);
+    }
+    expect([...GRANTABLE_PERMISSIONS]).toEqual(['user.password.manage']);
+    const grouped = PERMISSION_GROUPS.flatMap((g) => g.permissions);
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect(PERMISSION_CODES.filter((p) => p !== 'tenant.manage' && !grouped.includes(p))).toEqual([]);
   });
 });
 

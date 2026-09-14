@@ -1,11 +1,27 @@
 'use client';
 
+import type { RoleDto } from '@ordens/contracts';
 import { cn } from '@ordens/ui';
-import { rolesForKind } from './roles';
+import { roleHint } from './roles';
 
-/** Seleção de papéis compatíveis com o tipo da organização. */
-export function RolePicker({ kind, value, onChange, disabled, error }: { kind: string; value: string[]; onChange: (roles: string[]) => void; disabled?: boolean; error?: string }) {
-  const options = rolesForKind(kind);
+/** Seleção de papéis (do sistema e personalizados) compatíveis com o tipo da organização. */
+export function RolePicker({
+  kind,
+  roles,
+  value,
+  onChange,
+  disabled,
+  error,
+}: {
+  kind: string;
+  roles: readonly RoleDto[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+  disabled?: boolean;
+  error?: string;
+}) {
+  // Papel arquivado continua visível só para quem já o tem (permite remover).
+  const options = roles.filter((r) => r.scope === kind && (r.status === 'ACTIVE' || value.includes(r.id)));
   if (!options.length) {
     return (
       <div className="space-y-1">
@@ -22,10 +38,10 @@ export function RolePicker({ kind, value, onChange, disabled, error }: { kind: s
     <fieldset className="space-y-2" disabled={disabled}>
       <legend className="sr-only">Papéis</legend>
       {options.map((o) => {
-        const checked = value.includes(o.code);
+        const checked = value.includes(o.id);
         return (
           <label
-            key={o.code}
+            key={o.id}
             className={cn(
               'flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 ring-1 transition',
               checked ? 'bg-primary-soft/50 ring-primary/40' : 'ring-border hover:bg-surface-2',
@@ -36,11 +52,16 @@ export function RolePicker({ kind, value, onChange, disabled, error }: { kind: s
               type="checkbox"
               className="mt-0.5 size-4 accent-[var(--color-primary)]"
               checked={checked}
-              onChange={(e) => onChange(e.target.checked ? [...value, o.code] : value.filter((r) => r !== o.code))}
+              disabled={o.status !== 'ACTIVE' && !checked}
+              onChange={(e) => onChange(e.target.checked ? [...value, o.id] : value.filter((r) => r !== o.id))}
             />
             <span className="min-w-0">
-              <span className="block text-sm font-medium">{o.name}</span>
-              {o.hint ? <span className="block text-xs text-muted">{o.hint}</span> : null}
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                {o.name}
+                {!o.system ? <span className="rounded bg-primary-soft px-1.5 text-[10.5px] font-medium text-primary">Personalizado</span> : null}
+                {o.status !== 'ACTIVE' ? <span className="rounded bg-neutral-soft px-1.5 text-[10.5px] font-medium text-muted">Arquivado</span> : null}
+              </span>
+              <span className="block text-xs text-muted">{roleHint(o)}</span>
             </span>
           </label>
         );

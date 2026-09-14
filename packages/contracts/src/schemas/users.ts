@@ -1,13 +1,21 @@
 import { z } from 'zod';
-import { ROLE_CODES } from '../permissions.js';
+import { GRANTABLE_PERMISSIONS, ROLE_CODES } from '../permissions.js';
 import { THEMES } from '../enums.js';
+import { passwordSchema } from './auth.js';
 
-export const inviteUserSchema = z.object({
-  email: z.email().max(254).transform((v) => v.toLowerCase()),
-  name: z.string().trim().min(2).max(120),
-  organizationId: z.uuid(),
-  roles: z.array(z.enum(ROLE_CODES as [string, ...string[]])).min(1),
-});
+const systemRoles = z.array(z.enum(ROLE_CODES as [string, ...string[]]));
+const customRoleIds = z.array(z.uuid()).max(20);
+
+export const inviteUserSchema = z
+  .object({
+    email: z.email().max(254).transform((v) => v.toLowerCase()),
+    name: z.string().trim().min(2).max(120),
+    organizationId: z.uuid(),
+    roles: systemRoles.default([]),
+    /** Papéis personalizados do tenant (Q35). */
+    customRoleIds: customRoleIds.default([]),
+  })
+  .refine((v) => v.roles.length + v.customRoleIds.length > 0, { message: 'Selecione ao menos um papel', path: ['roles'] });
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
 
 export const userListQuery = z.object({
@@ -21,9 +29,17 @@ export const userListQuery = z.object({
 export type UserListQuery = z.infer<typeof userListQuery>;
 
 export const updateMembershipSchema = z.object({
-  roles: z.array(z.enum(ROLE_CODES as [string, ...string[]])).min(1).optional(),
+  roles: systemRoles.optional(),
+  customRoleIds: customRoleIds.optional(),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
+export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
+
+/** Concessões individuais do acesso (lista completa desejada). */
+export const membershipGrantsSchema = z.object({ permissions: z.array(z.enum(GRANTABLE_PERMISSIONS)) });
+
+/** Senha provisória definida por quem tem `user.password.manage`. */
+export const temporaryPasswordSchema = z.object({ temporaryPassword: passwordSchema });
 
 export const updateSecurityPolicySchema = z.object({
   require2fa: z.boolean(),
@@ -64,11 +80,16 @@ export interface UserListItem {
   organization: { id: string; name: string; kind: string };
   scope: string;
   roles: string[];
+  customRoles: { id: string; name: string; status: 'ACTIVE' | 'ARCHIVED' }[];
+  /** Concessões individuais (Q34). */
+  grants: string[];
   status: string;
   twoFactorEnabled: boolean;
   lastLoginAt: string | null;
   /** Convidado que ainda não definiu a senha. */
   invitePending: boolean;
+  /** Senha provisória definida: troca pendente no próximo acesso. */
+  mustChangePassword: boolean;
 }
 
 export interface InviteUserResult {

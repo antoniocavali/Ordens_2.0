@@ -43,9 +43,11 @@ export function useSessionGuard() {
     const err = me.error;
     if (err instanceof ApiRequestError) {
       if (err.code === 'TWO_FACTOR_REQUIRED') router.replace('/login/2fa');
+      else if (err.code === 'PASSWORD_CHANGE_REQUIRED') router.replace('/login/nova-senha');
       else if (err.status === 401) router.replace('/login');
     }
-    if (me.data?.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
+    if (me.data?.stage === 'PENDING_PASSWORD_CHANGE') router.replace('/login/nova-senha');
+    else if (me.data?.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
   }, [me.error, me.data, router]);
 
   const theme = me.data?.user.theme;

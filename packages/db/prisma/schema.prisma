@@ -52,6 +52,7 @@ enum RecordStatus {
 enum SessionStage {
   PENDING_2FA
   PENDING_2FA_SETUP
+  PENDING_PASSWORD_CHANGE
   ACTIVE
 
   @@map("session_stage")
@@ -271,6 +272,8 @@ model User {
   isPlatformAdmin  Boolean      @default(false) @map("is_platform_admin")
   /// Espelho de two_factor_credentials.confirmed_at, legível por administradores (credenciais ficam sob RLS do próprio usuário).
   twoFactorEnabled Boolean      @default(false) @map("two_factor_enabled")
+  /// Senha provisória definida por administrador: troca obrigatória no próximo acesso.
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
   status           RecordStatus @default(ACTIVE)
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -301,6 +304,8 @@ model Membership {
   organization Organization     @relation(fields: [organizationId], references: [id])
   roles        MembershipRole[]
   supportQueues SupportQueueMember[]
+  customRoles   MembershipCustomRole[]
+  permissionGrants MembershipPermissionGrant[]
 
   @@unique([userId, organizationId])
   @@index([tenantId, organizationId])
@@ -332,10 +337,80 @@ model Role {
   @@map("roles")
 }
 
+enum CustomRoleStatus {
+  ACTIVE
+  ARCHIVED
+
+  @@map("custom_role_status")
+}
+
+/// Papel personalizado do tenant (Q35). Papéis do sistema ficam em `roles` (catálogo fixo).
+model TenantRole {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String           @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  scope       Scope
+  status      CustomRoleStatus @default(ACTIVE)
+  createdBy   String?          @map("created_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  permissions TenantRolePermission[]
+  memberships MembershipCustomRole[]
+
+  @@index([tenantId, scope])
+  @@map("tenant_roles")
+}
+
+model TenantRolePermission {
+  roleId         String @map("role_id") @db.Uuid
+  tenantId       String @map("tenant_id") @db.Uuid
+  permissionCode String @map("permission_code")
+
+  role       TenantRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionCode], references: [code])
+
+  @@id([roleId, permissionCode])
+  @@map("tenant_role_permissions")
+}
+
+model MembershipCustomRole {
+  membershipId String   @map("membership_id") @db.Uuid
+  roleId       String   @map("role_id") @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       TenantRole @relation(fields: [roleId], references: [id])
+
+  @@id([membershipId, roleId])
+  @@index([tenantId, roleId])
+  @@map("membership_custom_roles")
+}
+
+/// Permissão concedida individualmente a um acesso da Matriz (Q34).
+model MembershipPermissionGrant {
+  membershipId   String   @map("membership_id") @db.Uuid
+  permissionCode String   @map("permission_code")
+  tenantId       String   @map("tenant_id") @db.Uuid
+  grantedBy      String?  @map("granted_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionCode], references: [code])
+
+  @@id([membershipId, permissionCode])
+  @@index([tenantId])
+  @@map("membership_permission_grants")
+}
+
 model Permission {
   code        String           @id
   description String
   roles       RolePermission[]
+  tenantRoles TenantRolePermission[]
+  grants      MembershipPermissionGrant[]
 
   @@map("permissions")
 }

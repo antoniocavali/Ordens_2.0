@@ -349,6 +349,38 @@ describe('fiscal, ocorrências e documentos', () => {
   });
 });
 
+describe('papéis personalizados e concessões', () => {
+  it('papel personalizado fica no tenant e só a Matriz cria', async () => {
+    const role = await db.run(matriz(A), (tx) => tx.tenantRole.create({ data: { tenantId: A.tenantId, name: `RLS papel ${randomUUID().slice(0, 8)}`, scope: 'FARM' } }));
+    expect(await db.run(matriz(B), (tx) => tx.tenantRole.findMany({ where: { id: role.id } }))).toHaveLength(0);
+    expect(await db.run(farm(A, 0), (tx) => tx.tenantRole.findMany({ where: { id: role.id } }))).toHaveLength(1);
+    await expect(
+      db.run(farm(A, 0), (tx) => tx.tenantRole.create({ data: { tenantId: A.tenantId, name: `RLS fazenda ${randomUUID().slice(0, 8)}`, scope: 'FARM' } })),
+    ).rejects.toThrow();
+  });
+
+  it('papel personalizado só é atribuído a acesso do mesmo tipo', async () => {
+    const role = await db.run(matriz(A), (tx) => tx.tenantRole.create({ data: { tenantId: A.tenantId, name: `RLS matriz ${randomUUID().slice(0, 8)}`, scope: 'MATRIZ' } }));
+    const userId = randomUUID();
+    await db.run(matriz(A), async (tx) => {
+      await tx.$executeRaw`insert into users (id, email, name, updated_at) values (${userId}::uuid, ${`rls-papel-${userId}@teste.local`}, 'Papel', now())`;
+    });
+    const farmAccess = await db.run(matriz(A), (tx) => tx.membership.create({ data: { tenantId: A.tenantId, userId, organizationId: A.farmOrgs[0]!, scope: 'FARM' } }));
+    await expect(db.run(matriz(A), (tx) => tx.membershipCustomRole.create({ data: { tenantId: A.tenantId, membershipId: farmAccess.id, roleId: role.id } }))).rejects.toThrow();
+  });
+
+  it('concessão individual não vale para acesso fora da Matriz nem é gravada pela Fazenda', async () => {
+    const userId = randomUUID();
+    await db.run(matriz(A), async (tx) => {
+      await tx.$executeRaw`insert into users (id, email, name, updated_at) values (${userId}::uuid, ${`rls-grant-${userId}@teste.local`}, 'Concessão', now())`;
+    });
+    const farmAccess = await db.run(matriz(A), (tx) => tx.membership.create({ data: { tenantId: A.tenantId, userId, organizationId: A.farmOrgs[0]!, scope: 'FARM' } }));
+    const grant = { tenantId: A.tenantId, membershipId: farmAccess.id, permissionCode: 'user.read' };
+    await expect(db.run(matriz(A), (tx) => tx.membershipPermissionGrant.create({ data: grant }))).rejects.toThrow();
+    await expect(db.run(farm(A, 0), (tx) => tx.membershipPermissionGrant.create({ data: grant }))).rejects.toThrow();
+  });
+});
+
 describe('usuários (convite)', () => {
   it('Fazenda cria usuário novo e acesso só na própria organização, sem deixar usuário órfão', async () => {
     const invited = randomUUID();
