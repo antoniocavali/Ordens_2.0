@@ -45,6 +45,19 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       };
     }
 
+    case 'order.release_cancelled': {
+      const orderId = str(p.orderId);
+      const order = orderId ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, version: true, sellerOrgId: true } }) : null;
+      if (!order) return null;
+      // Motivo é interno da Matriz; a Fazenda só é avisada de que a quantidade deixou de estar liberada.
+      return {
+        userIds: await usersOf(tx, [order.sellerOrgId]),
+        title: `Liberação cancelada na ordem ${order.number}`,
+        body: `Liberação ${String(p.sequence)} de ${String(p.quantity)} foi cancelada pela Matriz.`,
+        data: { orderId, version: order.version },
+      };
+    }
+
     case 'invoice.processed': {
       const status = str(p.status);
       const invoiceId = str(p.invoiceId);

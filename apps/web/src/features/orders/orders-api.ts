@@ -11,6 +11,9 @@ import type {
   OrderVersionDto,
   OrderViewHistoryItem,
   Page,
+  ReleaseListItem,
+  ReleaseListQuery,
+  ReleasesSummary,
   TimelineEventDto,
 } from '@ordens/contracts';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -66,6 +69,32 @@ export function useCreateRelease(orderId: string) {
     mutationFn: (body: { quantity: string; validUntil?: string | null; notes?: string | null; expectedVersion: number }) =>
       post<OrderDetail>(`/orders/${orderId}/releases`, body),
     onSuccess: (d) => invalidate(d),
+  });
+}
+
+// ─── Liberações (chaves sob ['orders'] para o tempo real invalidar junto) ───
+export type ReleaseParams = Partial<Omit<ReleaseListQuery, 'status'>> & { status?: string[] };
+
+export function useReleases(params: ReleaseParams) {
+  return useQuery({
+    queryKey: ['orders', 'releases', params],
+    queryFn: ({ signal }) => get<Page<ReleaseListItem>>('/orders/releases', params as Record<string, string>, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export const useReleasesSummary = () => useQuery({ queryKey: ['orders', 'releases-summary'], queryFn: () => get<ReleasesSummary>('/orders/releases/summary') });
+
+export function useCancelRelease() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, releaseId, ...body }: { orderId: string; releaseId: string; reason: string; expectedVersion: number }) =>
+      post<OrderDetail>(`/orders/${orderId}/releases/${releaseId}/cancel`, body),
+    onSuccess: (d) => {
+      qc.setQueryData(orderKeys.detail(d.id), d);
+      void qc.invalidateQueries({ queryKey: ['orders'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 }
 

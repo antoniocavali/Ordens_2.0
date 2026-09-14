@@ -37,6 +37,7 @@ export const ROUTES: Record<string, string[]> = {
   'order.published': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.version_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.release_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'order.release_cancelled': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.viewed': [QUEUE.REALTIME],
   'appointment.created': [QUEUE.REALTIME],
   'appointment.status_changed': [QUEUE.REALTIME],

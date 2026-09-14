@@ -4,6 +4,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'order.published': 'Ordem publicada',
   'order.version_created': 'Nova versão da ordem',
   'order.release_created': 'Liberação criada',
+  'order.release_cancelled': 'Liberação cancelada',
   'order.status_changed': 'Status da ordem alterado',
   'order.viewed': 'Ordem visualizada',
   'order.invoice_attached': 'NF-e vinculada à ordem',

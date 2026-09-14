@@ -2,7 +2,7 @@
 
 import type { TimelineEventDto } from '@ordens/contracts';
 import { cn, Skeleton } from '@ordens/ui';
-import { Eye, FilePen, GitCommitVertical, PackageCheck, PlusCircle, Send } from 'lucide-react';
+import { Eye, FilePen, GitCommitVertical, PackageCheck, PackageX, PlusCircle, Send } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDateTime, formatQty, formatRelative } from '@/lib/format';
 
@@ -13,6 +13,7 @@ const ICONS: Record<string, { icon: typeof Send; cls: string }> = {
   'order.version_created': { icon: GitCommitVertical, cls: 'bg-warning-soft text-warning' },
   'order.updated': { icon: FilePen, cls: 'bg-neutral-soft text-muted' },
   'order.release_created': { icon: PackageCheck, cls: 'bg-info-soft text-info' },
+  'order.release_cancelled': { icon: PackageX, cls: 'bg-danger-soft text-danger' },
   'order.viewed': { icon: Eye, cls: 'bg-success-soft text-success' },
 };
 
