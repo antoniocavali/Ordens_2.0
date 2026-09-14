@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, login, password } from './helpers';
+import { api, apiOk, login, password, submitLogin } from './helpers';
 
 /** Criação direta de usuário com senha provisória (Q36): Gestor cria, sem escalar privilégios. */
 test.describe('Criar usuário', () => {
@@ -42,11 +42,7 @@ test.describe('Criar usuário', () => {
 
     const ctx = await browser.newContext();
     const np = await ctx.newPage();
-    await np.goto('/login');
-    await np.getByLabel('E-mail').fill(email);
-    await np.getByLabel('Senha', { exact: true }).fill(provisional);
-    await np.getByRole('button', { name: 'Entrar' }).click();
-    await expect(np).toHaveURL(/\/login\/nova-senha/);
+    await submitLogin(np, email, provisional, /\/login\/nova-senha/);
     const newPassword = `Pessoal-${stamp}-xyz!`;
     await np.getByLabel('Senha provisória').fill(provisional);
     await np.getByLabel('Nova senha', { exact: true }).fill(newPassword);
