@@ -1,0 +1,43 @@
+# Desenvolvimento com hot reload (carregado automaticamente por `docker compose up`).
+# O código-fonte é montado do host; node_modules permanece o da imagem (Linux).
+services:
+  migrate:
+    environment:
+      SEED_DEMO: ${SEED_DEMO:-true}
+
+  api:
+    build:
+      target: dev
+    command: ['pnpm', '--filter', '@ordens/api', 'dev']
+    environment:
+      LOG_PRETTY: 'true'
+      CHOKIDAR_USEPOLLING: 'true'
+      TSC_WATCHFILE: DynamicPriorityPolling
+    volumes:
+      - ./apps/api/src:/repo/apps/api/src
+      - ./packages/contracts/src:/repo/packages/contracts/src
+      - ./packages/db/src:/repo/packages/db/src
+
+  worker:
+    build:
+      target: dev
+    command: ['pnpm', '--filter', '@ordens/worker', 'dev']
+    environment:
+      LOG_PRETTY: 'true'
+      CHOKIDAR_USEPOLLING: 'true'
+    volumes:
+      - ./apps/worker/src:/repo/apps/worker/src
+      - ./packages/contracts/src:/repo/packages/contracts/src
+      - ./packages/db/src:/repo/packages/db/src
+
+  web:
+    build:
+      target: dev
+    command: ['pnpm', '--filter', '@ordens/web', 'dev']
+    environment:
+      WATCHPACK_POLLING: 'true'
+      API_INTERNAL_URL: http://api:4000
+    volumes:
+      - ./apps/web/src:/repo/apps/web/src
+      - ./apps/web/public:/repo/apps/web/public
+      - ./packages/ui/src:/repo/packages/ui/src

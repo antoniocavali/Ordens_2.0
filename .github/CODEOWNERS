@@ -1,0 +1,5 @@
+# Revisão obrigatória em áreas sensíveis de segurança.
+/packages/db/prisma/migrations/  @antoniocavali
+/packages/db/src/context.ts      @antoniocavali
+/apps/api/src/modules/auth/      @antoniocavali
+/apps/api/src/common/guards/     @antoniocavali

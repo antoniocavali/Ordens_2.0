@@ -1,0 +1,26 @@
+name: Bug
+description: Algo não funciona como esperado
+labels: [bug]
+body:
+  - type: textarea
+    id: descricao
+    attributes:
+      label: O que aconteceu
+    validations:
+      required: true
+  - type: textarea
+    id: passos
+    attributes:
+      label: Como reproduzir
+      placeholder: 1. Entrar como ... 2. Abrir ... 3. ...
+    validations:
+      required: true
+  - type: input
+    id: request
+    attributes:
+      label: Request ID (se exibido)
+  - type: dropdown
+    id: perfil
+    attributes:
+      label: Perfil
+      options: [Matriz, Fazenda, Comprador, Superadmin]

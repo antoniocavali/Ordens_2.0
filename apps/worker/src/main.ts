@@ -1,0 +1,70 @@
+import { createServer } from 'node:http';
+import { Queue, Worker, type Job } from 'bullmq';
+import { Redis } from 'ioredis';
+import { createContext } from './context.js';
+import { loadEnv } from './env.js';
+import { emailHandler } from './jobs/email.js';
+import { fileProcessingHandler } from './jobs/file-processing.js';
+import { maintenanceHandler } from './jobs/maintenance.js';
+import { notificationsHandler } from './jobs/notifications.js';
+import { OutboxRelay } from './outbox-relay.js';
+import { DEFAULT_JOB_OPTIONS, QUEUE } from './queues.js';
+
+async function main() {
+  const env = loadEnv();
+  const ctx = createContext(env);
+  const connection = ctx.redisConnection;
+  const deadLetter = new Queue(QUEUE.DEAD_LETTER, { connection });
+
+  const workers = [
+    new Worker(QUEUE.FILE_PROCESSING, fileProcessingHandler(ctx), { connection, concurrency: 4 }),
+    new Worker(QUEUE.EMAIL, emailHandler(ctx), { connection, concurrency: 5 }),
+    new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx), { connection, concurrency: 10 }),
+    new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx), { connection, concurrency: 1 }),
+  ];
+
+  for (const w of workers) {
+    w.on('failed', async (job: Job | undefined, err) => {
+      ctx.logger.error({ err, queue: w.name, jobId: job?.id, attempts: job?.attemptsMade }, 'Job falhou');
+      if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+        await deadLetter.add(`${w.name}:${job.name}`, { queue: w.name, data: job.data, error: err.message }, { removeOnComplete: false });
+      }
+    });
+  }
+
+  const maintenance = new Queue(QUEUE.MAINTENANCE, { connection });
+  await maintenance.upsertJobScheduler('expire-uploads', { every: 60 * 60_000 }, { name: 'expire-uploads', opts: DEFAULT_JOB_OPTIONS });
+
+  const relay = new OutboxRelay(ctx);
+  relay.start();
+
+  const redis = new Redis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: true });
+  await redis.connect();
+  const health = createServer(async (req, res) => {
+    if (req.url !== '/health') {
+      res.writeHead(404).end();
+      return;
+    }
+    const checks = await Promise.allSettled([ctx.db.ping(), redis.ping()]);
+    const ok = checks.every((c) => c.status === 'fulfilled');
+    res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json' }).end(JSON.stringify({ status: ok ? 'ok' : 'degraded' }));
+  });
+  health.listen(env.WORKER_HEALTH_PORT, '0.0.0.0');
+  ctx.logger.info({ port: env.WORKER_HEALTH_PORT, scanner: env.SCANNER }, 'Worker iniciado');
+
+  const shutdown = async (signal: string) => {
+    ctx.logger.info({ signal }, 'Encerrando worker');
+    health.close();
+    await relay.stop();
+    await Promise.allSettled([...workers.map((w) => w.close()), maintenance.close(), deadLetter.close()]);
+    await Promise.allSettled([ctx.db.disconnect(), redis.quit()]);
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+}
+
+main().catch((err) => {
+  console.error('Falha ao iniciar o worker', err);
+  process.exit(1);
+});

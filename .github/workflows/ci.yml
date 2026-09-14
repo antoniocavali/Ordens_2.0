@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, typecheck, unit e build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ordens/db generate
+      - run: pnpm --filter @ordens/contracts build && pnpm --filter @ordens/db build
+      - run: pnpm turbo run typecheck
+      - run: pnpm turbo run lint
+      - run: pnpm turbo run test
+      - run: pnpm turbo run build --filter=@ordens/api --filter=@ordens/worker --filter=@ordens/web
+
+  integration:
+    name: Integração (RLS como ordens_app) e E2E
+    runs-on: ubuntu-24.04
+    needs: quality
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ordens
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+    env:
+      NODE_ENV: test
+      MIGRATION_DATABASE_URL: postgresql://ordens_owner:owner@localhost:5432/ordens
+      DATABASE_URL: postgresql://ordens_app:app@localhost:5432/ordens
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Criar roles do banco
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d ordens -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE ordens_owner LOGIN PASSWORD 'owner' NOSUPERUSER NOBYPASSRLS CREATEDB;
+          CREATE ROLE ordens_app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS;
+          ALTER DATABASE ordens OWNER TO ordens_owner;
+          ALTER SCHEMA public OWNER TO ordens_owner;
+          REVOKE ALL ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO ordens_app;
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+          SQL
+      - run: pnpm --filter @ordens/contracts build && pnpm --filter @ordens/db build
+      - run: pnpm --filter @ordens/db migrate:deploy
+      - run: SEED_DEMO=false node packages/db/dist/seed/run.js
+      - run: pnpm --filter @ordens/db test:integration
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-24.04
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build das imagens
+        run: |
+          for target in migrate api worker web; do
+            docker buildx build --target "$target" -f docker/app.Dockerfile -t "ordens-$target:ci" --load .
+          done
+      - name: Trivy (imagem da API)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ordens-api:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'

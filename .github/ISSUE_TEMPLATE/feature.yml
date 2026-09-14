@@ -1,0 +1,19 @@
+name: Funcionalidade
+description: Proposta de nova funcionalidade ou regra de negócio
+labels: [feature]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema ou necessidade
+    validations:
+      required: true
+  - type: textarea
+    id: regra
+    attributes:
+      label: Regras de negócio envolvidas
+      description: Quem pode fazer, quando, e o que acontece com quantidades, versões e faróis.
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Critérios de aceite
