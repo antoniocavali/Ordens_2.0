@@ -881,6 +881,46 @@ model Contract {
   @@map("contracts")
 }
 
+enum LocationKind {
+  WAREHOUSE
+  PORT
+  INDUSTRY
+  TRANSSHIPMENT
+  OTHER
+
+  @@map("location_kind")
+}
+
+/// Locais de destino (Q39). Parceiro vinculado (FK em SQL) define quem, fora da Matriz, pode ler.
+model Location {
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String       @map("tenant_id") @db.Uuid
+  kind                  LocationKind @default(WAREHOUSE)
+  name                  String
+  code                  String?
+  partnerId             String?      @map("partner_id") @db.Uuid
+  zipCode               String?      @map("zip_code")
+  address               String?
+  city                  String?
+  state                 String?      @db.Char(2)
+  latitude              Decimal?     @db.Decimal(9, 6)
+  longitude             Decimal?     @db.Decimal(9, 6)
+  operatingHours        String?      @map("operating_hours")
+  receivingInstructions String?      @map("receiving_instructions")
+  contactName           String?      @map("contact_name")
+  contactPhone          String?      @map("contact_phone")
+  notes                 String?
+  status                RecordStatus @default(ACTIVE)
+  archivedAt            DateTime?    @map("archived_at") @db.Timestamptz(6)
+  createdBy             String?      @map("created_by") @db.Uuid
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, name])
+  @@index([tenantId, partnerId])
+  @@map("locations")
+}
+
 // ─────────────────────── Ordens de Carregamento ───────────────────────
 
 model TenantSequence {

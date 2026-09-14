@@ -508,6 +508,32 @@ describe('atendimento (chat)', () => {
   });
 });
 
+describe('locais', () => {
+  it('Matriz cadastra; comprador lê só os próprios; Fazenda e outro tenant não gravam nem leem', async () => {
+    const suffix = randomUUID().slice(0, 6);
+    const ownBuyer = await db.run(matriz(A), (tx) =>
+      tx.location.create({ data: { tenantId: A.tenantId, name: `Unidade Comprador A ${suffix}`, partnerId: A.buyers[0] } }),
+    );
+    const general = await db.run(matriz(A), (tx) => tx.location.create({ data: { tenantId: A.tenantId, name: `Porto geral ${suffix}`, kind: 'PORT' } }));
+
+    // Comprador A lê o local vinculado a ele, mas não o de uso geral nem o do Comprador B.
+    const seen = await db.run(buyer(A, 0), (tx) => tx.location.findMany({ where: { id: { in: [ownBuyer.id, general.id] } }, select: { id: true } }));
+    expect(seen.map((l) => l.id)).toEqual([ownBuyer.id]);
+    expect(await db.run(buyer(A, 1), (tx) => tx.location.count({ where: { id: ownBuyer.id } }))).toBe(0);
+
+    // Fazenda não cria nem altera.
+    await expect(db.run(farm(A, 0), (tx) => tx.location.create({ data: { tenantId: A.tenantId, name: `Fazenda tenta ${suffix}` } }))).rejects.toThrow();
+    const byBuyer = await db.run(buyer(A, 0), (tx) => tx.location.updateMany({ where: { id: ownBuyer.id }, data: { name: 'Alterado pelo comprador' } }));
+    expect(byBuyer.count).toBe(0);
+
+    // Outro tenant não enxerga; parceiro de outro tenant é recusado (trigger).
+    expect(await db.run(matriz(B), (tx) => tx.location.count({ where: { id: { in: [ownBuyer.id, general.id] } } }))).toBe(0);
+    await expect(
+      db.run(matriz(A), (tx) => tx.location.create({ data: { tenantId: A.tenantId, name: `Cruzado ${suffix}`, partnerId: B.buyers[0] } })),
+    ).rejects.toThrow();
+  });
+});
+
 describe('liberações', () => {
   it('cancelamento exige motivo, é definitivo e só a Matriz altera', async () => {
     const created = await db.run(matriz(A), (tx) =>

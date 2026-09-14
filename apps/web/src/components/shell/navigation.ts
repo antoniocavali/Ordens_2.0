@@ -86,7 +86,7 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Transportadoras', href: '/cadastros/transportadoras', icon: Boxes, permission: 'carrier.read' },
       { label: 'Motoristas', href: '/cadastros/motoristas', icon: Users, permission: 'carrier.read' },
       { label: 'Veículos', href: '/cadastros/veiculos', icon: Package, permission: 'carrier.read' },
-      { label: 'Locais', href: '/cadastros/locais', icon: MapPin, permission: 'partner.manage', soon: true },
+      { label: 'Locais', href: '/cadastros/locais', icon: MapPin, permission: 'partner.read', scopes: ['MATRIZ'] },
     ],
   },
   {

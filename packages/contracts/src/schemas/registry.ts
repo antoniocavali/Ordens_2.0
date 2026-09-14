@@ -224,6 +224,81 @@ export interface FarmDetail extends FarmListItem {
   notes: string | null;
 }
 
+// ───────────────────────────── Locais ─────────────────────────────
+
+export const LOCATION_KINDS = ['WAREHOUSE', 'PORT', 'INDUSTRY', 'TRANSSHIPMENT', 'OTHER'] as const;
+export type LocationKind = (typeof LOCATION_KINDS)[number];
+export const LOCATION_KIND_LABELS: Record<LocationKind, string> = {
+  WAREHOUSE: 'Armazém',
+  PORT: 'Porto / terminal',
+  INDUSTRY: 'Indústria / fábrica',
+  TRANSSHIPMENT: 'Transbordo',
+  OTHER: 'Outro',
+};
+
+export const locationInputSchema = z.object({
+  kind: z.enum(LOCATION_KINDS).default('WAREHOUSE'),
+  name: z.string().trim().min(2, 'Informe o nome do local').max(160),
+  code: text(40),
+  partnerId: z
+    .union([z.literal(''), z.uuid()])
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+  zipCode: z
+    .string()
+    .trim()
+    .transform(onlyDigits)
+    .refine((v) => v === '' || v.length === 8, 'CEP deve ter 8 dígitos')
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+  address: text(255),
+  city: text(120),
+  state: uf,
+  latitude: decimalString({ scale: 6, allowNegative: true })
+    .refine((v) => Math.abs(Number(v)) <= 90, 'Latitude inválida')
+    .or(z.literal('').transform(() => null))
+    .nullish(),
+  longitude: decimalString({ scale: 6, allowNegative: true })
+    .refine((v) => Math.abs(Number(v)) <= 180, 'Longitude inválida')
+    .or(z.literal('').transform(() => null))
+    .nullish(),
+  operatingHours: text(200),
+  receivingInstructions: text(2000),
+  contactName: text(120),
+  contactPhone: phone,
+  notes: text(2000),
+  status,
+});
+export type LocationInput = z.input<typeof locationInputSchema>;
+
+export interface LocationListItem {
+  id: string;
+  kind: LocationKind;
+  name: string;
+  code: string | null;
+  partner: { id: string; name: string } | null;
+  city: string | null;
+  state: string | null;
+  hasCoordinates: boolean;
+  /** Ordens com o mesmo destino (nome, cidade e UF iguais), para conferência. */
+  ordersCount: number;
+  status: RecordStatus;
+  archived: boolean;
+  updatedAt: string;
+}
+
+export interface LocationDetail extends LocationListItem {
+  zipCode: string | null;
+  address: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  operatingHours: string | null;
+  receivingInstructions: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  notes: string | null;
+}
+
 // ───────────────────────────── Commodities ─────────────────────────────
 
 export const commodityInputSchema = z.object({

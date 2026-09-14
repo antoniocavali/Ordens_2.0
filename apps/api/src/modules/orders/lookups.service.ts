@@ -99,6 +99,33 @@ export class LookupsService {
     });
   }
 
+  /** Locais ativos; com comprador, mostra primeiro os dele e depois os sem vínculo (Q39). */
+  async locations(params: { buyerId?: string; q?: string; cursor?: string; limit: number }): Promise<CursorPage<LookupOption>> {
+    const cursor = decodeCursor(params.cursor);
+    const pattern = like(params.q);
+    return this.db.read(async (tx) => {
+      const rows = await tx.$queryRaw<
+        { id: string; name: string; kind: string; code: string | null; city: string | null; state: string | null; address: string | null; partner_id: string | null; sort_key: string }[]
+      >(Prisma.sql`
+        select l.id, l.name, l.kind::text as kind, l.code, l.city, l.state, l.address, l.partner_id,
+          (case when ${params.buyerId ?? null}::uuid is not null and l.partner_id = ${params.buyerId ?? null}::uuid then '0' else '1' end) || lower(l.name) as sort_key
+        from locations l
+        where l.archived_at is null and l.status = 'ACTIVE'
+          ${params.buyerId ? Prisma.sql`and (l.partner_id = ${params.buyerId}::uuid or l.partner_id is null)` : Prisma.empty}
+          ${pattern ? Prisma.sql`and (l.name ilike ${pattern} or l.code ilike ${pattern} or l.city ilike ${pattern})` : Prisma.empty}
+          ${cursor ? Prisma.sql`and ((case when ${params.buyerId ?? null}::uuid is not null and l.partner_id = ${params.buyerId ?? null}::uuid then '0' else '1' end) || lower(l.name), l.id) > (${cursor.n}, ${cursor.i}::uuid)` : Prisma.empty}
+        order by sort_key, l.id
+        limit ${params.limit + 1}
+      `);
+      return this.page(rows, params.limit, (r) => ({
+        id: r.id,
+        label: r.name,
+        description: [r.code, r.city && r.state ? `${r.city}/${r.state}` : r.city, params.buyerId && r.partner_id === params.buyerId ? 'do comprador' : null].filter(Boolean).join(' · '),
+        meta: { name: r.name, kind: r.kind, city: r.city, state: r.state, address: r.address },
+      }), (r) => ({ n: r.sort_key, i: r.id }));
+    });
+  }
+
   async commodities(params: { q?: string; contractId?: string }): Promise<CursorPage<LookupOption>> {
     const pattern = like(params.q);
     return this.db.read(async (tx) => {
