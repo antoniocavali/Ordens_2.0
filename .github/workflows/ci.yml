@@ -32,7 +32,7 @@ jobs:
       - run: pnpm turbo run build --filter=@ordens/api --filter=@ordens/worker --filter=@ordens/web
 
   integration:
-    name: Integração (RLS como ordens_app) e E2E
+    name: Integração (RLS como ordens_app)
     runs-on: ubuntu-24.04
     needs: quality
     services:
@@ -78,6 +78,133 @@ jobs:
       - run: pnpm --filter @ordens/db migrate:deploy
       - run: SEED_DEMO=false node packages/db/dist/seed/run.js
       - run: pnpm --filter @ordens/db test:integration
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-24.04
+    needs: quality
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ordens
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+    env:
+      NODE_ENV: test
+      LOG_LEVEL: info
+      MIGRATION_DATABASE_URL: postgresql://ordens_owner:owner@localhost:5432/ordens
+      DATABASE_URL: postgresql://ordens_app:app@localhost:5432/ordens
+      REDIS_URL: redis://localhost:6379
+      API_PORT: '4000'
+      API_INTERNAL_URL: http://localhost:4000
+      WEB_ORIGIN: http://localhost:3020
+      WEB_URL: http://localhost:3020
+      S3_ENDPOINT: http://localhost:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: ordens-ci
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_BUCKET_QUARANTINE: ordens-quarantine
+      S3_BUCKET_DOCUMENTS: ordens-documents
+      SCANNER: noop
+      COOKIE_SECURE: 'false'
+      SMTP_HOST: localhost
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Segredos efêmeros por execução: nada fixo no repositório.
+      - name: Gerar segredos da execução
+        run: |
+          for name in SESSION_SECRET TWO_FACTOR_ENC_KEY; do
+            value=$(openssl rand -base64 32)
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+          s3=$(openssl rand -hex 24)
+          demo="E2e-$(openssl rand -hex 12)"
+          echo "::add-mask::$s3"
+          echo "::add-mask::$demo"
+          {
+            echo "S3_SECRET_KEY=$s3"
+            echo "SEED_DEMO_PASSWORD=$demo"
+            echo "E2E_PASSWORD=$demo"
+          } >> "$GITHUB_ENV"
+
+      - name: MinIO e buckets privados
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$S3_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$S3_SECRET_KEY" \
+            -e MINIO_API_CORS_ALLOW_ORIGIN="$WEB_ORIGIN" \
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          timeout 60 bash -c 'until curl -sf http://localhost:9000/minio/health/ready; do sleep 1; done'
+          docker run --rm --network host -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET_QUARANTINE -e S3_BUCKET_DOCUMENTS \
+            --entrypoint /bin/sh quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z -c '
+              set -eu
+              mc alias set local http://localhost:9000 "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
+              for b in "$S3_BUCKET_QUARANTINE" "$S3_BUCKET_DOCUMENTS"; do mc mb --ignore-existing "local/$b"; mc anonymous set none "local/$b"; done'
+
+      - name: Criar roles do banco
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d ordens -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE ordens_owner LOGIN PASSWORD 'owner' NOSUPERUSER NOBYPASSRLS CREATEDB;
+          CREATE ROLE ordens_app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS;
+          ALTER DATABASE ordens OWNER TO ordens_owner;
+          ALTER SCHEMA public OWNER TO ordens_owner;
+          REVOKE ALL ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO ordens_app;
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+          SQL
+
+      - run: pnpm --filter @ordens/db generate
+      - run: pnpm turbo run build --filter=@ordens/api --filter=@ordens/worker --filter=@ordens/web
+      - run: pnpm --filter @ordens/db migrate:deploy
+      - name: Seed demo
+        run: SEED_DEMO=true node packages/db/dist/seed/run.js > seed.log 2>&1 || (cat seed.log; exit 1)
+
+      - name: Subir API, worker e web
+        run: |
+          mkdir -p e2e-logs
+          nohup node apps/api/dist/main.js > e2e-logs/api.log 2>&1 &
+          nohup node apps/worker/dist/main.js > e2e-logs/worker.log 2>&1 &
+          cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+          cp -r apps/web/public apps/web/.next/standalone/apps/web/public
+          PORT=3020 HOSTNAME=127.0.0.1 nohup node apps/web/.next/standalone/apps/web/server.js > e2e-logs/web.log 2>&1 &
+          timeout 90 bash -c 'until curl -sf http://localhost:4000/health/ready; do sleep 2; done' || (cat e2e-logs/api.log; exit 1)
+          timeout 60 bash -c 'until curl -sf http://localhost:4100/health; do sleep 2; done' || (cat e2e-logs/worker.log; exit 1)
+          timeout 60 bash -c 'until curl -sf -o /dev/null http://localhost:3020/login; do sleep 2; done' || (cat e2e-logs/web.log; exit 1)
+
+      - run: pnpm --filter @ordens/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @ordens/web e2e
+        env:
+          CI: 'true'
+
+      - name: Artefatos da falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            e2e-logs
+          retention-days: 7
 
   docker:
     name: Docker build
