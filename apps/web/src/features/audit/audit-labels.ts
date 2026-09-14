@@ -60,6 +60,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'role.archived': 'Papel arquivado',
   'role.restored': 'Papel restaurado',
   'tenant.security_policy_updated': 'Política de segurança alterada',
+  'report.exported': 'Relatório exportado',
   'auth.login.succeeded': 'Login realizado',
   'auth.login.failed': 'Falha de login',
   'auth.locked': 'Acesso bloqueado temporariamente',
@@ -91,6 +92,7 @@ export const AUDIT_AREAS: { key: string; label: string; action?: string; entityT
   { key: 'users', label: 'Usuários', action: 'user.' },
   { key: 'roles', label: 'Papéis e permissões', action: 'role.' },
   { key: 'auth', label: 'Acesso e segurança', action: 'auth.' },
+  { key: 'reports', label: 'Relatórios', action: 'report.' },
 ];
 
 /** Link para abrir a entidade na plataforma, quando há tela para ela. */
@@ -135,4 +137,5 @@ export const ENTITY_LABELS: Record<string, string> = {
   role: 'Papel',
   tenant: 'Empresa',
   session: 'Sessão',
+  report: 'Relatório',
 };
