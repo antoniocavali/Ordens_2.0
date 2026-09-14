@@ -472,6 +472,9 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           netKg: String(netKg),
           receivedQty: finalStatus === 'COMPLETED' ? (tons - r.int(0, 60) / 1000).toFixed(3) : null,
           status: finalStatus,
+          // Coerentes com o histórico gerado abaixo (um evento a cada 3 h a partir do carregamento).
+          loadedAt: (['LOADED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as string[]).includes(finalStatus) ? new Date(loadingDate.getTime() + 2 * 3 * 3_600_000) : null,
+          receivedAt: (['RECEIVED', 'COMPLETED'] as string[]).includes(finalStatus) ? new Date(loadingDate.getTime() + 5 * 3 * 3_600_000) : null,
           createdBy: creator.userId,
           createdAt: loadingDate,
         },

@@ -966,6 +966,9 @@ model Load {
   netKg                  Decimal?   @map("net_kg") @db.Decimal(18, 4)
   invoicedQty            Decimal?   @map("invoiced_qty") @db.Decimal(18, 4)
   receivedQty            Decimal?   @map("received_qty") @db.Decimal(18, 4)
+  /// Momentos de carregamento/recebimento (séries do painel; índices parciais na migration 0900).
+  loadedAt               DateTime?  @map("loaded_at") @db.Timestamptz(6)
+  receivedAt             DateTime?  @map("received_at") @db.Timestamptz(6)
   status                 LoadStatus @default(SCHEDULED)
   notes                  String?
   createdBy              String?    @map("created_by") @db.Uuid

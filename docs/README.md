@@ -19,5 +19,6 @@
 | [design-system.md](design-system.md) | Tokens, tipografia, motion, componentes |
 | [wireframes.md](wireframes.md) | Shell, Ordens, Drawer, Quick View, dashboards |
 | [realtime.md](realtime.md) | Notificações in-app e atualização em tempo real (SSE) |
+| [performance.md](performance.md) | Metodologia de carga, gargalos encontrados e resultados |
 | [definition-of-done.md](definition-of-done.md) | Critério de pronto |
 | [decisions/](decisions/README.md) | ADRs e questões em aberto |

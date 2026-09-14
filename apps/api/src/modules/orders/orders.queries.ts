@@ -150,7 +150,38 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
   `;
 }
 
-export function buildListFilters(q: OrderListQuery): { where: Prisma.Sql; outerWhere: Prisma.Sql; orderBy: Prisma.Sql } {
+const SEARCH_JOINS = Prisma.sql`
+  left join contracts ct on ct.id = lo.contract_id
+  left join business_partners sp on sp.id = lo.seller_partner_id
+  left join business_partners bp on bp.id = lo.buyer_partner_id
+  left join farms f on f.id = lo.farm_id
+  left join commodities c on c.id = lo.commodity_id`;
+
+/**
+ * Página de ids (com o total na mesma passada) sem faróis nem nomes: evita calcular laterais
+ * para todas as ordens (paginação em duas etapas).
+ */
+export function orderIdsSql(f: { where: Prisma.Sql; innerOrderBy: Prisma.Sql; hasSearch: boolean; limit: number; offset: number }) {
+  return Prisma.sql`
+    select lo.id, count(*) over () as total_count from loading_orders lo ${f.hasSearch ? SEARCH_JOINS : Prisma.empty}
+    where ${f.where}
+    order by ${f.innerOrderBy}
+    limit ${f.limit} offset ${f.offset}`;
+}
+
+export function orderCountSql(f: { where: Prisma.Sql; hasSearch: boolean }) {
+  return Prisma.sql`select count(*) as total from loading_orders lo ${f.hasSearch ? SEARCH_JOINS : Prisma.empty} where ${f.where}`;
+}
+
+export function buildListFilters(q: OrderListQuery): {
+  where: Prisma.Sql;
+  outerWhere: Prisma.Sql;
+  orderBy: Prisma.Sql;
+  innerOrderBy: Prisma.Sql;
+  /** Filtro por farol exige calcular os sinais de todas as linhas antes de paginar. */
+  needsSignals: boolean;
+  hasSearch: boolean;
+} {
   const conds: Prisma.Sql[] = [Prisma.sql`true`];
   if (q.status?.length) conds.push(Prisma.sql`lo.status::text in (${Prisma.join(q.status)})`);
   if (q.priority) conds.push(Prisma.sql`lo.priority = ${q.priority}::order_priority`);
@@ -175,7 +206,16 @@ export function buildListFilters(q: OrderListQuery): { where: Prisma.Sql; outerW
 
   const [field, dir] = q.sort.split(':') as [string, 'asc' | 'desc'];
   const column = SORT_COLUMNS[field] ?? 'updated_at';
-  const orderBy = Prisma.raw(`o.${column} ${dir === 'asc' ? 'asc' : 'desc'} nulls last, o.id`);
+  const direction = dir === 'asc' ? 'asc' : 'desc';
+  const orderBy = Prisma.raw(`o.${column} ${direction} nulls last, o.id`);
+  const innerOrderBy = Prisma.raw(`lo.${column} ${direction} nulls last, lo.id`);
 
-  return { where: Prisma.join(conds, ' and '), outerWhere: Prisma.join(outer, ' and '), orderBy };
+  return {
+    where: Prisma.join(conds, ' and '),
+    outerWhere: Prisma.join(outer, ' and '),
+    orderBy,
+    innerOrderBy,
+    needsSignals: Boolean(q.farmSignal || q.buyerSignal),
+    hasSearch: Boolean(q.q),
+  };
 }

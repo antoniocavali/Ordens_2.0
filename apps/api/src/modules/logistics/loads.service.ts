@@ -205,11 +205,13 @@ export class LoadsService {
         const loadedInUnit = new D(net).dividedBy(factor);
         // Ao carregar, a quantidade prevista desta carga deixa de contar como agendada e passa a contar o peso real.
         assertWithinReleased(fresh, loadedInUnit, load.expectedQty);
+        data.loadedAt = new Date();
       }
       if (to === 'RECEIVED') {
         const received = input.receivedQty ?? load.receivedQty?.toString();
         if (!received) throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Informe a quantidade recebida no destino.', { fields: { receivedQty: ['Obrigatório'] } });
         data.receivedQty = received;
+        data.receivedAt = new Date();
       }
 
       await tx.load.update({ where: { id }, data });
