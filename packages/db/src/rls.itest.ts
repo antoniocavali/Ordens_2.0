@@ -205,6 +205,41 @@ describe('cadastros', () => {
   });
 });
 
+describe('logística', () => {
+  const appointmentData = (f: TenantFixture) => ({ tenantId: f.tenantId, orderId: f.published[0], scheduledOn: new Date('2026-09-20T00:00:00Z'), expectedQty: '30' });
+
+  it('Fazenda da ordem cria agendamento; organizações são herdadas da ordem', async () => {
+    const a = await db.run(farm(A, 0), (tx) => tx.appointment.create({ data: appointmentData(A) }));
+    const read = await db.run(matriz(A), (tx) => tx.appointment.findUniqueOrThrow({ where: { id: a.id } }));
+    expect(read.sellerOrgId).toBe(A.farmOrgs[0]);
+    expect(read.buyerOrgId).toBe(A.buyerOrgs[0]);
+  });
+
+  it('outra Fazenda e o Comprador não criam agendamento', async () => {
+    // Negado pelo RLS ou, antes dele, pelo trigger (que também não enxerga a ordem de outra organização).
+    const denied = /row-level security|Ordem inexistente/;
+    await expect(db.run(farm(A, 1), (tx) => tx.appointment.create({ data: appointmentData(A) }))).rejects.toThrow(denied);
+    await expect(db.run(buyer(A, 0), (tx) => tx.appointment.create({ data: appointmentData(A) }))).rejects.toThrow(denied);
+  });
+
+  it('Comprador lê cargas da própria ordem, mas não de outra', async () => {
+    const load = await db.run(matriz(A), (tx) =>
+      tx.load.create({ data: { tenantId: A.tenantId, orderId: A.published[0], number: `L-${randomUUID().slice(0, 6)}`, sequence: 1, expectedQty: '30' } }),
+    );
+    const own = await db.run(buyer(A, 0), (tx) => tx.load.findMany({ where: { id: load.id } }));
+    expect(own).toHaveLength(1);
+    const other = await db.run(buyer(A, 1), (tx) => tx.load.findMany({ where: { id: load.id } }));
+    expect(other).toHaveLength(0);
+  });
+
+  it('Fazenda recalcula totais, mas não altera campos comerciais da ordem', async () => {
+    await db.run(farm(A, 0), (tx) => tx.$executeRaw`select recalc_order_quantities(${A.published[0]}::uuid)`);
+    await expect(
+      db.run(farm(A, 0), (tx) => tx.loadingOrder.update({ where: { id: A.published[0] }, data: { quantity: '999' } })),
+    ).rejects.toThrow(/totais operacionais|42501|permission/i);
+  });
+});
+
 describe('integridade', () => {
   it('rejeita fazenda que não pertence ao vendedor (trigger)', async () => {
     await expect(

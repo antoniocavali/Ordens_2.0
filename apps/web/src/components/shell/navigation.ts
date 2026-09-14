@@ -46,8 +46,8 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       { label: 'Ordens de Carregamento', href: '/ordens', icon: ClipboardList, permission: 'order.read' },
       { label: 'Liberações', href: '/liberacoes', icon: PackageCheck, permission: 'order.read', soon: true },
-      { label: 'Agendamentos', href: '/agendamentos', icon: CalendarClock, permission: 'appointment.read', soon: true },
-      { label: 'Cargas', href: '/cargas', icon: Truck, permission: 'load.read', soon: true },
+      { label: 'Agendamentos', href: '/agendamentos', icon: CalendarClock, permission: 'appointment.read' },
+      { label: 'Cargas', href: '/cargas', icon: Truck, permission: 'load.read' },
       { label: 'Ocorrências', href: '/ocorrencias', icon: AlertTriangle, permission: 'occurrence.read', soon: true },
     ],
   },

@@ -10,4 +10,5 @@ export * from './schemas/uploads.js';
 export * from './schemas/orders.js';
 export * from './schemas/registry.js';
 export * from './schemas/commercial.js';
+export * from './schemas/logistics.js';
 export * from './documents.js';

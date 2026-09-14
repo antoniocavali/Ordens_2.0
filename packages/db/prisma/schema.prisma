@@ -167,6 +167,37 @@ enum ScanStatus {
   @@map("scan_status")
 }
 
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  CHECKED_IN
+  CONVERTED
+  CANCELLED
+  NO_SHOW
+
+  @@map("appointment_status")
+}
+
+enum LoadStatus {
+  SCHEDULED
+  CONFIRMED
+  AWAITING_LOADING
+  LOADING
+  AWAITING_FARM_INVOICE
+  FARM_INVOICED
+  LOADED
+  IN_TRANSIT
+  ARRIVED
+  RECEIVED
+  CHECKED
+  AWAITING_MATRIZ_INVOICE
+  MATRIZ_INVOICED
+  COMPLETED
+  CANCELLED
+
+  @@map("load_status")
+}
+
 enum VehicleType {
   TRUCK_TRACTOR
   TRAILER
@@ -819,9 +850,11 @@ model LoadingOrder {
   createdBy          String?        @map("created_by") @db.Uuid
   updatedBy          String?        @map("updated_by") @db.Uuid
 
-  versions LoadingOrderVersion[]
-  releases LoadingOrderRelease[]
-  views    LoadingOrderView[]
+  versions     LoadingOrderVersion[]
+  releases     LoadingOrderRelease[]
+  views        LoadingOrderView[]
+  appointments Appointment[]
+  loads        Load[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status, loadingStartsOn])
@@ -873,6 +906,93 @@ model LoadingOrderRelease {
   @@unique([orderId, sequence])
   @@index([tenantId])
   @@map("loading_order_releases")
+}
+
+model Appointment {
+  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String            @map("tenant_id") @db.Uuid
+  orderId                String            @map("order_id") @db.Uuid
+  sellerOrgId            String?           @map("seller_org_id") @db.Uuid
+  buyerOrgId             String?           @map("buyer_org_id") @db.Uuid
+  scheduledOn            DateTime          @map("scheduled_on") @db.Date
+  windowStart            String?           @map("window_start")
+  windowEnd              String?           @map("window_end")
+  expectedQty            Decimal           @map("expected_qty") @db.Decimal(18, 4)
+  carrierPartnerId       String?           @map("carrier_partner_id") @db.Uuid
+  driverId               String?           @map("driver_id") @db.Uuid
+  tractorVehicleId       String?           @map("tractor_vehicle_id") @db.Uuid
+  trailerVehicleId       String?           @map("trailer_vehicle_id") @db.Uuid
+  secondTrailerVehicleId String?           @map("second_trailer_vehicle_id") @db.Uuid
+  plates                 String[]          @default([])
+  status                 AppointmentStatus @default(REQUESTED)
+  notes                  String?
+  cancelReason           String?           @map("cancel_reason")
+  createdBy              String?           @map("created_by") @db.Uuid
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order LoadingOrder @relation(fields: [orderId], references: [id])
+  load  Load?
+
+  @@index([tenantId, scheduledOn])
+  @@index([tenantId, orderId])
+  @@index([tenantId, status])
+  @@map("appointments")
+}
+
+model Load {
+  id                     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String     @map("tenant_id") @db.Uuid
+  orderId                String     @map("order_id") @db.Uuid
+  appointmentId          String?    @unique @map("appointment_id") @db.Uuid
+  sellerOrgId            String?    @map("seller_org_id") @db.Uuid
+  buyerOrgId             String?    @map("buyer_org_id") @db.Uuid
+  number                 String
+  sequence               Int
+  loadingDate            DateTime?  @map("loading_date") @db.Date
+  expectedQty            Decimal    @map("expected_qty") @db.Decimal(18, 4)
+  carrierPartnerId       String?    @map("carrier_partner_id") @db.Uuid
+  driverId               String?    @map("driver_id") @db.Uuid
+  tractorVehicleId       String?    @map("tractor_vehicle_id") @db.Uuid
+  trailerVehicleId       String?    @map("trailer_vehicle_id") @db.Uuid
+  secondTrailerVehicleId String?    @map("second_trailer_vehicle_id") @db.Uuid
+  plates                 String[]   @default([])
+  grossKg                Decimal?   @map("gross_kg") @db.Decimal(18, 4)
+  tareKg                 Decimal?   @map("tare_kg") @db.Decimal(18, 4)
+  netKg                  Decimal?   @map("net_kg") @db.Decimal(18, 4)
+  invoicedQty            Decimal?   @map("invoiced_qty") @db.Decimal(18, 4)
+  receivedQty            Decimal?   @map("received_qty") @db.Decimal(18, 4)
+  status                 LoadStatus @default(SCHEDULED)
+  notes                  String?
+  createdBy              String?    @map("created_by") @db.Uuid
+  createdAt              DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order       LoadingOrder        @relation(fields: [orderId], references: [id])
+  appointment Appointment?        @relation(fields: [appointmentId], references: [id])
+  history     LoadStatusHistory[]
+
+  @@unique([orderId, sequence])
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, loadingDate])
+  @@map("loads")
+}
+
+model LoadStatusHistory {
+  id          BigInt      @id @default(autoincrement())
+  tenantId    String      @map("tenant_id") @db.Uuid
+  loadId      String      @map("load_id") @db.Uuid
+  fromStatus  LoadStatus? @map("from_status")
+  toStatus    LoadStatus  @map("to_status")
+  actorUserId String?     @map("actor_user_id") @db.Uuid
+  notes       String?
+  occurredAt  DateTime    @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  load Load @relation(fields: [loadId], references: [id])
+
+  @@index([tenantId, loadId, occurredAt])
+  @@map("load_status_history")
 }
 
 model LoadingOrderView {

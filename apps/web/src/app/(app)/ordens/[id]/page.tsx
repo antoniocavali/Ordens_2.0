@@ -2,9 +2,11 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, FileText, GitCommitVertical, PackageCheck, Pencil, Send } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, PackageCheck, Pencil, Send } from 'lucide-react';
 import Link from 'next/link';
-import { use, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
+import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
+import { LoadsPage } from '@/features/logistics/loads-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
 import { registerView, useInvalidateOrders, useOrder, useTimeline, useVersions, useViewHistory } from '@/features/orders/orders-api';
@@ -40,6 +42,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const invalidate = useInvalidateOrders();
   const [editing, setEditing] = useState(false);
   const [releasing, setReleasing] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const scope = me?.activeMembership?.scope;
 
   // Abertura efetiva do detalhe = visualização (Fazenda/Comprador).
@@ -112,6 +115,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               {[
                 ['resumo', 'Resumo'],
                 ['liberacoes', `Liberações (${o.releases.length})`],
+                ...(can('load.read') ? [['cargas', 'Cargas']] : []),
                 ['versoes', 'Versões'],
                 ...(scope === 'MATRIZ' ? [['visualizacoes', 'Visualizações']] : []),
                 ['documentos', 'Documentos'],
@@ -197,6 +201,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               )}
             </Tabs.Content>
 
+            <Tabs.Content value="cargas" className="space-y-4 p-5 sm:p-6">
+              {can('appointment.manage') && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status) ? (
+                <div className="flex justify-end">
+                  <Button variant="soft" size="sm" onClick={() => setScheduling(true)}>
+                    <CalendarPlus /> Agendar carregamento
+                  </Button>
+                </div>
+              ) : null}
+              <Suspense>
+                <LoadsPage orderId={o.id} embedded />
+              </Suspense>
+            </Tabs.Content>
+
             <Tabs.Content value="versoes" className="p-5 sm:p-6">
               <VersionsList id={o.id} />
             </Tabs.Content>
@@ -258,6 +275,17 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       <OrderFormDrawer open={editing} order={o} onClose={() => setEditing(false)} />
       <ReleaseDialog order={o} open={releasing} onOpenChange={setReleasing} />
+      <AppointmentDrawer
+        appointment={null}
+        open={scheduling}
+        onClose={() => setScheduling(false)}
+        defaultOrder={{
+          id: o.id,
+          label: o.number,
+          description: `${o.commodity?.name ?? '—'} · ${o.farm?.name ?? '—'}`,
+          meta: { released: o.quantities.released, scheduled: o.quantities.scheduled, loaded: o.quantities.loaded, unit },
+        }}
+      />
     </div>
   );
 }
