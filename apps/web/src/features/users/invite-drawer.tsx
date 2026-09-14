@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { FormSection, span } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
+import { useMe } from '@/lib/session';
 import { RolePicker } from './role-picker';
 import { ORG_KIND_LABELS } from './roles';
 import { useOrganizations, useUserMutations } from './users-api';
@@ -23,7 +24,10 @@ export function InviteDrawer({ open, onClose }: { open: boolean; onClose: () => 
   const [roles, setRoles] = useState<string[]>([]);
   const [errors, setErrors] = useState<Errors>({});
 
-  const activeOrgs = (orgs.data ?? []).filter((o) => o.status === 'ACTIVE');
+  const { data: me } = useMe();
+  // Fora da Matriz só é possível convidar para a própria organização (RLS de memberships).
+  const ownOrgId = me?.activeMembership?.scope === 'MATRIZ' ? null : me?.activeMembership?.organization.id;
+  const activeOrgs = (orgs.data ?? []).filter((o) => o.status === 'ACTIVE' && (!ownOrgId || o.id === ownOrgId));
   const org = activeOrgs.find((o) => o.id === organizationId);
 
   useEffect(() => {

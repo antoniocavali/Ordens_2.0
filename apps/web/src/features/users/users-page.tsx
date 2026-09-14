@@ -92,7 +92,10 @@ export function UsersPage() {
               setPage(1);
             }}
             placeholder="Todas as organizações"
-            options={(orgs.data ?? []).map((o) => ({ value: o.id, label: `${o.name} · ${ORG_KIND_LABELS[o.kind] ?? o.kind}` }))}
+            options={(orgs.data ?? [])
+              // Fora da Matriz a lista só traz a própria organização.
+              .filter((o) => me?.activeMembership?.scope === 'MATRIZ' || o.id === me?.activeMembership?.organization.id)
+              .map((o) => ({ value: o.id, label: `${o.name} · ${ORG_KIND_LABELS[o.kind] ?? o.kind}` }))}
             className="w-64"
           />
           <Select
