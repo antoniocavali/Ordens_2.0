@@ -23,10 +23,23 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 | `MATRIZ_MANAGER` | Gestor Matriz | MATRIZ |
 | `MATRIZ_OPERATOR` | Operador Matriz | MATRIZ |
 | `MATRIZ_VIEWER` | Somente leitura Matriz | MATRIZ |
+| `MATRIZ_BILLING_AGENT` | Atendente Faturamento (leitura Matriz + fila de Faturamento) | MATRIZ |
+| `MATRIZ_SUPPORT_AGENT` | Atendente Suporte (leitura Matriz + fila de Suporte) | MATRIZ |
 | `FARM_ADMIN` | Administrador Fazenda | FARM |
 | `FARM_OPERATOR` | Operador Fazenda | FARM |
 | `BUYER_USER` | Comprador | BUYER |
 | `CARRIER_USER` | Usuário Transportadora (futuro) | CARRIER |
+
+## Atendimento (filas)
+
+| Permissão | M_ADMIN | M_MGR | M_OPER | AT_FATUR | AT_SUPORTE | M_VIEW | Fazenda / Comprador / Transportadora |
+|---|---|---|---|---|---|---|---|
+| `support.use` (abrir conversa pelo chat) | ● | ● | ● | ● | ● | ● | ● |
+| `support.billing` (fila de Faturamento) | ● | ● | ● | ● | — | — | — |
+| `support.support` (fila de Suporte) | ● | ● | ● | — | ● | — | — |
+| `support.manage` (supervisão: todas as filas, visão geral, conversas com o assistente) | ● | ● | — | — | — | — | — |
+
+Endpoints do painel exigem ao menos uma permissão de fila (`RequireAnyPermission`); o serviço restringe lista, detalhe, ações e indicadores às filas do usuário (Q31).
 
 ## Matriz
 

@@ -1,7 +1,7 @@
 import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Permission } from '@ordens/contracts';
-import { IS_PUBLIC, PLATFORM_ONLY, REQUIRED_PERMISSIONS } from '../decorators.js';
+import { ANY_PERMISSIONS, IS_PUBLIC, PLATFORM_ONLY, REQUIRED_PERMISSIONS } from '../decorators.js';
 import { AppError } from '../errors.js';
 import { requestContext } from '../request-context.js';
 
@@ -22,11 +22,12 @@ export class PermissionGuard implements CanActivate {
     }
 
     const required = this.reflector.getAllAndOverride<Permission[]>(REQUIRED_PERMISSIONS, targets);
-    if (!required?.length) return true;
+    const any = this.reflector.getAllAndOverride<Permission[]>(ANY_PERMISSIONS, targets);
+    if (!required?.length && !any?.length) return true;
 
     if (!auth.membership) throw AppError.forbidden('Selecione uma organização para continuar.');
-    const missing = required.filter((p) => !auth.permissions.has(p));
-    if (missing.length) throw AppError.forbidden();
+    if (required?.some((p) => !auth.permissions.has(p))) throw AppError.forbidden();
+    if (any?.length && !any.some((p) => auth.permissions.has(p))) throw AppError.forbidden();
     return true;
   }
 }

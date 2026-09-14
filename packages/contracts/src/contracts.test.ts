@@ -7,13 +7,16 @@ import {
   permissionsForRoles,
   quantityString,
   ROLES,
+  supportQueuesFor,
+  type RoleCode,
 } from './index.js';
 
 describe('permissões', () => {
   it('somente papéis MATRIZ podem criar ordens', () => {
     for (const [code, role] of Object.entries(ROLES)) {
       const canCreate = (role.permissions as readonly string[]).includes('order.create');
-      expect(canCreate, code).toBe(role.scope === 'MATRIZ' && code !== 'MATRIZ_VIEWER');
+      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_BILLING_AGENT', 'MATRIZ_SUPPORT_AGENT'].includes(code);
+      expect(canCreate, code).toBe(role.scope === 'MATRIZ' && !readOnlyMatriz);
     }
   });
 
@@ -24,11 +27,25 @@ describe('permissões', () => {
     expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload'))).toBe(false);
   });
 
-  it('só a Matriz operacional atende demandas; todos os perfis abrem conversas', () => {
-    for (const role of ['MATRIZ_ADMIN', 'MATRIZ_MANAGER', 'MATRIZ_OPERATOR'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(true);
+  it('filas de atendimento por papel: supervisão vê tudo, times só a própria fila', () => {
+    const queues = (role: RoleCode) => supportQueuesFor(permissionsForRoles([role]));
+    expect(queues('MATRIZ_ADMIN')).toEqual(['BILLING', 'SUPPORT']);
+    expect(queues('MATRIZ_MANAGER')).toEqual(['BILLING', 'SUPPORT']);
+    expect(queues('MATRIZ_OPERATOR')).toEqual(['BILLING', 'SUPPORT']);
+    expect(queues('MATRIZ_BILLING_AGENT')).toEqual(['BILLING']);
+    expect(queues('MATRIZ_SUPPORT_AGENT')).toEqual(['SUPPORT']);
+    for (const role of ['MATRIZ_ADMIN', 'MATRIZ_MANAGER'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(true);
+    for (const role of ['MATRIZ_OPERATOR', 'MATRIZ_BILLING_AGENT', 'MATRIZ_SUPPORT_AGENT'] as const) expect(permissionsForRoles([role]).has('support.manage')).toBe(false);
     for (const role of ['MATRIZ_VIEWER', 'FARM_ADMIN', 'FARM_OPERATOR', 'BUYER_USER', 'CARRIER_USER'] as const) {
-      expect(permissionsForRoles([role]).has('support.manage')).toBe(false);
+      expect(queues(role)).toEqual([]);
       expect(permissionsForRoles([role]).has('support.use')).toBe(true);
+    }
+  });
+
+  it('atendentes de fila não operam logística nem cadastros', () => {
+    for (const role of ['MATRIZ_BILLING_AGENT', 'MATRIZ_SUPPORT_AGENT'] as const) {
+      const perms = [...permissionsForRoles([role])];
+      expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload') || (p.startsWith('order.') && p !== 'order.read'))).toBe(false);
     }
   });
 });

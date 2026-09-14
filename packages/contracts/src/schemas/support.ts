@@ -6,6 +6,19 @@ export const SUPPORT_QUEUES = ['BILLING', 'SUPPORT'] as const;
 export type SupportQueue = (typeof SUPPORT_QUEUES)[number];
 export const SUPPORT_QUEUE_LABELS: Record<SupportQueue, string> = { BILLING: 'Faturamento', SUPPORT: 'Suporte' };
 
+/** Permissão que dá acesso a cada fila (time). `support.manage` (supervisão) acessa todas (Q31). */
+export const SUPPORT_QUEUE_PERMISSION = { BILLING: 'support.billing', SUPPORT: 'support.support' } as const satisfies Record<SupportQueue, string>;
+
+/** Filas que um conjunto de permissões pode atender. */
+export function supportQueuesFor(permissions: Iterable<string>): SupportQueue[] {
+  const set = new Set(permissions);
+  if (set.has('support.manage')) return [...SUPPORT_QUEUES];
+  return SUPPORT_QUEUES.filter((q) => set.has(SUPPORT_QUEUE_PERMISSION[q]));
+}
+
+/** Slug de rota do painel de cada time. */
+export const SUPPORT_QUEUE_SLUGS: Record<SupportQueue, string> = { BILLING: 'faturamento', SUPPORT: 'suporte' };
+
 export const SUPPORT_STATUSES = ['BOT', 'WAITING', 'OPEN', 'PENDING_CUSTOMER', 'RESOLVED', 'CLOSED'] as const;
 export type SupportStatus = (typeof SUPPORT_STATUSES)[number];
 export const SUPPORT_STATUS_LABELS: Record<SupportStatus, string> = {
@@ -120,6 +133,29 @@ export const supportQueueQuery = z.object({
 });
 export type SupportQueueQuery = z.infer<typeof supportQueueQuery>;
 
+export const supportSummaryQuery = z.object({ queue: z.enum(SUPPORT_QUEUES).optional() });
+export type SupportSummaryQuery = z.infer<typeof supportSummaryQuery>;
+
+export const supportAgentsQuery = z.object({
+  q: z.string().trim().max(120).optional(),
+  cursor: z.string().optional(),
+  queue: z.enum(SUPPORT_QUEUES).optional(),
+});
+export type SupportAgentsQuery = z.infer<typeof supportAgentsQuery>;
+
+export const SUPPORT_ANALYTICS_PERIODS = [7, 30, 90] as const;
+export type SupportAnalyticsPeriod = (typeof SUPPORT_ANALYTICS_PERIODS)[number];
+
+export const supportAnalyticsQuery = z.object({
+  days: z.coerce
+    .number()
+    .int()
+    .refine((v): v is SupportAnalyticsPeriod => (SUPPORT_ANALYTICS_PERIODS as readonly number[]).includes(v), 'Período inválido')
+    .default(30),
+  queue: z.enum(SUPPORT_QUEUES).optional(),
+});
+export type SupportAnalyticsQuery = z.infer<typeof supportAnalyticsQuery>;
+
 export const supportAssignSchema = z.object({ assigneeUserId: z.uuid().nullable() });
 export const supportTransitionSchema = z.object({ to: z.enum(SUPPORT_STATUSES) });
 export const supportUpdateSchema = z
@@ -173,4 +209,46 @@ export interface SupportSummary {
   resolvedToday: number;
   oldestWaitingMinutes: number | null;
   avgFirstResponseMinutes: number | null;
+}
+
+/** Faixas do tempo até a 1ª resposta (minutos, limite superior exclusivo). */
+export const SUPPORT_RESPONSE_BUCKETS = [
+  { key: 'lt15', label: 'Até 15 min', maxMinutes: 15 },
+  { key: 'lt60', label: '15 min a 1 h', maxMinutes: 60 },
+  { key: 'lt240', label: '1 a 4 h', maxMinutes: 240 },
+  { key: 'lt1440', label: '4 a 24 h', maxMinutes: 1440 },
+  { key: 'gte1440', label: 'Mais de 24 h', maxMinutes: null },
+] as const;
+
+/**
+ * Indicadores de atendimento (Q32). Tempos contam a partir da abertura da conversa (inclui a triagem do assistente).
+ * Conversas entram no período pela data de abertura; resolvidas, pela data de resolução.
+ */
+export interface SupportAnalytics {
+  days: SupportAnalyticsPeriod;
+  queues: SupportQueue[];
+  generatedAt: string;
+  totals: {
+    opened: number;
+    queued: number;
+    resolved: number;
+    /** Abertas no período que terminaram encerradas ainda com o assistente (sem fila). */
+    abandonedInBot: number;
+    backlog: number;
+    unassigned: number;
+    avgFirstResponseMinutes: number | null;
+    p90FirstResponseMinutes: number | null;
+    avgResolutionMinutes: number | null;
+    /** % das conversas encaminhadas no período que já foram resolvidas ou encerradas. */
+    resolutionRate: number | null;
+  };
+  previous: { opened: number; resolved: number; avgFirstResponseMinutes: number | null };
+  daily: { day: string; opened: number; resolved: number }[];
+  backlogByStatus: { status: SupportStatus; count: number }[];
+  backlogByPriority: { priority: SupportPriority; count: number }[];
+  firstResponseBuckets: { key: string; label: string; count: number }[];
+  byHour: { hour: number; count: number }[];
+  byQueue: { queue: SupportQueue; opened: number; resolved: number; backlog: number; avgFirstResponseMinutes: number | null; avgResolutionMinutes: number | null }[];
+  byRequester: { kind: string; label: string; count: number }[];
+  agents: { id: string; name: string; openNow: number; resolved: number; replies: number; avgFirstResponseMinutes: number | null }[];
 }

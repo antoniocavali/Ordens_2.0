@@ -25,6 +25,20 @@ const DAY = 86_400_000;
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY);
 const dateOnly = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
+/** Chave de acesso de NF-e (44 dígitos) com dígito verificador módulo 11 — dados demo, nunca SEFAZ real. */
+function demoNfeKey(issuedAt: Date, issuerDoc: string, nfNumber: number, code: number) {
+  const yymm = `${String(issuedAt.getUTCFullYear()).slice(2)}${String(issuedAt.getUTCMonth() + 1).padStart(2, '0')}`;
+  const base = `41${yymm}${issuerDoc.padStart(14, '0')}55001${String(nfNumber).padStart(9, '0')}1${String(code).padStart(8, '0')}`;
+  let weight = 2;
+  let sum = 0;
+  for (let i = base.length - 1; i >= 0; i--) {
+    sum += Number(base[i]) * weight;
+    weight = weight === 9 ? 2 : weight + 1;
+  }
+  const rest = sum % 11;
+  return `${base}${rest < 2 ? 0 : 11 - rest}`;
+}
+
 interface DemoUser {
   email: string;
   name: string;
@@ -241,6 +255,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     { email: 'gestor@graoforte.demo', name: 'Rafael Lima', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_MANAGER'] },
     { email: 'operador@graoforte.demo', name: 'Bruna Costa', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_OPERATOR'] },
     { email: 'leitura@graoforte.demo', name: 'Diego Alves', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_VIEWER'] },
+    { email: 'faturamento@graoforte.demo', name: 'Luana Prado', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_BILLING_AGENT'] },
+    { email: 'suporte@graoforte.demo', name: 'Marcos Teixeira', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_SUPPORT_AGENT'] },
     { email: 'fazenda.joao@graoforte.demo', name: 'João da Silva', org: orgJoao.id, scope: 'FARM', roles: ['FARM_ADMIN'] },
     { email: 'fazenda.maria@graoforte.demo', name: 'Ana Souza', org: orgMaria.id, scope: 'FARM', roles: ['FARM_OPERATOR'] },
     { email: 'comprador.abc@graoforte.demo', name: 'Paulo Ribeiro', org: orgAbc.id, scope: 'BUYER', roles: ['BUYER_USER'] },
@@ -451,6 +467,13 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     const loadedTarget = status === 'IN_PROGRESS' ? Math.round((released * r.int(20, 70)) / 100) : status === 'COMPLETED' ? qty : 0;
     const trucks = split(loadedTarget);
     const receivedTrucks = status === 'COMPLETED' ? trucks.length : Math.floor((trucks.length * r.int(30, 80)) / 100);
+    // Histórico real: a carga só vira "Carregada" depois da NF-e da Fazenda (um evento a cada 3 h).
+    const path = ['SCHEDULED', 'LOADING', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED', 'LOADED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as const;
+    const stepAt = (base: Date, step: (typeof path)[number]) => new Date(base.getTime() + path.indexOf(step) * 3 * 3_600_000);
+    const sellerPartner = trucks.length
+      ? await tx.businessPartner.findUniqueOrThrow({ where: { id: seller }, select: { legalName: true, document: true } })
+      : null;
+    const buyerPartner = trucks.length ? await tx.businessPartner.findUnique({ where: { id: buyer }, select: { legalName: true, document: true } }) : null;
     let sequence = 0;
     for (const [t, tons] of trucks.entries()) {
       sequence++;
@@ -458,6 +481,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
       const loadingDate = addDays(createdAt, 2 + t);
       const netKg = tons * 1000;
       const tareKg = 16_000 + r.int(0, 3000);
+      const reachedReceipt = (['RECEIVED', 'COMPLETED'] as string[]).includes(finalStatus);
       const load = await tx.load.create({
         data: {
           tenantId,
@@ -472,14 +496,13 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           netKg: String(netKg),
           receivedQty: finalStatus === 'COMPLETED' ? (tons - r.int(0, 60) / 1000).toFixed(3) : null,
           status: finalStatus,
-          // Coerentes com o histórico gerado abaixo (um evento a cada 3 h a partir do carregamento).
-          loadedAt: (['LOADED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as string[]).includes(finalStatus) ? new Date(loadingDate.getTime() + 2 * 3 * 3_600_000) : null,
-          receivedAt: (['RECEIVED', 'COMPLETED'] as string[]).includes(finalStatus) ? new Date(loadingDate.getTime() + 5 * 3 * 3_600_000) : null,
+          // Coerentes com o histórico gerado abaixo.
+          loadedAt: stepAt(loadingDate, 'LOADED'),
+          receivedAt: reachedReceipt ? stepAt(loadingDate, 'RECEIVED') : null,
           createdBy: creator.userId,
           createdAt: loadingDate,
         },
       });
-      const path = ['SCHEDULED', 'LOADING', 'LOADED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as const;
       const steps = path.slice(0, path.indexOf(finalStatus) + 1);
       await tx.loadStatusHistory.createMany({
         data: steps.map((to, i) => ({
@@ -488,8 +511,40 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           fromStatus: i === 0 ? null : steps[i - 1],
           toStatus: to,
           actorUserId: creator.userId,
-          occurredAt: new Date(loadingDate.getTime() + i * 3 * 3_600_000),
+          occurredAt: stepAt(loadingDate, to),
         })),
+      });
+
+      // NF-e da Fazenda que permitiu o faturamento (sem XML anexado: dado demo).
+      const issuedAt = stepAt(loadingDate, 'FARM_INVOICED');
+      const issuerDoc = (sellerPartner!.document ?? '').replace(/\D/g, '');
+      const nfNumber = Number(number.slice(5)) * 100 + sequence;
+      await tx.invoice.create({
+        data: {
+          tenantId,
+          loadId: load.id,
+          orderId: order.id,
+          origin: 'FARM',
+          status: 'VALID',
+          accessKey: demoNfeKey(issuedAt, issuerDoc, nfNumber, r.int(10_000_000, 99_999_999)),
+          number: String(nfNumber),
+          series: '1',
+          issuedAt,
+          issuerDocument: issuerDoc || null,
+          issuerName: sellerPartner!.legalName,
+          recipientDocument: buyerPartner?.document?.replace(/\D/g, '') || null,
+          recipientName: buyerPartner?.legalName ?? null,
+          totalValue: (tons * Number(commodity.price)).toFixed(2),
+          netWeightKg: String(netKg),
+          grossWeightKg: String(tareKg + netKg),
+          quantity: String(netKg),
+          quantityUnit: 'KG',
+          productDescription: `${commodityCode} EM GRAOS`,
+          plate: fleet.plates[0] ?? null,
+          protocolStatus: '100',
+          createdBy: creator.userId,
+          createdAt: issuedAt,
+        },
       });
     }
     if (status === 'IN_PROGRESS' || status === 'PUBLISHED') {

@@ -4,6 +4,7 @@ import { currentAuth } from './request-context.js';
 
 export const IS_PUBLIC = 'ordens:public';
 export const REQUIRED_PERMISSIONS = 'ordens:permissions';
+export const ANY_PERMISSIONS = 'ordens:any-permissions';
 export const ALLOWED_STAGES = 'ordens:stages';
 export const REQUIRES_MEMBERSHIP = 'ordens:membership';
 export const PLATFORM_ONLY = 'ordens:platform';
@@ -13,6 +14,9 @@ export const Public = () => SetMetadata(IS_PUBLIC, true);
 
 /** Exige TODAS as permissões informadas na membership ativa. Implica membership ativa. */
 export const RequirePermission = (...permissions: Permission[]) => SetMetadata(REQUIRED_PERMISSIONS, permissions);
+
+/** Exige AO MENOS UMA das permissões informadas (ex.: atender qualquer fila). Implica membership ativa. */
+export const RequireAnyPermission = (...permissions: Permission[]) => SetMetadata(ANY_PERMISSIONS, permissions);
 
 /** Estágios de sessão aceitos (padrão: somente ACTIVE). */
 export const AllowStages = (...stages: SessionStage[]) => SetMetadata(ALLOWED_STAGES, stages);
