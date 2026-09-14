@@ -13,8 +13,7 @@ stateDiagram-v2
   PENDING_CUSTOMER --> OPEN: cliente responde
   OPEN --> WAITING: transferência de fila (libera responsável)
   OPEN --> RESOLVED: atendente resolve
-  RESOLVED --> WAITING: cliente responde (reabre)
-  RESOLVED --> OPEN: atendente reabre
+  RESOLVED --> OPEN: atendente reabre (cliente não reabre — abre nova conversa)
   WAITING --> CLOSED
   OPEN --> CLOSED
   RESOLVED --> CLOSED: atendente ou cliente encerra
@@ -31,23 +30,33 @@ stateDiagram-v2
 
 | Rota | Quem acessa | Conteúdo |
 |---|---|---|
-| `/atendimento/faturamento` | `support.billing` (Atendente Faturamento, Operador) e supervisão | Fila, atendimento e ações só de Faturamento |
-| `/atendimento/suporte` | `support.support` (Atendente Suporte, Operador) e supervisão | Fila, atendimento e ações só de Suporte |
-| `/atendimento` | supervisão (`support.manage`: Gestor, Administrador) no menu; qualquer atendente pelo link de notificação | Todas as filas do usuário; supervisão vê também conversas com o assistente |
-| `/atendimento/indicadores` | qualquer atendente ou supervisão | Indicadores recortados pelas filas do usuário |
+| Rota | Quem acessa | Conteúdo |
+|---|---|---|
+| `/atendimento/faturamento` | quem está na fila de Faturamento (equipe) e supervisão | Fila, atendimento e ações só de Faturamento |
+| `/atendimento/suporte` | quem está na fila de Suporte (equipe) e supervisão | Fila, atendimento e ações só de Suporte |
+| `/atendimento` | supervisão no menu; qualquer atendente pelo link de notificação | Todas as filas do usuário; supervisão vê também conversas com o assistente |
+| `/atendimento/indicadores` | quem atende alguma fila e supervisão | Indicadores recortados pelas filas do usuário |
+| `/atendimento/equipe` | supervisão (`support.manage`) | Define as filas de cada atendente |
 
 `/suporte` redireciona para `/atendimento` (links de notificações antigas).
 
-| | Abrir conversa | Faturamento | Suporte | Supervisão |
-|---|---|---|---|---|
-| Administrador / Gestor Matriz | ● | ● | ● | ● |
-| Operador Matriz | ● | ● | ● | — |
-| Atendente Faturamento | ● | ● | — | — |
-| Atendente Suporte | ● | — | ● | — |
-| Matriz somente leitura, Fazenda, Comprador, Transportadora | ● | — | — | — |
+### Quem atende o quê
+
+- **Papel** define quem *pode* atender: `support.attend` (Operador Matriz e Atendente). Gestor e Administrador têm `support.manage` (supervisão) e atendem todas as filas.
+- **Equipe** (`support_queue_members`) define *em quais filas*: a supervisão marca Faturamento e/ou Suporte por usuário em Atendimento → Equipe. Mudanças valem na hora (o menu do atendente atualiza em tempo real) e são auditadas (`support.team_updated`).
+- Ao tirar alguém de uma fila, as conversas dele naquela fila voltam para "Aguardando atendente" sem responsável.
+- Somente leitura, Fazenda, Comprador e Transportadora só abrem conversas pelo chat.
 
 - A API aplica o recorte em lista, resumo, detalhe, mensagens, atribuição, status, transferência e indicadores. Conversa de outra fila responde **404**; pedir explicitamente outra fila responde **403**.
 - Responsável precisa atender a fila da conversa. A transferência para a outra fila libera o responsável e tira a conversa do painel do time de origem.
+- Conversa **resolvida não reabre pelo cliente** (Q29): API e trigger do banco bloqueiam; o chat oferece "Abrir nova conversa". O atendente ainda pode reabrir.
+
+## SLA de 1ª resposta (Q30)
+
+- Prazo de **1 hora** (`SUPPORT_FIRST_RESPONSE_SLA_MINUTES`) contado desde a (última) entrada na fila, enquanto a conversa aguarda atendente.
+- Painéis: contagem regressiva "responder em X min" (alerta a partir de 15 min), selo "SLA estourado há …" e indicador **Fora do SLA (1 h)**.
+- Indicadores: % das conversas respondidas dentro do SLA no período e quantas estão fora do prazo agora.
+- Cobrança: job `support-sla` do worker a cada 5 minutos avisa supervisão e atendentes da fila, **uma vez por entrada na fila** (`sla_notified_at` + `eventId` idempotente). Transferência ou nova entrada na fila reinicia o prazo.
 - RLS: a Matriz vê todas as conversas do tenant; os demais, só as que abriram. **Notas internas** nunca são visíveis a quem abriu a conversa (política de leitura) e o cliente não consegue gravá-las. O recorte por time é regra de aplicação, sobre o RLS de tenant.
 - Trigger `support_conversations_customer_guard`: quem abriu a conversa não altera responsável, prioridade, solicitante nem move status fora do fluxo do cliente.
 - Mensagens são append-only (sem UPDATE/DELETE) e ordenadas por identity (`seq`); conversas nunca são apagadas. Status, atribuição e transferência vão para a auditoria na mesma transação.

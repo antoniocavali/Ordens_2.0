@@ -36,18 +36,22 @@ export function ConversationThread({
   sending,
   onSend,
   onQuickReply,
+  onNewConversation,
 }: {
   conversation: SupportConversationDetail;
   mode: 'customer' | 'agent';
   sending?: boolean;
   onSend: (body: string, internal: boolean) => Promise<unknown> | void;
   onQuickReply?: (action: SupportBotAction) => void;
+  /** Chat do cliente: conversa resolvida não reabre (Q29), oferece abrir outra. */
+  onNewConversation?: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [internal, setInternal] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const closed = conversation.status === 'CLOSED';
+  const resolvedForCustomer = mode === 'customer' && conversation.status === 'RESOLVED';
+  const closed = conversation.status === 'CLOSED' || resolvedForCustomer;
   const agentBlocked = mode === 'agent' && conversation.status === 'BOT';
 
   useEffect(() => {
@@ -109,7 +113,7 @@ export function ConversationThread({
                   </span>
                   <div
                     className={cn(
-                      'whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
+                      'whitespace-pre-wrap wrap-break-word rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
                       m.internal
                         ? 'rounded-tr-sm bg-warning-soft text-text ring-1 ring-warning/40'
                         : own
@@ -150,9 +154,17 @@ export function ConversationThread({
 
       <div className="border-t border-border/70 p-3">
         {closed ? (
-          <p className="flex items-center justify-center gap-2 py-2 text-sm text-muted">
-            <CircleDot className="size-4" /> Conversa encerrada.
-          </p>
+          <div className="flex flex-col items-center gap-2 py-2 text-center">
+            <p className="flex items-center justify-center gap-2 text-sm text-muted">
+              {resolvedForCustomer ? <CheckCircle2 className="size-4 text-success" /> : <CircleDot className="size-4" />}
+              {resolvedForCustomer ? 'Conversa resolvida. Precisa de mais alguma coisa?' : 'Conversa encerrada.'}
+            </p>
+            {onNewConversation ? (
+              <Button size="sm" variant="outline" onClick={onNewConversation}>
+                Abrir nova conversa
+              </Button>
+            ) : null}
+          </div>
         ) : agentBlocked ? (
           <p className="py-2 text-center text-sm text-muted">A conversa ainda está com o assistente de triagem.</p>
         ) : (

@@ -120,6 +120,7 @@ export function ChatWidget() {
                       throw err;
                     })}
                     onQuickReply={(action) => send.mutate({ id: detail.id, quickReply: action }, { onError: (err) => toast.error(errorMessage(err)) })}
+                    onNewConversation={() => void newConversation()}
                   />
                 </>
               )

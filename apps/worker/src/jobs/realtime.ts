@@ -65,6 +65,10 @@ export function realtimeHandler(ctx: WorkerContext, publisher: Redis) {
       const requester = typeof payload.requesterUserId === 'string' ? payload.requesterUserId : null;
       const messages: RealtimeMessage[] = [{ tenantId, kind: 'invalidate', keys: [['support']], internalOnly: true }];
       if (requester && payload.internal !== true) messages.push({ tenantId, kind: 'invalidate', keys: [['support']], userIds: [requester] });
+      // Mudança de filas na equipe: o atendente recarrega permissões de navegação (/auth/me).
+      if (type === 'support.team_updated' && typeof payload.userId === 'string') {
+        messages.push({ tenantId, kind: 'invalidate', keys: [['auth', 'me'], ['support']], userIds: [payload.userId] });
+      }
       for (const message of messages) await publisher.publish(REALTIME_CHANNEL, JSON.stringify(message));
       return;
     }

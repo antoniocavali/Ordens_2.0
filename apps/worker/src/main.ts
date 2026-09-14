@@ -26,7 +26,7 @@ async function main() {
     new Worker(QUEUE.INVOICES, invoiceProcessingHandler(ctx), { connection, concurrency: 4 }),
     new Worker(QUEUE.EMAIL, emailHandler(ctx), { connection, concurrency: 5 }),
     new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx, publisher), { connection, concurrency: 10 }),
-    new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx), { connection, concurrency: 1 }),
+    new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx, publisher), { connection, concurrency: 1 }),
   ];
 
   for (const w of workers) {
@@ -40,6 +40,8 @@ async function main() {
 
   const maintenance = new Queue(QUEUE.MAINTENANCE, { connection });
   await maintenance.upsertJobScheduler('expire-uploads', { every: 60 * 60_000 }, { name: 'expire-uploads', opts: DEFAULT_JOB_OPTIONS });
+  // SLA de 1ª resposta do atendimento (Q30): verificação a cada 5 minutos.
+  await maintenance.upsertJobScheduler('support-sla', { every: 5 * 60_000 }, { name: 'support-sla', opts: { ...DEFAULT_JOB_OPTIONS, attempts: 1 } });
 
   const relay = new OutboxRelay(ctx);
   relay.start();

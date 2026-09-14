@@ -300,10 +300,26 @@ model Membership {
   user         User             @relation(fields: [userId], references: [id])
   organization Organization     @relation(fields: [organizationId], references: [id])
   roles        MembershipRole[]
+  supportQueues SupportQueueMember[]
 
   @@unique([userId, organizationId])
   @@index([tenantId, organizationId])
   @@map("memberships")
+}
+
+/// Filas do atendimento de cada atendente (Q31). Supervisão atende todas sem linha aqui.
+model SupportQueueMember {
+  tenantId     String       @map("tenant_id") @db.Uuid
+  membershipId String       @map("membership_id") @db.Uuid
+  queue        SupportQueue
+  createdBy    String?      @map("created_by") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, queue])
+  @@index([tenantId, queue])
+  @@map("support_queue_members")
 }
 
 model Role {
@@ -1041,6 +1057,8 @@ enum SupportAuthor {
 }
 
 model SupportConversation {
+  /// Aviso de SLA estourado já enviado para a entrada atual na fila.
+  slaNotifiedAt   DateTime?       @map("sla_notified_at") @db.Timestamptz(6)
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        String          @map("tenant_id") @db.Uuid
   number          String

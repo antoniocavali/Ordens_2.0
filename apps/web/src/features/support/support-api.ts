@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  supportQueuesFor,
   type CursorPage,
   type LookupOption,
   type Page,
@@ -14,6 +13,8 @@ import {
   type SupportQueue,
   type SupportStatus,
   type SupportSummary,
+  type SupportTeamMember,
+  type SupportTeamUpdateResult,
 } from '@ordens/contracts';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -33,8 +34,14 @@ export const useConversation = (id: string | null) =>
 export function useSupportAccess() {
   const { data: me } = useMe();
   return useMemo(() => {
-    const permissions = me?.activeMembership?.scope === 'MATRIZ' ? (me?.permissions ?? []) : [];
-    return { ready: Boolean(me), queues: supportQueuesFor(permissions), supervisor: permissions.includes('support.manage'), userId: me?.user.id ?? null };
+    const matriz = me?.activeMembership?.scope === 'MATRIZ';
+    return {
+      ready: Boolean(me),
+      // Filas vêm da equipe do atendimento (Q31), calculadas pela API.
+      queues: matriz ? (me?.supportQueues ?? []) : [],
+      supervisor: matriz && (me?.permissions ?? []).includes('support.manage'),
+      userId: me?.user.id ?? null,
+    };
   }, [me]);
 }
 
@@ -94,6 +101,20 @@ export function useSupportMutations() {
       onSuccess: () => void qc.invalidateQueries({ queryKey: ['support'] }),
     }),
   };
+}
+
+export const useSupportTeam = (enabled: boolean) =>
+  useQuery({ queryKey: ['support', 'team'], queryFn: () => get<SupportTeamMember[]>('/support/team'), enabled });
+
+export function useUpdateTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ membershipId, queues }: { membershipId: string; queues: SupportQueue[] }) => patch<SupportTeamUpdateResult>(`/support/team/${membershipId}`, { queues }),
+    onSuccess: (result) => {
+      qc.setQueryData<SupportTeamMember[]>(['support', 'team'], (list) => list?.map((m) => (m.membershipId === result.member.membershipId ? result.member : m)));
+      void qc.invalidateQueries({ queryKey: ['support'], predicate: (q) => q.queryKey[1] !== 'team' });
+    },
+  });
 }
 
 /** Atendentes que podem assumir conversas da fila (ou de qualquer fila). */

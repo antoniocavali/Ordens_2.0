@@ -13,7 +13,7 @@ export function Sidebar({ collapsed, onToggle, onNavigate }: { collapsed: boolea
   const pathname = usePathname();
   const can = useCan();
   const { data: me } = useMe();
-  const groups = visibleNavigation(can, me?.activeMembership?.scope);
+  const groups = visibleNavigation(can, me?.activeMembership?.scope, me?.supportQueues);
 
   // Item mais específico vence (ex.: /documentos/nfe ativa só "Notas Fiscais", não "Central de Documentos").
   const current = groups

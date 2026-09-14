@@ -154,11 +154,23 @@ export function SupportDashboard() {
             <KpiCard
               label="1ª resposta média"
               value={formatDuration(a.totals.avgFirstResponseMinutes)}
-              hint={<Delta current={a.totals.avgFirstResponseMinutes} previous={a.previous.avgFirstResponseMinutes} lowerIsBetter />}
+              hint={
+                a.totals.firstResponseWithinSlaRate !== null ? (
+                  `${a.totals.firstResponseWithinSlaRate}% dentro do SLA de 1 h`
+                ) : (
+                  <Delta current={a.totals.avgFirstResponseMinutes} previous={a.previous.avgFirstResponseMinutes} lowerIsBetter />
+                )
+              }
               icon={<ICONS.frt />}
             />
             <KpiCard label="90% respondidas em até" value={formatDuration(a.totals.p90FirstResponseMinutes)} hint={`resolução média: ${formatDuration(a.totals.avgResolutionMinutes)}`} icon={<ICONS.rt />} />
-            <KpiCard label="Backlog agora" value={a.totals.backlog} tone={a.totals.unassigned ? 'warning' : 'primary'} hint={`${a.totals.unassigned} sem responsável`} icon={<ICONS.backlog />} />
+            <KpiCard
+              label="Backlog agora"
+              value={a.totals.backlog}
+              tone={a.totals.slaBreachedNow ? 'danger' : a.totals.unassigned ? 'warning' : 'primary'}
+              hint={`${a.totals.slaBreachedNow} fora do SLA · ${a.totals.unassigned} sem responsável`}
+              icon={<ICONS.backlog />}
+            />
             {!queue && a.queues.length > 1 ? (
               <KpiCard label="Desistências no assistente" value={a.totals.abandonedInBot} hint="encerradas antes da fila" tone={a.totals.abandonedInBot ? 'danger' : 'primary'} icon={<ICONS.abandoned />} />
             ) : (
