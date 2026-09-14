@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Suspense, use } from 'react';
 import { FarmsPage } from '@/features/registry/farms-page';
 import { DriversPage, VehiclesPage } from '@/features/registry/fleet-pages';
+import { LocationsPage } from '@/features/registry/locations-page';
 import { PartnersPage } from '@/features/registry/partners-page';
 
 export default function RegistryRoute({ params }: { params: Promise<{ tipo: string }> }) {
@@ -19,6 +20,8 @@ export default function RegistryRoute({ params }: { params: Promise<{ tipo: stri
         return <PartnersPage role="CARRIER" title="Transportadoras" description="Empresas de transporte, RNTRC, motoristas e frota." icon={<Boxes />} entityLabel="Transportadora" />;
       case 'fazendas':
         return <FarmsPage />;
+      case 'locais':
+        return <LocationsPage />;
       case 'motoristas':
         return <DriversPage />;
       case 'veiculos':

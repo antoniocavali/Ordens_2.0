@@ -730,6 +730,25 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
             {farm?.meta?.city ? `${farm.meta.city}/${farm.meta.state}` : '—'}
           </div>
         </div>
+        <Field label="Local cadastrado" className={col[6]} hint="Preenche o destino abaixo; você ainda pode ajustar os campos nesta ordem.">
+          {(a) => (
+            <AsyncCombobox
+              {...a}
+              value={null}
+              onChange={(v) => {
+                if (!v?.meta) return;
+                setValue('destinationName', v.meta.name ?? v.label, dirty);
+                setValue('destinationCity', v.meta.city ?? '', dirty);
+                setValue('destinationState', v.meta.state ?? '', dirty);
+                setValue('destinationAddress', v.meta.address ?? '', dirty);
+              }}
+              queryKey={['lookup', 'locations', buyer?.id ?? null]}
+              fetchPage={lookups.locations(buyer?.id)}
+              placeholder={buyer ? `Buscar local de ${buyer.label} ou de uso geral…` : 'Buscar armazém, porto ou indústria…'}
+              emptyText="Nenhum local cadastrado. Cadastre em Cadastros > Locais."
+            />
+          )}
+        </Field>
         <Field label="Destino / unidade de recebimento" className={col[3]}>
           {(a) => <Input {...a} {...register('destinationName')} placeholder={buyer ? `Unidade de ${buyer.label}` : 'Ex.: Fábrica Chapecó'} />}
         </Field>

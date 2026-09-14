@@ -38,6 +38,10 @@ export const ACTION_LABELS: Record<string, string> = {
   'upload.aborted': 'Envio cancelado',
   'partner.created': 'Parceiro cadastrado',
   'partner.updated': 'Parceiro alterado',
+  'location.created': 'Local cadastrado',
+  'location.updated': 'Local alterado',
+  'location.archived': 'Local arquivado',
+  'location.restored': 'Local restaurado',
   'farm.created': 'Fazenda cadastrada',
   'farm.updated': 'Fazenda alterada',
   'contract.created': 'Contrato criado',
@@ -87,6 +91,7 @@ export const AUDIT_AREAS: { key: string; label: string; action?: string; entityT
   { key: 'documents', label: 'Documentos e envios', action: 'upload.' },
   { key: 'partners', label: 'Parceiros', action: 'partner.' },
   { key: 'farms', label: 'Fazendas', action: 'farm.' },
+  { key: 'locations', label: 'Locais', action: 'location.' },
   { key: 'contracts', label: 'Contratos', action: 'contract.' },
   { key: 'support', label: 'Atendimento', action: 'support.' },
   { key: 'users', label: 'Usuários', action: 'user.' },
@@ -107,6 +112,8 @@ export function entityHref(entityType: string, entityId: string | null): string 
       return `/atendimento?conversa=${entityId}`;
     case 'farm':
       return `/cadastros/fazendas?abrir=${entityId}`;
+    case 'location':
+      return `/cadastros/locais?abrir=${entityId}`;
     case 'role':
       return '/gestao/papeis';
     case 'membership':
@@ -130,6 +137,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   user: 'Usuário',
   partner: 'Parceiro',
   farm: 'Fazenda',
+  location: 'Local',
   contract: 'Contrato',
   commodity: 'Commodity',
   driver: 'Motorista',

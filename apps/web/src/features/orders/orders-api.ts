@@ -111,6 +111,7 @@ export const lookups = {
   buyers: (contractId?: string | null) => lookup('/lookups/partners', { role: 'BUYER', contractId }),
   carriers: () => lookup('/lookups/partners', { role: 'CARRIER' }),
   farms: (sellerId: string) => lookup('/lookups/farms', { sellerId }),
+  locations: (buyerId?: string | null) => lookup('/lookups/locations', { buyerId }),
   commodities: (contractId?: string | null) => lookup('/lookups/commodities', { contractId }),
   contracts: (filters: { sellerId?: string; buyerId?: string; commodityId?: string }) => lookup('/lookups/contracts', filters),
 };
