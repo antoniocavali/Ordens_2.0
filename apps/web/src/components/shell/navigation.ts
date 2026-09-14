@@ -111,7 +111,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Configurações',
     items: [
-      { label: 'Segurança', href: '/configuracoes/seguranca', icon: ShieldCheck, permission: 'security.policy.manage', soon: true },
+      { label: 'Segurança', href: '/configuracoes/seguranca', icon: ShieldCheck, permission: 'security.policy.manage' },
       { label: 'Preferências', href: '/conta/seguranca', icon: SlidersHorizontal },
       { label: 'Workflow', href: '/configuracoes/workflow', icon: Settings2, permission: 'settings.manage', soon: true },
     ],

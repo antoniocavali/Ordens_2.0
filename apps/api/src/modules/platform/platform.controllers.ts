@@ -17,9 +17,10 @@ import {
   type CreateUserInput,
   type InviteUserInput,
   type Page,
+  type SecurityPolicyDto,
   type UserListQuery,
 } from '@ordens/contracts';
-import { Database, writeAudit } from '@ordens/db';
+import { Database, Prisma, writeAudit } from '@ordens/db';
 import { z } from 'zod';
 import { AllowStages, PlatformOnly, RequirePermission } from '../../common/decorators.js';
 import { AppError } from '../../common/errors.js';
@@ -107,29 +108,68 @@ export class SettingsController {
 
   @Get('security')
   @RequirePermission('security.policy.manage')
-  getSecurity() {
-    return this.db.read((tx) =>
-      tx.tenant.findUniqueOrThrow({
-        where: { id: currentAuth().membership!.tenantId },
-        select: { require2fa: true, require2faRoles: true, viewSlaHours: true },
-      }),
+  async getSecurity(): Promise<SecurityPolicyDto> {
+    const tenantId = currentAuth().membership!.tenantId;
+    const policy = await this.db.read((tx) =>
+      tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { require2fa: true, require2faRoles: true, viewSlaHours: true } }),
     );
+    return { ...policy, coverage: await this.coverage(tenantId) };
   }
 
   @Put('security')
   @RequirePermission('security.policy.manage')
-  updateSecurity(@Body(new ZodPipe(updateSecurityPolicySchema)) body: z.infer<typeof updateSecurityPolicySchema>) {
+  async updateSecurity(@Body(new ZodPipe(updateSecurityPolicySchema)) body: z.infer<typeof updateSecurityPolicySchema>): Promise<SecurityPolicyDto> {
     const tenantId = currentAuth().membership!.tenantId;
-    return this.db.write(async (scope) => {
+    const after = await this.db.write(async (scope) => {
       const before = await scope.tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { require2fa: true, require2faRoles: true, viewSlaHours: true } });
-      const after = await scope.tx.tenant.update({
+      const updated = await scope.tx.tenant.update({
         where: { id: tenantId },
-        data: { require2fa: body.require2fa, require2faRoles: body.require2faRoles, viewSlaHours: body.viewSlaHours },
+        data: { require2fa: body.require2fa, require2faRoles: [...new Set(body.require2faRoles)], viewSlaHours: body.viewSlaHours },
         select: { require2fa: true, require2faRoles: true, viewSlaHours: true },
       });
-      await scope.audit({ entityType: 'tenant', entityId: tenantId, action: 'tenant.security_policy_updated', before, after });
-      return after;
+      await scope.audit({ entityType: 'tenant', entityId: tenantId, action: 'tenant.security_policy_updated', before, after: updated });
+      return updated;
     });
+    return { ...after, coverage: await this.coverage(tenantId) };
+  }
+
+  /**
+   * Cobertura de 2FA dos acessos ativos do tenant, sob a RLS de quem consulta. Usa o espelho
+   * users.two_factor_enabled: as credenciais em si seguem visíveis só ao próprio usuário.
+   */
+  private async coverage(tenantId: string): Promise<SecurityPolicyDto['coverage']> {
+    const rows = await this.db.read((tx) =>
+      tx.$queryRaw<{ membership_id: string; name: string; email: string; organization: string; roles: string[] | null; has_2fa: boolean }[]>(Prisma.sql`
+        select m.id as membership_id, u.name, u.email, o.name as organization,
+          array_remove(array_agg(mr.role_code::text order by mr.role_code), null) as roles,
+          u.two_factor_enabled as has_2fa
+        from memberships m
+        join users u on u.id = m.user_id
+        join organizations o on o.id = m.organization_id
+        left join membership_roles mr on mr.membership_id = m.id
+        where m.tenant_id = ${tenantId}::uuid and m.status = 'ACTIVE' and u.status = 'ACTIVE'
+        group by m.id, u.id, o.name
+        order by u.name
+      `),
+    );
+    const byRole = new Map<string, { total: number; with2fa: number }>();
+    for (const r of rows) {
+      for (const role of r.roles ?? []) {
+        const c = byRole.get(role) ?? { total: 0, with2fa: 0 };
+        c.total += 1;
+        if (r.has_2fa) c.with2fa += 1;
+        byRole.set(role, c);
+      }
+    }
+    return {
+      totalMembers: rows.length,
+      with2fa: rows.filter((r) => r.has_2fa).length,
+      roles: [...byRole.entries()].map(([role, c]) => ({ role, ...c })),
+      without2fa: rows
+        .filter((r) => !r.has_2fa)
+        .slice(0, 500)
+        .map((r) => ({ membershipId: r.membership_id, name: r.name, email: r.email, organization: r.organization, roles: r.roles ?? [] })),
+    };
   }
 }
 

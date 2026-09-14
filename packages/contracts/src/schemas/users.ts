@@ -53,6 +53,29 @@ export const updateSecurityPolicySchema = z.object({
   require2faRoles: z.array(z.enum(ROLE_CODES as [string, ...string[]])),
   viewSlaHours: z.number().int().min(1).max(720),
 });
+export type UpdateSecurityPolicyInput = z.infer<typeof updateSecurityPolicySchema>;
+
+/** Acesso ativo sem 2FA confirmado (para prever o impacto de exigir 2FA). */
+export interface SecurityMemberWithout2fa {
+  membershipId: string;
+  name: string;
+  email: string;
+  organization: string;
+  roles: string[];
+}
+
+export interface SecurityPolicyDto {
+  require2fa: boolean;
+  require2faRoles: string[];
+  viewSlaHours: number;
+  coverage: {
+    totalMembers: number;
+    with2fa: number;
+    /** Por papel do sistema: acessos ativos e quantos têm 2FA. */
+    roles: { role: string; total: number; with2fa: number }[];
+    without2fa: SecurityMemberWithout2fa[];
+  };
+}
 
 export const updatePreferencesSchema = z.object({
   theme: z.enum(THEMES).optional(),
