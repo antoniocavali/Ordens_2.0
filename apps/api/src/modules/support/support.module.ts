@@ -3,27 +3,37 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   asksForAgent,
   classifySupportText,
-  cursorQuery,
   ErrorCode,
   findOrderNumber,
+  permissionsForRoles,
   SUPPORT_AGENT_TRANSITIONS,
   SUPPORT_BOT_OPTIONS,
   SUPPORT_QUEUE_LABELS,
+  SUPPORT_QUEUES,
+  SUPPORT_RESPONSE_BUCKETS,
   SUPPORT_STATUS_LABELS,
   SUPPORT_STATUSES,
+  supportAgentsQuery,
+  supportAnalyticsQuery,
   supportAssignSchema,
   supportMessageSchema,
   supportQueueQuery,
+  supportQueuesFor,
   supportStartSchema,
+  supportSummaryQuery,
   supportTransitionSchema,
   supportUpdateSchema,
   type CursorPage,
   type LookupOption,
   type Page,
+  type SupportAgentsQuery,
+  type SupportAnalytics,
+  type SupportAnalyticsQuery,
   type SupportBotAction,
   type SupportBotOption,
   type SupportConversationDetail,
   type SupportConversationDto,
+  type SupportPriority,
   type SupportQueue,
   type SupportQueueQuery,
   type SupportStatus,
@@ -31,7 +41,7 @@ import {
 } from '@ordens/contracts';
 import { nextSequence, Prisma, type Tx, type UnitOfWorkScope } from '@ordens/db';
 import type { z } from 'zod';
-import { RequirePermission } from '../../common/decorators.js';
+import { RequireAnyPermission, RequirePermission } from '../../common/decorators.js';
 import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
@@ -41,6 +51,9 @@ import { oneOf, uniq } from '../fiscal/fiscal.util.js';
 type ConversationRow = NonNullable<Awaited<ReturnType<Tx['supportConversation']['findUnique']>>>;
 type BotState = { step?: 'CHOOSE_QUEUE' | 'DESCRIBE' | 'DONE'; attempts?: number };
 type MessageInput = z.output<typeof supportMessageSchema>;
+/** Recorte de filas de uma consulta do atendimento; `includeNoQueue` = conversas ainda com o assistente (supervisão). */
+type QueueScope = { queues: SupportQueue[]; includeNoQueue: boolean };
+type SqlRow = Record<string, bigint | Prisma.Decimal | number | string | null>;
 
 const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
 const TZ = 'America/Sao_Paulo';
@@ -48,8 +61,12 @@ const AGENT_OPTION: SupportBotOption = { action: 'AGENT', label: 'Falar com um a
 const BOT_MENU: SupportBotOption[] = [...SUPPORT_BOT_OPTIONS, AGENT_OPTION];
 /** Tentativas do assistente sem entender o assunto antes de encaminhar ao Suporte (Q27). */
 const MAX_BOT_ATTEMPTS = 2;
+const STAFF: Parameters<typeof RequireAnyPermission> = ['support.billing', 'support.support', 'support.manage'];
+const ACTIVE_WORK = Prisma.sql`('WAITING', 'OPEN', 'PENDING_CUSTOMER')`;
+const REQUESTER_KIND_LABELS: Record<string, string> = { MATRIZ: 'Matriz', FARM: 'Fazendas', BUYER: 'Compradores', CARRIER: 'Transportadoras', UNKNOWN: 'Outros' };
 const preview = (text: string) => (text.length > 120 ? `${text.slice(0, 117)}…` : text);
-const minutes = (v: Prisma.Decimal | number | null) => (v === null ? null : Math.round(Number(v)));
+const minutes = (v: unknown) => (v === null || v === undefined ? null : Math.round(Number(v)));
+const count = (v: unknown) => Number(v ?? 0);
 
 @Injectable()
 export class SupportService {
@@ -192,14 +209,17 @@ export class SupportService {
 
   queue(q: SupportQueueQuery): Promise<Page<SupportConversationDto>> {
     const auth = currentAuth();
+    const scope = this.scopeFor(q.queue);
     return this.db.read(async (tx) => {
       const status = oneOf(SUPPORT_STATUSES, q.status);
       const where: Prisma.SupportConversationWhereInput = {
-        status: status?.length ? { in: status } : { in: ['WAITING', 'OPEN', 'PENDING_CUSTOMER'] },
-        ...(q.queue ? { queue: q.queue } : {}),
-        ...(q.priority ? { priority: q.priority } : {}),
-        ...(q.assignee === 'me' ? { assigneeUserId: auth.userId } : q.assignee === 'none' ? { assigneeUserId: null } : q.assignee ? { assigneeUserId: q.assignee } : {}),
-        ...(q.q ? { OR: [{ number: { contains: q.q, mode: 'insensitive' } }, { subject: { contains: q.q, mode: 'insensitive' } }] } : {}),
+        AND: [
+          this.scopeWhere(scope),
+          { status: status?.length ? { in: status } : { in: ['WAITING', 'OPEN', 'PENDING_CUSTOMER'] } },
+          q.priority ? { priority: q.priority } : {},
+          q.assignee === 'me' ? { assigneeUserId: auth.userId } : q.assignee === 'none' ? { assigneeUserId: null } : q.assignee ? { assigneeUserId: q.assignee } : {},
+          q.q ? { OR: [{ number: { contains: q.q, mode: 'insensitive' } }, { subject: { contains: q.q, mode: 'insensitive' } }] } : {},
+        ],
       };
       const [total, rows] = await Promise.all([
         tx.supportConversation.count({ where }),
@@ -214,42 +234,201 @@ export class SupportService {
     });
   }
 
-  summary(): Promise<SupportSummary> {
+  summary(queue?: SupportQueue): Promise<SupportSummary> {
     const auth = currentAuth();
+    const scope = this.scopeFor(queue);
     return this.db.read(async (tx) => {
-      const [r] = await tx.$queryRaw<Record<string, bigint | Prisma.Decimal | number | null>[]>(Prisma.sql`
+      const [r] = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
         select
           count(*) filter (where status = 'WAITING' and queue = 'BILLING') as waiting_billing,
           count(*) filter (where status = 'WAITING' and queue = 'SUPPORT') as waiting_support,
           count(*) filter (where status = 'OPEN') as open,
           count(*) filter (where status = 'PENDING_CUSTOMER') as pending_customer,
-          count(*) filter (where status in ('WAITING', 'OPEN', 'PENDING_CUSTOMER') and assignee_user_id is null) as unassigned,
-          count(*) filter (where status in ('WAITING', 'OPEN', 'PENDING_CUSTOMER') and assignee_user_id = ${auth.userId}::uuid) as mine,
+          count(*) filter (where status in ${ACTIVE_WORK} and assignee_user_id is null) as unassigned,
+          count(*) filter (where status in ${ACTIVE_WORK} and assignee_user_id = ${auth.userId}::uuid) as mine,
           count(*) filter (where resolved_at >= (date_trunc('day', now() at time zone ${TZ}) at time zone ${TZ})) as resolved_today,
           extract(epoch from now() - min(queued_at) filter (where status = 'WAITING')) / 60 as oldest_waiting,
-          avg(extract(epoch from first_response_at - queued_at) / 60) filter (where first_response_at is not null and queued_at >= now() - interval '7 days') as avg_first_response
-        from support_conversations
+          avg(extract(epoch from first_response_at - queued_at) / 60) filter (where first_response_at is not null and first_response_at >= queued_at and queued_at >= now() - interval '7 days') as avg_first_response
+        from support_conversations c
+        where ${this.scopeSql(scope)}
       `);
-      const n = (k: string) => Number(r?.[k] ?? 0);
       return {
-        waiting: { BILLING: n('waiting_billing'), SUPPORT: n('waiting_support') },
-        open: n('open'),
-        pendingCustomer: n('pending_customer'),
-        unassigned: n('unassigned'),
-        mine: n('mine'),
-        resolvedToday: n('resolved_today'),
-        oldestWaitingMinutes: minutes((r?.oldest_waiting ?? null) as Prisma.Decimal | null),
-        avgFirstResponseMinutes: minutes((r?.avg_first_response ?? null) as Prisma.Decimal | null),
+        waiting: { BILLING: count(r?.waiting_billing), SUPPORT: count(r?.waiting_support) },
+        open: count(r?.open),
+        pendingCustomer: count(r?.pending_customer),
+        unassigned: count(r?.unassigned),
+        mine: count(r?.mine),
+        resolvedToday: count(r?.resolved_today),
+        oldestWaitingMinutes: minutes(r?.oldest_waiting),
+        avgFirstResponseMinutes: minutes(r?.avg_first_response),
       };
     });
   }
 
-  agents(q: z.output<typeof cursorQuery>): Promise<CursorPage<LookupOption>> {
+  /** Indicadores do período, recortados pelas filas do usuário (Q32). */
+  analytics(q: SupportAnalyticsQuery): Promise<SupportAnalytics> {
+    const scope = this.scopeFor(q.queue);
+    const days = q.days;
     return this.db.read(async (tx) => {
-      const memberships = await tx.membership.findMany({ where: { scope: 'MATRIZ', status: 'ACTIVE' }, select: { userId: true } });
+      const start = Prisma.sql`((date_trunc('day', now() at time zone ${TZ}) - make_interval(days => ${days - 1}::int)) at time zone ${TZ})`;
+      const prevStart = Prisma.sql`((date_trunc('day', now() at time zone ${TZ}) - make_interval(days => ${2 * days - 1}::int)) at time zone ${TZ})`;
+      const scoped = Prisma.sql`
+        scoped as (
+          select c.*,
+            extract(epoch from c.first_response_at - c.created_at) / 60 as frt,
+            extract(epoch from c.resolved_at - c.created_at) / 60 as rt
+          from support_conversations c
+          where ${this.scopeSql(scope)}
+        )`;
+
+      const [totals] = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select
+          count(*) filter (where created_at >= ${start}) as opened,
+          count(*) filter (where created_at >= ${start} and queue is not null) as queued,
+          count(*) filter (where resolved_at >= ${start}) as resolved,
+          count(*) filter (where created_at >= ${start} and queue is null and status = 'CLOSED') as abandoned,
+          count(*) filter (where status in ${ACTIVE_WORK}) as backlog,
+          count(*) filter (where status in ${ACTIVE_WORK} and assignee_user_id is null) as unassigned,
+          avg(frt) filter (where created_at >= ${start} and first_response_at is not null) as avg_frt,
+          percentile_cont(0.9) within group (order by frt) filter (where created_at >= ${start} and first_response_at is not null) as p90_frt,
+          avg(rt) filter (where resolved_at >= ${start}) as avg_rt,
+          count(*) filter (where created_at >= ${start} and queue is not null and status in ('RESOLVED', 'CLOSED')) as done_of_queued,
+          count(*) filter (where created_at >= ${prevStart} and created_at < ${start}) as prev_opened,
+          count(*) filter (where resolved_at >= ${prevStart} and resolved_at < ${start}) as prev_resolved,
+          avg(frt) filter (where created_at >= ${prevStart} and created_at < ${start} and first_response_at is not null) as prev_avg_frt
+        from scoped
+      `);
+
+      const daily = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped},
+        days as (
+          select generate_series((now() at time zone ${TZ})::date - ${days - 1}::int, (now() at time zone ${TZ})::date, interval '1 day')::date as d
+        ),
+        o as (select (created_at at time zone ${TZ})::date as d, count(*) as n from scoped where created_at >= ${start} group by 1),
+        r as (select (resolved_at at time zone ${TZ})::date as d, count(*) as n from scoped where resolved_at >= ${start} group by 1)
+        select to_char(days.d, 'YYYY-MM-DD') as day, coalesce(o.n, 0) as opened, coalesce(r.n, 0) as resolved
+        from days left join o using (d) left join r using (d)
+        order by days.d
+      `);
+
+      const byStatus = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select status::text as key, count(*) as n from scoped
+        where status in ('BOT', 'WAITING', 'OPEN', 'PENDING_CUSTOMER') group by 1
+      `);
+      const byPriority = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select priority::text as key, count(*) as n from scoped where status in ${ACTIVE_WORK} group by 1
+      `);
+      const buckets = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select case when frt < 15 then 'lt15' when frt < 60 then 'lt60' when frt < 240 then 'lt240' when frt < 1440 then 'lt1440' else 'gte1440' end as key, count(*) as n
+        from scoped where created_at >= ${start} and first_response_at is not null group by 1
+      `);
+      const byHour = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select extract(hour from created_at at time zone ${TZ})::int as key, count(*) as n from scoped where created_at >= ${start} group by 1
+      `);
+      const byQueue = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select queue::text as queue,
+          count(*) filter (where created_at >= ${start}) as opened,
+          count(*) filter (where resolved_at >= ${start}) as resolved,
+          count(*) filter (where status in ${ACTIVE_WORK}) as backlog,
+          avg(frt) filter (where created_at >= ${start} and first_response_at is not null) as avg_frt,
+          avg(rt) filter (where resolved_at >= ${start}) as avg_rt
+        from scoped where queue is not null group by queue
+      `);
+      const byRequester = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select coalesce(o.kind::text, 'UNKNOWN') as key, count(*) as n
+        from scoped s left join organizations o on o.id = s.requester_org_id
+        where s.created_at >= ${start} group by 1 order by 2 desc
+      `);
+      const agentRows = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select assignee_user_id::text as id,
+          count(*) filter (where status in ${ACTIVE_WORK}) as open_now,
+          count(*) filter (where resolved_at >= ${start}) as resolved,
+          avg(frt) filter (where created_at >= ${start} and first_response_at is not null) as avg_frt
+        from scoped where assignee_user_id is not null group by 1
+      `);
+      const replyRows = await tx.$queryRaw<SqlRow[]>(Prisma.sql`
+        with ${scoped}
+        select m.author_user_id::text as id, count(*) as n
+        from support_messages m join scoped s on s.id = m.conversation_id
+        where m.author_type = 'AGENT' and not m.internal and m.author_user_id is not null and m.created_at >= ${start}
+        group by 1
+      `);
+
+      const tally = (rows: SqlRow[]) => new Map(rows.map((r) => [String(r.key), count(r.n)]));
+      const statusCounts = tally(byStatus);
+      const priorityCounts = tally(byPriority);
+      const bucketCounts = tally(buckets);
+      const hourCounts = tally(byHour);
+      const replies = new Map(replyRows.map((r) => [String(r.id), count(r.n)]));
+      const agentIds = uniq([...agentRows.map((r) => String(r.id)), ...replies.keys()]);
+      const users = agentIds.length ? await tx.user.findMany({ where: { id: { in: agentIds } }, select: { id: true, name: true } }) : [];
+      const names = new Map(users.map((u) => [u.id, u.name]));
+      const agentStats = new Map(agentRows.map((r) => [String(r.id), r]));
+      const queued = count(totals?.queued);
+
+      return {
+        days,
+        queues: scope.queues,
+        generatedAt: new Date().toISOString(),
+        totals: {
+          opened: count(totals?.opened),
+          queued,
+          resolved: count(totals?.resolved),
+          abandonedInBot: count(totals?.abandoned),
+          backlog: count(totals?.backlog),
+          unassigned: count(totals?.unassigned),
+          avgFirstResponseMinutes: minutes(totals?.avg_frt),
+          p90FirstResponseMinutes: minutes(totals?.p90_frt),
+          avgResolutionMinutes: minutes(totals?.avg_rt),
+          resolutionRate: queued ? Math.round((count(totals?.done_of_queued) / queued) * 100) : null,
+        },
+        previous: { opened: count(totals?.prev_opened), resolved: count(totals?.prev_resolved), avgFirstResponseMinutes: minutes(totals?.prev_avg_frt) },
+        daily: daily.map((d) => ({ day: String(d.day), opened: count(d.opened), resolved: count(d.resolved) })),
+        backlogByStatus: (['WAITING', 'OPEN', 'PENDING_CUSTOMER', ...(scope.includeNoQueue ? (['BOT'] as const) : [])] as SupportStatus[]).map((status) => ({
+          status,
+          count: statusCounts.get(status) ?? 0,
+        })),
+        backlogByPriority: (['URGENT', 'HIGH', 'NORMAL', 'LOW'] as SupportPriority[]).map((priority) => ({ priority, count: priorityCounts.get(priority) ?? 0 })),
+        firstResponseBuckets: SUPPORT_RESPONSE_BUCKETS.map((b) => ({ key: b.key, label: b.label, count: bucketCounts.get(b.key) ?? 0 })),
+        byHour: Array.from({ length: 24 }, (_, hour) => ({ hour, count: hourCounts.get(String(hour)) ?? 0 })),
+        byQueue: scope.queues.map((queue) => {
+          const r = byQueue.find((x) => x.queue === queue);
+          return {
+            queue,
+            opened: count(r?.opened),
+            resolved: count(r?.resolved),
+            backlog: count(r?.backlog),
+            avgFirstResponseMinutes: minutes(r?.avg_frt),
+            avgResolutionMinutes: minutes(r?.avg_rt),
+          };
+        }),
+        byRequester: byRequester.map((r) => ({ kind: String(r.key), label: REQUESTER_KIND_LABELS[String(r.key)] ?? String(r.key), count: count(r.n) })),
+        agents: agentIds
+          .map((id) => {
+            const s = agentStats.get(id);
+            return { id, name: names.get(id) ?? 'Atendente', openNow: count(s?.open_now), resolved: count(s?.resolved), replies: replies.get(id) ?? 0, avgFirstResponseMinutes: minutes(s?.avg_frt) };
+          })
+          .filter((a) => a.openNow || a.resolved || a.replies)
+          .sort((a, b) => b.resolved - a.resolved || b.replies - a.replies || a.name.localeCompare(b.name)),
+      };
+    });
+  }
+
+  agents(q: SupportAgentsQuery): Promise<CursorPage<LookupOption>> {
+    const scope = this.scopeFor(q.queue);
+    return this.db.read(async (tx) => {
+      const eligible = await this.eligibleAgents(tx, q.queue ?? null, scope.queues);
       const users = await tx.user.findMany({
         where: {
-          id: { in: uniq(memberships.map((m) => m.userId)) },
+          id: { in: eligible },
           ...(q.q ? { OR: [{ name: { contains: q.q, mode: 'insensitive' } }, { email: { contains: q.q, mode: 'insensitive' } }] } : {}),
         },
         orderBy: { name: 'asc' },
@@ -263,12 +442,15 @@ export class SupportService {
   assign(id: string, assigneeUserId: string | null): Promise<SupportConversationDetail> {
     const auth = currentAuth();
     return this.db.write(async ({ tx, audit, outbox }) => {
-      const conv = await this.lock(tx, id);
+      const conv = await this.lockForAgent(tx, id);
       if (conv.status === 'CLOSED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Conversa encerrada.');
       let name: string | null = null;
       if (assigneeUserId) {
-        const member = await tx.membership.findFirst({ where: { userId: assigneeUserId, scope: 'MATRIZ', status: 'ACTIVE' }, select: { userId: true } });
-        if (!member) throw AppError.validation({ fields: { assigneeUserId: ['Selecione um atendente da Matriz'] } });
+        // Responsável precisa atender a fila da conversa (Q31).
+        const eligible = await this.eligibleAgents(tx, conv.queue, [...SUPPORT_QUEUES]);
+        if (!eligible.includes(assigneeUserId)) {
+          throw AppError.validation({ fields: { assigneeUserId: [conv.queue ? `Selecione alguém do time de ${SUPPORT_QUEUE_LABELS[conv.queue]}` : 'Selecione um atendente da Matriz'] } });
+        }
         name = (await tx.user.findUnique({ where: { id: assigneeUserId }, select: { name: true } }))?.name ?? null;
       }
       if (conv.assigneeUserId === assigneeUserId) return this.loadDetail(tx, id);
@@ -287,7 +469,7 @@ export class SupportService {
 
   transition(id: string, to: SupportStatus): Promise<SupportConversationDetail> {
     return this.db.write(async ({ tx, audit, outbox }) => {
-      const conv = await this.lock(tx, id);
+      const conv = await this.lockForAgent(tx, id);
       if (!SUPPORT_AGENT_TRANSITIONS[conv.status].includes(to)) {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, `Não é possível passar de "${SUPPORT_STATUS_LABELS[conv.status]}" para "${SUPPORT_STATUS_LABELS[to]}".`);
       }
@@ -311,9 +493,9 @@ export class SupportService {
     });
   }
 
-  update(id: string, input: z.output<typeof supportUpdateSchema>): Promise<SupportConversationDetail> {
+  update(id: string, input: z.output<typeof supportUpdateSchema>): Promise<SupportConversationDetail | null> {
     return this.db.write(async ({ tx, audit, outbox }) => {
-      const conv = await this.lock(tx, id);
+      const conv = await this.lockForAgent(tx, id);
       if (conv.status === 'CLOSED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Conversa encerrada.');
       const transfer = input.queue && input.queue !== conv.queue;
       await tx.supportConversation.update({
@@ -335,7 +517,9 @@ export class SupportService {
         after: { queue: input.queue ?? conv.queue, priority: input.priority ?? conv.priority, assigneeUserId: transfer ? null : conv.assigneeUserId },
       });
       await outbox({ type: 'support.updated', aggregateType: 'support_conversation', aggregateId: id, payload: { conversationId: id, number: conv.number, requesterUserId: conv.requesterUserId } });
-      return this.loadDetail(tx, id);
+      // Transferida para uma fila que o atendente não atende: a conversa sai do alcance dele (Q31).
+      const after = await tx.supportConversation.findUniqueOrThrow({ where: { id } });
+      return this.canHandle(after) ? this.loadDetail(tx, id) : null;
     });
   }
 
@@ -411,14 +595,52 @@ export class SupportService {
 
   // ───────────────────────────── Internos ─────────────────────────────
 
-  private get canManage() {
+  /** Filas atendidas pelo usuário da requisição e se supervisiona (Q31). */
+  private access() {
     const auth = currentAuth();
-    return auth.membership?.scope === 'MATRIZ' && auth.permissions.has('support.manage');
+    const queues = auth.membership?.scope === 'MATRIZ' ? supportQueuesFor(auth.permissions) : [];
+    return { queues, supervisor: queues.length > 0 && auth.permissions.has('support.manage') };
   }
 
-  /** Atendente: Matriz com support.manage agindo em conversa aberta por outra pessoa. */
-  private isAgentFor(conv: { requesterUserId: string }) {
-    return this.canManage && conv.requesterUserId !== currentAuth().userId;
+  private scopeFor(requested?: SupportQueue): QueueScope {
+    const { queues, supervisor } = this.access();
+    if (!queues.length) throw AppError.forbidden();
+    if (requested && !queues.includes(requested)) throw AppError.forbidden(`Você não atende a fila de ${SUPPORT_QUEUE_LABELS[requested]}.`);
+    return { queues: requested ? [requested] : queues, includeNoQueue: !requested && supervisor };
+  }
+
+  private scopeWhere(scope: QueueScope): Prisma.SupportConversationWhereInput {
+    return scope.includeNoQueue ? { OR: [{ queue: { in: scope.queues } }, { queue: null }] } : { queue: { in: scope.queues } };
+  }
+
+  /** Filtro SQL equivalente a scopeWhere (alias `c`). */
+  private scopeSql(scope: QueueScope) {
+    const inQueues = Prisma.sql`c.queue::text in (${Prisma.join(scope.queues)})`;
+    return scope.includeNoQueue ? Prisma.sql`(${inQueues} or c.queue is null)` : inQueues;
+  }
+
+  /** Atende a fila da conversa (sem fila = ainda com o assistente: só supervisão). */
+  private canHandle(conv: { queue: SupportQueue | null }) {
+    const { queues, supervisor } = this.access();
+    return conv.queue ? queues.includes(conv.queue) : supervisor;
+  }
+
+  /** Atendente: atende a fila e age em conversa aberta por outra pessoa. */
+  private isAgentFor(conv: { requesterUserId: string; queue: SupportQueue | null }) {
+    return this.canHandle(conv) && conv.requesterUserId !== currentAuth().userId;
+  }
+
+  /** Usuários da Matriz ativos que atendem `queue` (ou alguma das `within`, quando sem fila). */
+  private async eligibleAgents(tx: Tx, queue: SupportQueue | null, within: SupportQueue[]): Promise<string[]> {
+    const memberships = await tx.membership.findMany({ where: { scope: 'MATRIZ', status: 'ACTIVE' }, select: { userId: true, roles: { select: { roleCode: true } } } });
+    return uniq(
+      memberships
+        .filter((m) => {
+          const agentQueues = supportQueuesFor(permissionsForRoles(m.roles.map((r) => r.roleCode)));
+          return queue ? agentQueues.includes(queue) : agentQueues.some((x) => within.includes(x));
+        })
+        .map((m) => m.userId),
+    );
   }
 
   private async addMessage(
@@ -445,10 +667,17 @@ export class SupportService {
     return tx.supportConversation.findUniqueOrThrow({ where: { id } });
   }
 
+  /** Ações do painel: conversa de fila que o usuário não atende é tratada como inexistente. */
+  private async lockForAgent(tx: Tx, id: string): Promise<ConversationRow> {
+    const conv = await this.lock(tx, id);
+    if (!this.canHandle(conv)) throw AppError.notFound('Conversa não encontrada.');
+    return conv;
+  }
+
   private async loadDetail(tx: Tx, id: string): Promise<SupportConversationDetail> {
     const auth = currentAuth();
     const conv = await tx.supportConversation.findUnique({ where: { id } });
-    if (!conv || (conv.requesterUserId !== auth.userId && !this.canManage)) throw AppError.notFound('Conversa não encontrada.');
+    if (!conv || (conv.requesterUserId !== auth.userId && !this.canHandle(conv))) throw AppError.notFound('Conversa não encontrada.');
     const asCustomer = !this.isAgentFor(conv);
     const rows = await tx.supportMessage.findMany({
       where: { conversationId: id, ...(asCustomer ? { internal: false } : {}) },
@@ -536,20 +765,26 @@ export class SupportController {
   }
 
   @Get('queue')
-  @RequirePermission('support.manage')
+  @RequireAnyPermission(...STAFF)
   queue(@Query(new ZodPipe(supportQueueQuery)) q: SupportQueueQuery) {
     return this.support.queue(q);
   }
 
   @Get('summary')
-  @RequirePermission('support.manage')
-  summary() {
-    return this.support.summary();
+  @RequireAnyPermission(...STAFF)
+  summary(@Query(new ZodPipe(supportSummaryQuery)) q: z.output<typeof supportSummaryQuery>) {
+    return this.support.summary(q.queue);
+  }
+
+  @Get('analytics')
+  @RequireAnyPermission(...STAFF)
+  analytics(@Query(new ZodPipe(supportAnalyticsQuery)) q: SupportAnalyticsQuery) {
+    return this.support.analytics(q);
   }
 
   @Get('agents')
-  @RequirePermission('support.manage')
-  agents(@Query(new ZodPipe(cursorQuery)) q: z.output<typeof cursorQuery>) {
+  @RequireAnyPermission(...STAFF)
+  agents(@Query(new ZodPipe(supportAgentsQuery)) q: SupportAgentsQuery) {
     return this.support.agents(q);
   }
 
@@ -575,20 +810,21 @@ export class SupportController {
 
   @Post('conversations/:id/assign')
   @HttpCode(200)
-  @RequirePermission('support.manage')
+  @RequireAnyPermission(...STAFF)
   assign(@Param('id', uuid) id: string, @Body(new ZodPipe(supportAssignSchema)) body: z.output<typeof supportAssignSchema>) {
     return this.support.assign(id, body.assigneeUserId);
   }
 
   @Post('conversations/:id/transition')
   @HttpCode(200)
-  @RequirePermission('support.manage')
+  @RequireAnyPermission(...STAFF)
   transition(@Param('id', uuid) id: string, @Body(new ZodPipe(supportTransitionSchema)) body: z.output<typeof supportTransitionSchema>) {
     return this.support.transition(id, body.to);
   }
 
+  /** Corpo vazio quando a transferência tira a conversa das filas do atendente. */
   @Patch('conversations/:id')
-  @RequirePermission('support.manage')
+  @RequireAnyPermission(...STAFF)
   update(@Param('id', uuid) id: string, @Body(new ZodPipe(supportUpdateSchema)) body: z.output<typeof supportUpdateSchema>) {
     return this.support.update(id, body);
   }

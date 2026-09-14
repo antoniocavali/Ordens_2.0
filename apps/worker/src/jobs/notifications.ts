@@ -107,7 +107,7 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       }
       const assignee = str(p.assigneeUserId);
       return assignee
-        ? { userIds: [assignee], title: `Nova mensagem em ${number}`, body: str(p.preview), data: { conversationId, href: `/suporte?conversa=${conversationId}` } }
+        ? { userIds: [assignee], title: `Nova mensagem em ${number}`, body: str(p.preview), data: { conversationId, href: `/atendimento?conversa=${conversationId}` } }
         : null;
     }
 
@@ -116,7 +116,7 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       const assignee = str(p.assigneeUserId);
       // Quem assumiu o próprio atendimento não precisa ser avisado.
       if (!conversationId || !assignee || assignee === str(p.actorUserId)) return null;
-      return { userIds: [assignee], title: `Atendimento ${String(p.number ?? '')} atribuído a você`, body: null, data: { conversationId, href: `/suporte?conversa=${conversationId}` } };
+      return { userIds: [assignee], title: `Atendimento ${String(p.number ?? '')} atribuído a você`, body: null, data: { conversationId, href: `/atendimento?conversa=${conversationId}` } };
     }
 
     case 'support.status_changed': {

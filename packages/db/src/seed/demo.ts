@@ -241,6 +241,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     { email: 'gestor@graoforte.demo', name: 'Rafael Lima', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_MANAGER'] },
     { email: 'operador@graoforte.demo', name: 'Bruna Costa', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_OPERATOR'] },
     { email: 'leitura@graoforte.demo', name: 'Diego Alves', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_VIEWER'] },
+    { email: 'faturamento@graoforte.demo', name: 'Luana Prado', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_BILLING_AGENT'] },
+    { email: 'suporte@graoforte.demo', name: 'Marcos Teixeira', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_SUPPORT_AGENT'] },
     { email: 'fazenda.joao@graoforte.demo', name: 'João da Silva', org: orgJoao.id, scope: 'FARM', roles: ['FARM_ADMIN'] },
     { email: 'fazenda.maria@graoforte.demo', name: 'Ana Souza', org: orgMaria.id, scope: 'FARM', roles: ['FARM_OPERATOR'] },
     { email: 'comprador.abc@graoforte.demo', name: 'Paulo Ribeiro', org: orgAbc.id, scope: 'BUYER', roles: ['BUYER_USER'] },

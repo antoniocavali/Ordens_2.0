@@ -11,9 +11,12 @@ import {
   Gauge,
   Headphones,
   History,
+  LifeBuoy,
+  LineChart,
   MapPin,
   Package,
   PackageCheck,
+  Receipt,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
@@ -30,6 +33,8 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   permission?: Permission;
+  /** Basta uma destas permissões. */
+  anyPermission?: Permission[];
   scopes?: Scope[];
   /** Módulo de fase futura: aparece desabilitado com tooltip. */
   soon?: boolean;
@@ -79,9 +84,17 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
+    label: 'Atendimento',
+    items: [
+      { label: 'Visão geral', href: '/atendimento', icon: Headphones, permission: 'support.manage' },
+      { label: 'Faturamento', href: '/atendimento/faturamento', icon: Receipt, anyPermission: ['support.billing', 'support.manage'] },
+      { label: 'Suporte', href: '/atendimento/suporte', icon: LifeBuoy, anyPermission: ['support.support', 'support.manage'] },
+      { label: 'Indicadores', href: '/atendimento/indicadores', icon: LineChart, anyPermission: ['support.billing', 'support.support', 'support.manage'] },
+    ],
+  },
+  {
     label: 'Gestão',
     items: [
-      { label: 'Atendimento', href: '/suporte', icon: Headphones, permission: 'support.manage' },
       { label: 'Relatórios', href: '/gestao/relatorios', icon: BarChart3, permission: 'report.export', soon: true },
       { label: 'Auditoria', href: '/gestao/auditoria', icon: History, permission: 'audit.read', soon: true },
       { label: 'Usuários', href: '/gestao/usuarios', icon: Users, permission: 'user.read', soon: true },
@@ -100,6 +113,8 @@ export const NAVIGATION: NavGroup[] = [
 export function visibleNavigation(can: (p: Permission) => boolean, scope: Scope | undefined): NavGroup[] {
   return NAVIGATION.map((g) => ({
     ...g,
-    items: g.items.filter((i) => (!i.permission || can(i.permission)) && (!i.scopes || (scope && i.scopes.includes(scope)))),
+    items: g.items.filter(
+      (i) => (!i.permission || can(i.permission)) && (!i.anyPermission || i.anyPermission.some(can)) && (!i.scopes || (scope && i.scopes.includes(scope))),
+    ),
   })).filter((g) => g.items.length);
 }

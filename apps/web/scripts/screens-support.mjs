@@ -41,7 +41,7 @@ await farm.context.close();
 
 // Atendente (Matriz): painel com a conversa selecionada, resposta e nota interna.
 const agent = await session('admin@graoforte.demo');
-await agent.page.goto(`${BASE}/suporte`);
+await agent.page.goto(`${BASE}/atendimento`);
 await agent.page.getByRole('heading', { name: 'Atendimento' }).waitFor();
 await agent.page.locator('ul li button').first().click();
 await agent.page.getByRole('textbox', { name: 'Mensagem' }).waitFor();
