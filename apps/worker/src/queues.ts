@@ -46,4 +46,10 @@ export const ROUTES: Record<string, string[]> = {
   'invoice.cancelled': [QUEUE.REALTIME],
   'occurrence.opened': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'occurrence.status_changed': [QUEUE.REALTIME],
+  'support.conversation_started': [QUEUE.REALTIME],
+  'support.conversation_queued': [QUEUE.REALTIME],
+  'support.message_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'support.assigned': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'support.status_changed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'support.updated': [QUEUE.REALTIME],
 };

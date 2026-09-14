@@ -1002,6 +1002,86 @@ model LoadStatusHistory {
   @@map("load_status_history")
 }
 
+// ─────────────────────── Atendimento (chat + assistente) ───────────────────────
+
+enum SupportQueue {
+  BILLING
+  SUPPORT
+
+  @@map("support_queue")
+}
+
+enum SupportStatus {
+  BOT
+  WAITING
+  OPEN
+  PENDING_CUSTOMER
+  RESOLVED
+  CLOSED
+
+  @@map("support_status")
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+
+  @@map("support_priority")
+}
+
+enum SupportAuthor {
+  CUSTOMER
+  AGENT
+  BOT
+  SYSTEM
+
+  @@map("support_author")
+}
+
+model SupportConversation {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  number          String
+  requesterUserId String          @map("requester_user_id") @db.Uuid
+  requesterOrgId  String?         @map("requester_org_id") @db.Uuid
+  queue           SupportQueue?
+  status          SupportStatus   @default(BOT)
+  priority        SupportPriority @default(NORMAL)
+  subject         String?
+  assigneeUserId  String?         @map("assignee_user_id") @db.Uuid
+  orderId         String?         @map("order_id") @db.Uuid
+  botState        Json            @default("{}") @map("bot_state")
+  lastMessageAt   DateTime        @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  firstResponseAt DateTime?       @map("first_response_at") @db.Timestamptz(6)
+  queuedAt        DateTime?       @map("queued_at") @db.Timestamptz(6)
+  resolvedAt      DateTime?       @map("resolved_at") @db.Timestamptz(6)
+  closedAt        DateTime?       @map("closed_at") @db.Timestamptz(6)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, number])
+  @@map("support_conversations")
+}
+
+model SupportMessage {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Identity: ordem estável entre mensagens gravadas na mesma transação.
+  seq            BigInt        @default(autoincrement())
+  tenantId       String        @map("tenant_id") @db.Uuid
+  conversationId String        @map("conversation_id") @db.Uuid
+  authorType     SupportAuthor @map("author_type")
+  authorUserId   String?       @map("author_user_id") @db.Uuid
+  body           String
+  internal       Boolean       @default(false)
+  metadata       Json          @default("{}")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, conversationId, seq])
+  @@map("support_messages")
+}
+
 // ─────────────────────── Fiscal e ocorrências (Fase 8) ───────────────────────
 
 enum InvoiceOrigin {

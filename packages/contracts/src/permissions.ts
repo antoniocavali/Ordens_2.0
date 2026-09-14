@@ -42,6 +42,8 @@ export const PERMISSIONS = {
   'dashboard.buyer': 'Dashboard do Comprador',
   'report.export': 'Exportar relatórios',
   'settings.manage': 'Gerenciar configurações do tenant',
+  'support.use': 'Abrir conversas de atendimento',
+  'support.manage': 'Atender e gerenciar demandas de suporte e faturamento',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -60,6 +62,7 @@ const MATRIZ_READ: Permission[] = [
   'occurrence.read',
   'document.read',
   'dashboard.matriz',
+  'support.use',
 ];
 
 const MATRIZ_OPERATE: Permission[] = [
@@ -74,6 +77,7 @@ const MATRIZ_OPERATE: Permission[] = [
   'occurrence.manage',
   'document.upload',
   'invoice.upload',
+  'support.manage',
 ];
 
 const MATRIZ_MANAGE: Permission[] = [
@@ -146,6 +150,7 @@ export const ROLES = {
       'document.upload',
       'invoice.upload',
       'dashboard.farm',
+      'support.use',
     ],
   },
   FARM_OPERATOR: {
@@ -168,6 +173,7 @@ export const ROLES = {
       'document.upload',
       'invoice.upload',
       'dashboard.farm',
+      'support.use',
     ],
   },
   BUYER_USER: {
@@ -184,12 +190,13 @@ export const ROLES = {
       'occurrence.read',
       'document.read',
       'dashboard.buyer',
+      'support.use',
     ],
   },
   CARRIER_USER: {
     name: 'Usuário Transportadora',
     scope: Scope.CARRIER,
-    permissions: ['appointment.read', 'load.read', 'document.read'],
+    permissions: ['appointment.read', 'load.read', 'document.read', 'support.use'],
   },
 } as const satisfies Record<string, RoleDefinition>;
 

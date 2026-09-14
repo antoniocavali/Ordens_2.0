@@ -20,5 +20,6 @@
 | [wireframes.md](wireframes.md) | Shell, Ordens, Drawer, Quick View, dashboards |
 | [realtime.md](realtime.md) | Notificações in-app e atualização em tempo real (SSE) |
 | [performance.md](performance.md) | Metodologia de carga, gargalos encontrados e resultados |
+| [support.md](support.md) | Chat de atendimento, assistente de triagem e painel de suporte |
 | [definition-of-done.md](definition-of-done.md) | Critério de pronto |
 | [decisions/](decisions/README.md) | ADRs e questões em aberto |

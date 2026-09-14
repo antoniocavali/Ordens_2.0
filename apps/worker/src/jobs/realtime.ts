@@ -60,6 +60,14 @@ export function realtimeHandler(ctx: WorkerContext, publisher: Redis) {
   return async (job: Job<OutboxJob>) => {
     const { tenantId, type, payload } = job.data;
     if (!tenantId) return;
+    // Atendimento: a equipe (Matriz) e quem abriu a conversa; notas internas ficam só com a equipe.
+    if (type.startsWith('support.')) {
+      const requester = typeof payload.requesterUserId === 'string' ? payload.requesterUserId : null;
+      const messages: RealtimeMessage[] = [{ tenantId, kind: 'invalidate', keys: [['support']], internalOnly: true }];
+      if (requester && payload.internal !== true) messages.push({ tenantId, kind: 'invalidate', keys: [['support']], userIds: [requester] });
+      for (const message of messages) await publisher.publish(REALTIME_CHANNEL, JSON.stringify(message));
+      return;
+    }
     const target = await ctx.db.run(systemContext(tenantId), (tx) => realtimeTarget(tx, type, payload));
     if (!target) return;
     const message: RealtimeMessage = { tenantId, kind: 'invalidate', ...target };

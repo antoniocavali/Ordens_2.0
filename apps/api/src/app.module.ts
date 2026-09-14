@@ -18,6 +18,7 @@ import { LogisticsModule } from './modules/logistics/logistics.module.js';
 import { FiscalModule } from './modules/fiscal/fiscal.module.js';
 import { DashboardModule } from './modules/dashboard/dashboard.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { SupportModule } from './modules/support/support.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 
 // pino-pretty é dependência de desenvolvimento: só é carregado quando pedido explicitamente.
@@ -57,6 +58,7 @@ const prettyLogs = process.env.LOG_PRETTY === 'true';
     FiscalModule,
     DashboardModule,
     NotificationsModule,
+    SupportModule,
   ],
   controllers: [HealthController],
   providers: [

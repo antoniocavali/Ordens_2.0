@@ -349,6 +349,85 @@ describe('fiscal, ocorrências e documentos', () => {
   });
 });
 
+describe('atendimento (chat)', () => {
+  const people = async () =>
+    db.system((tx) =>
+      Promise.all(
+        ['cliente', 'outro', 'atendente'].map((label) => tx.user.create({ data: { email: `rls-${label}-${randomUUID()}@teste.local`, name: `RLS ${label}` } })),
+      ),
+    );
+  const conversationData = (f: TenantFixture, requesterUserId: string) => ({
+    tenantId: f.tenantId,
+    number: `ATD-${randomUUID().slice(0, 8)}`,
+    requesterUserId,
+    requesterOrgId: f.farmOrgs[0],
+  });
+
+  it('cliente só enxerga as próprias conversas; notas internas ficam com a equipe', async () => {
+    const [cliente, outro] = await people();
+    const asCliente = { ...farm(A, 0), userId: cliente!.id };
+    const asOutro = { ...farm(A, 0), userId: outro!.id };
+    const conv = await db.run(asCliente, (tx) => tx.supportConversation.create({ data: conversationData(A, cliente!.id) }));
+    await db.run(asCliente, (tx) => tx.supportMessage.create({ data: { tenantId: A.tenantId, conversationId: conv.id, authorType: 'CUSTOMER', authorUserId: cliente!.id, body: 'Preciso de ajuda' } }));
+    await db.run(matriz(A), (tx) => tx.supportMessage.create({ data: { tenantId: A.tenantId, conversationId: conv.id, authorType: 'AGENT', authorUserId: cliente!.id, body: 'Nota interna', internal: true } }));
+
+    expect(await db.run(asOutro, (tx) => tx.supportConversation.findMany({ where: { id: conv.id } }))).toHaveLength(0);
+    expect(await db.run(asOutro, (tx) => tx.supportMessage.findMany({ where: { conversationId: conv.id } }))).toHaveLength(0);
+    const seenByCliente = await db.run(asCliente, (tx) => tx.supportMessage.findMany({ where: { conversationId: conv.id } }));
+    expect(seenByCliente.map((m) => m.body)).toEqual(['Preciso de ajuda']);
+    const seenByMatriz = await db.run(matriz(A), (tx) => tx.supportMessage.findMany({ where: { conversationId: conv.id } }));
+    expect(seenByMatriz).toHaveLength(2);
+    expect(await db.run(matriz(B), (tx) => tx.supportConversation.findMany({ where: { id: conv.id } }))).toHaveLength(0);
+  });
+
+  it('cliente não grava nota interna, mensagem de atendente nem em conversa alheia', async () => {
+    const [cliente, outro] = await people();
+    const asCliente = { ...farm(A, 0), userId: cliente!.id };
+    const asOutro = { ...farm(A, 0), userId: outro!.id };
+    const conv = await db.run(asCliente, (tx) => tx.supportConversation.create({ data: conversationData(A, cliente!.id) }));
+    const base = { tenantId: A.tenantId, conversationId: conv.id, body: 'x' };
+    await expect(db.run(asCliente, (tx) => tx.supportMessage.create({ data: { ...base, authorType: 'AGENT', authorUserId: cliente!.id } }))).rejects.toThrow(/row-level security/);
+    await expect(db.run(asCliente, (tx) => tx.supportMessage.create({ data: { ...base, authorType: 'AGENT', authorUserId: cliente!.id, internal: true } }))).rejects.toThrow(/row-level security/);
+    await expect(db.run(asOutro, (tx) => tx.supportMessage.create({ data: { ...base, authorType: 'CUSTOMER', authorUserId: outro!.id } }))).rejects.toThrow(/row-level security/);
+    await expect(db.run(asOutro, (tx) => tx.supportConversation.create({ data: conversationData(A, cliente!.id) }))).rejects.toThrow(/row-level security/);
+  });
+
+  it('cliente não altera responsável nem status fora do fluxo; pode encerrar', async () => {
+    const [cliente, , atendente] = await people();
+    const asCliente = { ...farm(A, 0), userId: cliente!.id };
+    const conv = await db.run(asCliente, (tx) => tx.supportConversation.create({ data: conversationData(A, cliente!.id) }));
+    await expect(db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { assigneeUserId: atendente!.id } }))).rejects.toThrow(/apenas ao atendimento/);
+    await expect(db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { priority: 'URGENT' } }))).rejects.toThrow(/apenas ao atendimento/);
+    await expect(db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { status: 'RESOLVED' } }))).rejects.toThrow(/apenas ao atendimento/);
+    const queued = await db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { queue: 'BILLING', status: 'WAITING' } }));
+    expect(queued.status).toBe('WAITING');
+    const assigned = await db.run(matriz(A), (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { assigneeUserId: atendente!.id, status: 'OPEN' } }));
+    expect(assigned.assigneeUserId).toBe(atendente!.id);
+    const closed = await db.run(asCliente, (tx) => tx.supportConversation.update({ where: { id: conv.id }, data: { status: 'CLOSED' } }));
+    expect(closed.status).toBe('CLOSED');
+  });
+
+  it('Fazenda numera atendimento e ocorrência, mas não outras sequências', async () => {
+    const { nextSequence } = await import('./sequences.js');
+    const year = 2099;
+    const support = await db.run(farm(A, 0), (tx) => nextSequence(tx, A.tenantId, 'support', year));
+    const occurrence = await db.run(farm(A, 0), (tx) => nextSequence(tx, A.tenantId, 'occurrence', year));
+    expect(support).toBeGreaterThan(0);
+    expect(occurrence).toBeGreaterThan(0);
+    await expect(db.run(farm(A, 0), (tx) => nextSequence(tx, A.tenantId, 'loading_order', year))).rejects.toThrow(/row-level security/);
+    await expect(db.run(buyer(A, 0), (tx) => nextSequence(tx, A.tenantId, 'contract', year))).rejects.toThrow(/row-level security/);
+  });
+
+  it('mensagens são imutáveis e conversas não são apagadas', async () => {
+    const [cliente] = await people();
+    const asCliente = { ...farm(A, 0), userId: cliente!.id };
+    const conv = await db.run(asCliente, (tx) => tx.supportConversation.create({ data: conversationData(A, cliente!.id) }));
+    const msg = await db.run(asCliente, (tx) => tx.supportMessage.create({ data: { tenantId: A.tenantId, conversationId: conv.id, authorType: 'CUSTOMER', authorUserId: cliente!.id, body: 'original' } }));
+    await expect(db.run(matriz(A), (tx) => tx.$executeRaw`update support_messages set body = 'alterada' where id = ${msg.id}::uuid`)).rejects.toThrow(/permission denied|append-only/);
+    await expect(db.run(matriz(A), (tx) => tx.$executeRaw`delete from support_conversations where id = ${conv.id}::uuid`)).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe('integridade', () => {
   it('rejeita fazenda que não pertence ao vendedor (trigger)', async () => {
     await expect(

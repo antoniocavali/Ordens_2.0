@@ -95,6 +95,42 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       };
     }
 
+    case 'support.message_created': {
+      const conversationId = str(p.conversationId);
+      if (!conversationId || p.internal === true) return null;
+      const number = String(p.number ?? '');
+      if (p.fromAgent === true) {
+        const requester = str(p.requesterUserId);
+        return requester
+          ? { userIds: [requester], title: `Nova resposta no atendimento ${number}`, body: str(p.preview), data: { conversationId, href: `/?atendimento=${conversationId}` } }
+          : null;
+      }
+      const assignee = str(p.assigneeUserId);
+      return assignee
+        ? { userIds: [assignee], title: `Nova mensagem em ${number}`, body: str(p.preview), data: { conversationId, href: `/suporte?conversa=${conversationId}` } }
+        : null;
+    }
+
+    case 'support.assigned': {
+      const conversationId = str(p.conversationId);
+      const assignee = str(p.assigneeUserId);
+      // Quem assumiu o próprio atendimento não precisa ser avisado.
+      if (!conversationId || !assignee || assignee === str(p.actorUserId)) return null;
+      return { userIds: [assignee], title: `Atendimento ${String(p.number ?? '')} atribuído a você`, body: null, data: { conversationId, href: `/suporte?conversa=${conversationId}` } };
+    }
+
+    case 'support.status_changed': {
+      const conversationId = str(p.conversationId);
+      const requester = str(p.requesterUserId);
+      if (!conversationId || !requester || p.to !== 'RESOLVED') return null;
+      return {
+        userIds: [requester],
+        title: `Atendimento ${String(p.number ?? '')} resolvido`,
+        body: 'Se ainda precisar de ajuda, responda na conversa para reabrir.',
+        data: { conversationId, href: `/?atendimento=${conversationId}` },
+      };
+    }
+
     default:
       return null;
   }

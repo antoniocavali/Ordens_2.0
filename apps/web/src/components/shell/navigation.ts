@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   Gauge,
+  Headphones,
   History,
   MapPin,
   Package,
@@ -80,6 +81,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Gestão',
     items: [
+      { label: 'Atendimento', href: '/suporte', icon: Headphones, permission: 'support.manage' },
       { label: 'Relatórios', href: '/gestao/relatorios', icon: BarChart3, permission: 'report.export', soon: true },
       { label: 'Auditoria', href: '/gestao/auditoria', icon: History, permission: 'audit.read', soon: true },
       { label: 'Usuários', href: '/gestao/usuarios', icon: Users, permission: 'user.read', soon: true },
