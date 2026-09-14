@@ -508,6 +508,32 @@ describe('atendimento (chat)', () => {
   });
 });
 
+describe('liberações', () => {
+  it('cancelamento exige motivo, é definitivo e só a Matriz altera', async () => {
+    const created = await db.run(matriz(A), (tx) =>
+      tx.loadingOrderRelease.create({ data: { tenantId: A.tenantId, orderId: A.published[0], sequence: 1000 + Math.floor(Math.random() * 1e6), quantity: '10', orderVersion: 1 } }),
+    );
+    const id = created.id;
+
+    // Sem motivo: constraint recusa.
+    await expect(db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date() } }))).rejects.toThrow();
+    // Fazenda da ordem lê, mas não cancela; outra Fazenda nem enxerga.
+    expect(await db.run(farm(A, 0), (tx) => tx.loadingOrderRelease.count({ where: { id } }))).toBe(1);
+    const byFarm = await db.run(farm(A, 0), (tx) =>
+      tx.loadingOrderRelease.updateMany({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Tentativa da fazenda' } }),
+    );
+    expect(byFarm.count).toBe(0);
+    expect(await db.run(farm(A, 1), (tx) => tx.loadingOrderRelease.count({ where: { id } }))).toBe(0);
+
+    await db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Quantidade lançada errada' } }));
+    // Não reativa nem muda a quantidade depois de cancelada (trigger).
+    await expect(
+      db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { status: 'ACTIVE', cancelledAt: null, cancelReason: null } })),
+    ).rejects.toThrow();
+    await expect(db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { quantity: '5' } }))).rejects.toThrow();
+  });
+});
+
 describe('integridade', () => {
   it('rejeita fazenda que não pertence ao vendedor (trigger)', async () => {
     await expect(

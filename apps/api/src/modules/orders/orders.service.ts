@@ -4,6 +4,7 @@ import {
   ErrorCode,
   ORDER_MATERIAL_FIELDS,
   ORDER_PUBLISH_REQUIRED,
+  type CancelReleaseInput,
   type CreateReleaseInput,
   type OrderDetail,
   type OrderDraftInput,
@@ -14,6 +15,9 @@ import {
   type OrderViewHistoryItem,
   type Page,
   type ReleaseDto,
+  type ReleaseListItem,
+  type ReleaseListQuery,
+  type ReleasesSummary,
   type TimelineEventDto,
   type UpdateOrderInput,
 } from '@ordens/contracts';
@@ -23,6 +27,7 @@ import { currentAuth, currentRequest } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { dec, day, toDetail, toListItem } from './orders.mapper.js';
 import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
+import { listReleases, releasesSummary } from './releases.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
 
@@ -47,6 +52,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.updated': 'Ordem atualizada',
   'order.version_created': 'Nova versão gerada',
   'order.release_created': 'Liberação criada',
+  'order.release_cancelled': 'Liberação cancelada',
   'order.viewed': 'Ordem visualizada',
   'order.appointment_created': 'Agendamento realizado',
   'order.load_created': 'Carga criada',
@@ -63,6 +69,7 @@ const EXTERNAL_TIMELINE = new Set([
   'order.published',
   'order.version_created',
   'order.release_created',
+  'order.release_cancelled',
   'order.appointment_created',
   'order.load_created',
   'order.load_status',
@@ -427,6 +434,79 @@ export class OrdersService {
     });
   }
 
+  /**
+   * Cancela uma liberação ativa (Q37). O total liberado restante, com tolerância, precisa cobrir
+   * o que já foi agendado e carregado. Gera nova versão, auditoria e aviso à Fazenda na mesma transação.
+   */
+  async cancelRelease(id: string, releaseId: string, input: CancelReleaseInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, null);
+      const release = await tx.loadingOrderRelease.findFirst({ where: { id: releaseId, orderId: id } });
+      if (!release) throw AppError.notFound('Liberação não encontrada.');
+      if (release.status !== 'ACTIVE') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente liberações ativas podem ser canceladas.');
+      }
+      if (!ACTIVE_STATUSES.includes(order.status)) {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A ordem não permite mais alterar liberações.');
+      }
+      if (order.version !== input.expectedVersion) {
+        throw AppError.conflict('Esta ordem foi alterada. Recarregue antes de cancelar a liberação.', ErrorCode.ORDER_STALE);
+      }
+
+      const releasedBefore = new Prisma.Decimal(order.releasedQty);
+      const remaining = Prisma.Decimal.max(releasedBefore.minus(release.quantity), 0);
+      const committed = new Prisma.Decimal(order.scheduledQty).plus(order.loadedQty);
+      const coverage = remaining.times(new Prisma.Decimal(order.tolerancePct).dividedBy(100).plus(1));
+      if (coverage.lessThan(committed)) {
+        throw AppError.domain(
+          ErrorCode.RELEASE_BELOW_COMMITTED,
+          `Não é possível cancelar: ${committed.toString()} já estão agendados ou carregados e o liberado restante não cobriria essa quantidade.`,
+          { committed: committed.toString(), remaining: remaining.toString() },
+        );
+      }
+
+      const updated = await tx.loadingOrder.update({
+        where: { id },
+        data: { releasedQty: remaining, version: order.version + 1, lastMaterialChangeAt: new Date(), updatedBy: auth.userId },
+      });
+      await tx.loadingOrderRelease.update({
+        where: { id: releaseId },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledBy: auth.userId, cancelReason: input.reason },
+      });
+      await this.createVersion(scope, updated, [{ field: 'releasedQty', from: releasedBefore.toString(), to: remaining.toString() }], {
+        releaseId,
+        sequence: release.sequence,
+        cancelled: true,
+      });
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.release_cancelled',
+        before: { releaseId, sequence: release.sequence, status: 'ACTIVE', releasedTotal: releasedBefore.toString() },
+        after: { releaseId, sequence: release.sequence, status: 'CANCELLED', quantity: release.quantity.toString(), reason: input.reason, releasedTotal: remaining.toString() },
+      });
+      await scope.outbox({
+        type: 'order.release_cancelled',
+        aggregateType: 'loading_order',
+        aggregateId: id,
+        payload: { orderId: id, releaseId, sequence: release.sequence, quantity: release.quantity.toString(), version: updated.version },
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  listReleases(query: ReleaseListQuery): Promise<Page<ReleaseListItem>> {
+    const auth = currentAuth();
+    const canCancel = auth.permissions.has('order.release') && auth.membership!.scope === 'MATRIZ';
+    return this.db.read((tx) => listReleases(tx, query, canCancel));
+  }
+
+  releasesSummary(): Promise<ReleasesSummary> {
+    return this.db.read((tx) => releasesSummary(tx));
+  }
+
   /** Registra visualização efetiva (abertura do detalhe) por Fazenda ou Comprador. */
   async registerView(id: string): Promise<{ recorded: boolean; version: number | null }> {
     const auth = currentAuth();
@@ -559,7 +639,7 @@ export class OrdersService {
     if (!row) throw AppError.notFound('Ordem não encontrada.');
 
     const releases = await tx.loadingOrderRelease.findMany({ where: { orderId: id }, orderBy: { sequence: 'asc' } });
-    const names = await this.userNames(tx, releases.map((r) => r.createdBy));
+    const names = await this.userNames(tx, releases.flatMap((r) => [r.createdBy, r.cancelledBy]));
     const releaseDtos: ReleaseDto[] = releases.map((r) => ({
       id: r.id,
       sequence: r.sequence,
@@ -570,6 +650,10 @@ export class OrdersService {
       orderVersion: r.orderVersion,
       createdAt: r.createdAt.toISOString(),
       createdBy: r.createdBy ? (names.get(r.createdBy) ?? null) : null,
+      cancelledAt: r.cancelledAt?.toISOString() ?? null,
+      cancelledBy: r.cancelledBy ? (names.get(r.cancelledBy) ?? null) : null,
+      // Motivo é interno: Fazenda e Comprador veem só que foi cancelada.
+      cancelReason: auth.membership!.scope === 'MATRIZ' ? r.cancelReason : null,
     }));
 
     const perms = auth.permissions;
@@ -578,6 +662,7 @@ export class OrdersService {
     if (perms.has('order.update') && !['COMPLETED', 'CANCELLED'].includes(status)) actions.push('update');
     if (perms.has('order.publish') && status === 'DRAFT') actions.push('publish');
     if (perms.has('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(status)) actions.push('release');
+    if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
     if (perms.has('order.cancel') && ACTIVE_STATUSES.includes(status)) actions.push('cancel');
 
     return toDetail(row, releaseDtos, auth.membership!.scope, actions);

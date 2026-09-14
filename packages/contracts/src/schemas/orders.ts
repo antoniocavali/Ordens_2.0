@@ -120,6 +120,59 @@ export const createReleaseSchema = z.object({
 });
 export type CreateReleaseInput = z.infer<typeof createReleaseSchema>;
 
+export const cancelReleaseSchema = z.object({
+  reason: z.string().trim().min(3, 'Informe o motivo do cancelamento').max(500),
+  expectedVersion: z.number().int().min(1),
+});
+export type CancelReleaseInput = z.infer<typeof cancelReleaseSchema>;
+
+export const RELEASE_STATUS_LABELS: Record<ReleaseStatus, string> = {
+  ACTIVE: 'Ativa',
+  CONSUMED: 'Consumida',
+  EXPIRED: 'Expirada',
+  CANCELLED: 'Cancelada',
+};
+
+/** Janela de "vence em breve" da tela de liberações. */
+export const RELEASE_EXPIRING_DAYS = 7;
+
+export const releaseListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(10).max(200).default(50),
+  q: z.string().trim().max(60).optional(),
+  status: z
+    .union([z.enum(['ACTIVE', 'CONSUMED', 'EXPIRED', 'CANCELLED']), z.array(z.enum(['ACTIVE', 'CONSUMED', 'EXPIRED', 'CANCELLED']))])
+    .transform((v) => (Array.isArray(v) ? v : [v]))
+    .optional(),
+  /** ACTIVE com validade vencida (overdue) ou vencendo nos próximos dias (expiring). */
+  validity: z.enum(['overdue', 'expiring']).optional(),
+  orderId: z.uuid().optional(),
+  from: dateOnly.optional(),
+  to: dateOnly.optional(),
+});
+export type ReleaseListQuery = z.infer<typeof releaseListQuerySchema>;
+
+export interface ReleaseListItem extends ReleaseDto {
+  order: { id: string; number: string; status: OrderStatus; version: number };
+  farm: Ref | null;
+  buyer: Ref | null;
+  commodity: Ref | null;
+  unit: string;
+  /** Validade já passou e a liberação segue ativa. */
+  overdue: boolean;
+  /** Pode ser cancelada por quem consulta (permissão + status da liberação e da ordem). */
+  cancellable: boolean;
+}
+
+export interface ReleasesSummary {
+  active: number;
+  expiring: number;
+  overdue: number;
+  cancelled: number;
+  /** Quantidade ativa por unidade (ex.: { t: "1200.0000" }). */
+  activeQtyByUnit: Record<string, string>;
+}
+
 export const orderListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(10).max(200).default(50),
@@ -239,6 +292,9 @@ export interface ReleaseDto {
   orderVersion: number;
   createdAt: string;
   createdBy: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
 }
 
 export interface OrderVersionDto {

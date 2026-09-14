@@ -995,11 +995,13 @@ model LoadingOrderRelease {
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   cancelledAt  DateTime?     @map("cancelled_at") @db.Timestamptz(6)
   cancelledBy  String?       @map("cancelled_by") @db.Uuid
+  cancelReason String?       @map("cancel_reason")
 
   order LoadingOrder @relation(fields: [orderId], references: [id])
 
   @@unique([orderId, sequence])
   @@index([tenantId])
+  @@index([tenantId, status, createdAt(sort: Desc)])
   @@map("loading_order_releases")
 }
 

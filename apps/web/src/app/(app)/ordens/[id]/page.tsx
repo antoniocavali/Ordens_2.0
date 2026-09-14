@@ -2,7 +2,7 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, PackageCheck, Pencil, Send } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, PackageCheck, PackageX, Pencil, Send } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
@@ -12,7 +12,9 @@ import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
 import { registerView, useInvalidateOrders, useOrder, useTimeline, useVersions, useViewHistory } from '@/features/orders/orders-api';
+import { CancelReleaseDialog, type CancelReleaseTarget } from '@/features/orders/cancel-release-dialog';
 import { ReleaseDialog } from '@/features/orders/release-dialog';
+import { ReleaseStatusBadge } from '@/features/orders/releases-page';
 import { Timeline } from '@/features/orders/timeline';
 import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ApiRequestError } from '@/lib/api';
@@ -45,6 +47,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [editing, setEditing] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [scheduling, setScheduling] = useState(false);
+  const [cancelling, setCancelling] = useState<CancelReleaseTarget | null>(null);
   const scope = me?.activeMembership?.scope;
 
   // Abertura efetiva do detalhe = visualização (Fazenda/Comprador).
@@ -177,6 +180,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         <th className="py-2 pr-3">Versão</th>
                         <th className="py-2 pr-3">Status</th>
                         <th className="py-2">Registro</th>
+                        {o.allowedActions.includes('cancel_release') ? <th className="py-2" /> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -187,15 +191,34 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                           <td className="py-3 pr-3">{r.validUntil ? formatDate(r.validUntil) : '—'}</td>
                           <td className="py-3 pr-3">v{r.orderVersion}</td>
                           <td className="py-3 pr-3">
-                            <Badge tone={r.status === 'ACTIVE' ? 'primary' : r.status === 'CONSUMED' ? 'success' : 'neutral'} size="sm">
-                              {{ ACTIVE: 'Ativa', CONSUMED: 'Consumida', EXPIRED: 'Expirada', CANCELLED: 'Cancelada' }[r.status]}
-                            </Badge>
+                            <ReleaseStatusBadge status={r.status} />
                           </td>
                           <td className="py-3 text-xs text-muted">
                             {formatDateTime(r.createdAt)}
                             {r.createdBy ? ` · ${r.createdBy}` : ''}
                             {r.notes ? <div className="text-subtle">{r.notes}</div> : null}
+                            {r.cancelledAt ? (
+                              <div className="text-danger/90">
+                                Cancelada {formatDateTime(r.cancelledAt)}
+                                {r.cancelledBy ? ` · ${r.cancelledBy}` : ''}
+                                {r.cancelReason ? ` — ${r.cancelReason}` : ''}
+                              </div>
+                            ) : null}
                           </td>
+                          {o.allowedActions.includes('cancel_release') ? (
+                            <td className="py-2 text-right">
+                              {r.status === 'ACTIVE' ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`Cancelar liberação ${r.sequence}`}
+                                  onClick={() => setCancelling({ orderId: o.id, orderNumber: o.number, orderVersion: o.version, releaseId: r.id, sequence: r.sequence, quantity: r.quantity, unit })}
+                                >
+                                  <PackageX /> Cancelar
+                                </Button>
+                              ) : null}
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>
@@ -285,6 +308,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       <OrderFormDrawer open={editing} order={o} onClose={() => setEditing(false)} />
       <ReleaseDialog order={o} open={releasing} onOpenChange={setReleasing} />
+      <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
       <AppointmentDrawer
         appointment={null}
         open={scheduling}
