@@ -11,6 +11,7 @@ export const PERMISSIONS = {
   'organization.manage': 'Gerenciar organizações',
   'user.read': 'Visualizar usuários',
   'user.manage': 'Gerenciar usuários e papéis',
+  'user.create': 'Criar usuários com senha provisória',
   'user.password.manage': 'Definir senha provisória de outros usuários',
   'role.manage': 'Criar e editar papéis personalizados',
   'audit.read': 'Consultar auditoria',
@@ -95,6 +96,8 @@ const MATRIZ_MANAGE: Permission[] = [
   'order.release',
   'report.export',
   'support.manage',
+  // Gestor e Administrador criam usuários diretamente (Q36).
+  'user.create',
 ];
 
 export interface RoleDefinition {
@@ -260,6 +263,6 @@ export const PERMISSION_GROUPS: { key: string; label: string; permissions: Permi
   {
     key: 'admin',
     label: 'Administração',
-    permissions: ['organization.read', 'organization.manage', 'user.read', 'user.manage', 'user.password.manage', 'role.manage', 'audit.read', 'security.policy.manage', 'settings.manage'],
+    permissions: ['organization.read', 'organization.manage', 'user.read', 'user.create', 'user.manage', 'user.password.manage', 'role.manage', 'audit.read', 'security.policy.manage', 'settings.manage'],
   },
 ];

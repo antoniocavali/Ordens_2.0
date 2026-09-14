@@ -6,17 +6,24 @@ import { passwordSchema } from './auth.js';
 const systemRoles = z.array(z.enum(ROLE_CODES as [string, ...string[]]));
 const customRoleIds = z.array(z.uuid()).max(20);
 
-export const inviteUserSchema = z
-  .object({
-    email: z.email().max(254).transform((v) => v.toLowerCase()),
-    name: z.string().trim().min(2).max(120),
-    organizationId: z.uuid(),
-    roles: systemRoles.default([]),
-    /** Papéis personalizados do tenant (Q35). */
-    customRoleIds: customRoleIds.default([]),
-  })
-  .refine((v) => v.roles.length + v.customRoleIds.length > 0, { message: 'Selecione ao menos um papel', path: ['roles'] });
+const userAccessBase = z.object({
+  email: z.email().max(254).transform((v) => v.toLowerCase()),
+  name: z.string().trim().min(2).max(120),
+  organizationId: z.uuid(),
+  roles: systemRoles.default([]),
+  /** Papéis personalizados do tenant (Q35). */
+  customRoleIds: customRoleIds.default([]),
+});
+const atLeastOneRole = (v: { roles: string[]; customRoleIds: string[] }) => v.roles.length + v.customRoleIds.length > 0;
+
+export const inviteUserSchema = userAccessBase.refine(atLeastOneRole, { message: 'Selecione ao menos um papel', path: ['roles'] });
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
+
+/** Criação direta com senha provisória: troca obrigatória no primeiro acesso (Q36). */
+export const createUserSchema = userAccessBase
+  .extend({ temporaryPassword: passwordSchema })
+  .refine(atLeastOneRole, { message: 'Selecione ao menos um papel', path: ['roles'] });
+export type CreateUserInput = z.infer<typeof createUserSchema>;
 
 export const userListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

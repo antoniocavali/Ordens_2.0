@@ -4,6 +4,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   auditQuerySchema,
+  createUserSchema,
   inviteUserSchema,
   membershipGrantsSchema,
   savedViewSchema,
@@ -13,6 +14,7 @@ import {
   updateSecurityPolicySchema,
   userListQuery,
   type AuditEventDto,
+  type CreateUserInput,
   type InviteUserInput,
   type Page,
   type UserListQuery,
@@ -37,6 +39,13 @@ export class UsersController {
   @RequirePermission('user.read')
   list(@Query(new ZodPipe(userListQuery)) q: UserListQuery) {
     return this.users.list(q);
+  }
+
+  /** Cria o usuário com senha provisória (Q36). */
+  @Post()
+  @RequirePermission('user.create')
+  create(@Body(new ZodPipe(createUserSchema)) body: CreateUserInput) {
+    return this.users.create(body);
   }
 
   @Post('invite')

@@ -5,6 +5,7 @@ import {
   ErrorCode,
   GRANTABLE_PERMISSIONS,
   ROLES,
+  type CreateUserInput,
   type GrantablePermission,
   type InviteUserInput,
   type InviteUserResult,
@@ -137,6 +138,57 @@ export class UsersService {
       await this.sendInviteEmail({ userId: result.userId, email: input.email, name: input.name, organization: result.organizationName, tenantId, invalidatePrevious: false });
     }
     return { membershipId: result.membershipId, userId: result.userId, invited: needsPassword };
+  }
+
+  /**
+   * Criação direta com senha provisória (Q36): sem e-mail de convite; troca obrigatória no primeiro acesso.
+   * Quem cria só atribui papéis cujas permissões já possui (sem escalar privilégios).
+   */
+  async create(input: CreateUserInput): Promise<InviteUserResult> {
+    const auth = currentAuth();
+    const tenantId = auth.membership!.tenantId;
+    const existing = await this.db.system((tx) => tx.user.findUnique({ where: { email: input.email }, select: { id: true } }));
+    if (existing) {
+      throw AppError.validation({ fields: { email: ['Já existe uma conta com este e-mail. Use "Convidar usuário" para dar acesso a ela.'] } });
+    }
+    const passwordHash = await hashPassword(input.temporaryPassword);
+
+    const result = await this.tenantDb.write(async (scope) => {
+      const { tx } = scope;
+      const org = await tx.organization.findUnique({ where: { id: input.organizationId } });
+      if (!org) throw AppError.notFound('Organização não encontrada.');
+      const invalidRole = input.roles.find((r) => (ROLES as Record<string, RoleDefinition>)[r]?.scope !== org.kind);
+      if (invalidRole) {
+        throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Perfil incompatível com o tipo da organização.', { fields: { roles: [invalidRole] } });
+      }
+      await this.assertCustomRoles(tx, input.customRoleIds, org.kind);
+
+      const customPerms = input.customRoleIds.length
+        ? await tx.tenantRolePermission.findMany({ where: { roleId: { in: input.customRoleIds } }, select: { permissionCode: true } })
+        : [];
+      const granted = effectivePermissions(input.roles, customPerms.map((p) => p.permissionCode));
+      const beyond = [...granted].filter((p) => !auth.permissions.has(p));
+      if (beyond.length) {
+        throw AppError.forbidden('Você não pode atribuir papéis com permissões que você não tem.');
+      }
+
+      const userId = randomUUID();
+      await tx.$executeRaw`insert into users (id, email, name, updated_at) values (${userId}::uuid, ${input.email}, ${input.name}, now())`;
+      const membership = await tx.membership.create({ data: { tenantId, userId, organizationId: org.id, scope: org.kind } });
+      await tx.membershipRole.createMany({ data: input.roles.map((roleCode) => ({ membershipId: membership.id, roleCode, tenantId })) });
+      await tx.membershipCustomRole.createMany({ data: input.customRoleIds.map((roleId) => ({ membershipId: membership.id, roleId, tenantId })) });
+      await scope.audit({
+        entityType: 'membership',
+        entityId: membership.id,
+        action: 'user.created',
+        after: { email: input.email, organizationId: org.id, roles: input.roles, customRoleIds: input.customRoleIds, mustChangePassword: true },
+      });
+      return { membershipId: membership.id, userId };
+    });
+
+    // Senha é dado global do usuário: gravada em contexto de sistema, fora da RLS do tenant.
+    await this.db.run(systemContext(tenantId), (tx) => tx.user.update({ where: { id: result.userId }, data: { passwordHash, mustChangePassword: true } }));
+    return { ...result, invited: false };
   }
 
   /** Novo link de convite para quem ainda não definiu a senha; o link anterior deixa de valer. */
