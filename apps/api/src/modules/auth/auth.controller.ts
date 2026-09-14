@@ -20,7 +20,7 @@ import { AuthService } from './auth.service.js';
 import { clearSessionCookies, setSessionCookies } from './cookies.js';
 import { SessionService } from './session.service.js';
 
-const ANY_STAGE = ['ACTIVE', 'PENDING_2FA', 'PENDING_2FA_SETUP'] as const;
+const ANY_STAGE = ['ACTIVE', 'PENDING_2FA', 'PENDING_2FA_SETUP', 'PENDING_PASSWORD_CHANGE'] as const;
 
 @ApiTags('auth')
 @Controller('auth')
@@ -120,12 +120,15 @@ export class AuthController {
   }
 
   @Post('password/change')
-  @HttpCode(204)
+  @AllowStages('ACTIVE', 'PENDING_PASSWORD_CHANGE')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
   async change(
     @Body(new ZodPipe(passwordChangeSchema)) body: z.infer<typeof passwordChangeSchema>,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<void> {
+  ): Promise<LoginResponse> {
     const issued = await this.auth.changePassword(body.currentPassword, body.newPassword, body.code);
     setSessionCookies(res, this.sessions, issued.token, issued.sessionId, true);
+    return { stage: issued.stage };
   }
 }

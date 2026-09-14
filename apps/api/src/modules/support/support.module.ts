@@ -5,7 +5,7 @@ import {
   classifySupportText,
   ErrorCode,
   findOrderNumber,
-  permissionsForRoles,
+  effectivePermissions,
   ROLES,
   SUPPORT_AGENT_TRANSITIONS,
   SUPPORT_BOT_OPTIONS,
@@ -78,6 +78,7 @@ const TEAM_SELECT = {
   roles: { select: { roleCode: true } },
   supportQueues: { select: { queue: true } },
   user: { select: { name: true, email: true, status: true } },
+  customRoles: { select: { role: { select: { name: true, status: true, permissions: { select: { permissionCode: true } } } } } },
 } satisfies Prisma.MembershipSelect;
 type TeamRow = Prisma.MembershipGetPayload<{ select: typeof TEAM_SELECT }>;
 
@@ -89,7 +90,9 @@ const roleName = (code: string) => (ROLES as Record<string, { name: string }>)[c
 /** Membro da equipe: supervisão atende todas as filas; demais, as filas cadastradas (se o papel permite atender). */
 function toTeamMember(m: TeamRow): SupportTeamMember {
   const roles = m.roles.map((r) => r.roleCode);
-  const perms = permissionsForRoles(roles);
+  const activeCustom = m.customRoles.filter((c) => c.role.status === 'ACTIVE');
+  // Papéis personalizados também podem dar permissão de atender ou supervisionar (Q35).
+  const perms = effectivePermissions(roles, activeCustom.flatMap((c) => c.role.permissions.map((p) => p.permissionCode)));
   const supervisor = perms.has('support.manage');
   const canAttend = supervisor || perms.has('support.attend');
   return {
@@ -97,7 +100,7 @@ function toTeamMember(m: TeamRow): SupportTeamMember {
     userId: m.userId,
     name: m.user.name,
     email: m.user.email,
-    roles: roles.map(roleName),
+    roles: [...roles.map(roleName), ...activeCustom.map((c) => c.role.name)],
     supervisor,
     canAttend,
     queues: supervisor ? [...SUPPORT_QUEUES] : canAttend ? SUPPORT_QUEUES.filter((q) => m.supportQueues.some((s) => s.queue === q)) : [],

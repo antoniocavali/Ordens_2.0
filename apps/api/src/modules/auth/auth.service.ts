@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   ErrorCode,
-  permissionsForRoles,
   SUPPORT_QUEUES,
   type LoginHistoryItem,
   type MeResponse,
@@ -107,7 +106,8 @@ export class AuthService {
     const memberships = await this.loadMemberships(user.id);
     const preferred = await this.preferredMembership(user.id, memberships);
     const twoFactorEnabled = await this.twoFactor.isEnabled(user.id);
-    const stage = this.stageFor(twoFactorEnabled, preferred);
+    // Senha provisória: troca antes de qualquer outra coisa (com 2FA, a troca vem logo após o código).
+    const stage: SessionStage = user.mustChangePassword && !twoFactorEnabled ? 'PENDING_PASSWORD_CHANGE' : this.stageFor(twoFactorEnabled, preferred);
 
     const rehash = needsRehash(user.passwordHash!) ? await hashPassword(password) : null;
 
@@ -168,8 +168,10 @@ export class AuthService {
     }
 
     await this.lockout.reset(subject);
-    return this.rotate(auth, 'ACTIVE', auth.membership?.id ?? null, async (tx, sessionId) => {
-      await tx.user.update({ where: { id: auth.userId }, data: { lastLoginAt: new Date() } });
+    const mustChange = (await this.db.system((tx) => tx.user.findUnique({ where: { id: auth.userId }, select: { mustChangePassword: true } })))?.mustChangePassword;
+    const next: SessionStage = mustChange ? 'PENDING_PASSWORD_CHANGE' : 'ACTIVE';
+    return this.rotate(auth, next, auth.membership?.id ?? null, async (tx, sessionId) => {
+      if (next === 'ACTIVE') await tx.user.update({ where: { id: auth.userId }, data: { lastLoginAt: new Date() } });
       await tx.loginAttempt.create({
         data: { userId: auth.userId, email: auth.email, result: 'TWO_FACTOR_SUCCESS', ip: req.ip, userAgent: req.userAgent?.slice(0, 512) },
       });
@@ -178,11 +180,13 @@ export class AuthService {
         entityId: auth.userId,
         action: method === 'RECOVERY' ? 'auth.2fa.recovery_code_used' : 'auth.2fa.verified',
       });
-      await writeAudit(tx, systemCtx(auth.userId, auth.membership?.tenantId), { ...actorMeta(req), sessionId }, {
-        entityType: 'user',
-        entityId: auth.userId,
-        action: 'auth.login.succeeded',
-      });
+      if (next === 'ACTIVE') {
+        await writeAudit(tx, systemCtx(auth.userId, auth.membership?.tenantId), { ...actorMeta(req), sessionId }, {
+          entityType: 'user',
+          entityId: auth.userId,
+          action: 'auth.login.succeeded',
+        });
+      }
     });
   }
 
@@ -337,25 +341,39 @@ export class AuthService {
 
   async changePassword(currentPassword: string, newPassword: string, code?: string): Promise<IssuedSession> {
     const auth = currentAuth();
+    // Troca obrigatória após senha provisória: a sessão já passou pela senha (e pelo 2FA, se houver).
+    const forced = auth.stage === 'PENDING_PASSWORD_CHANGE';
     const user = await this.db.system((tx) => tx.user.findUniqueOrThrow({ where: { id: auth.userId } }));
     if (!(await verifyPassword(user.passwordHash ?? DUMMY_PASSWORD_HASH, currentPassword))) {
-      throw AppError.domain(ErrorCode.INVALID_CREDENTIALS, 'Senha atual incorreta.');
+      throw AppError.domain(ErrorCode.INVALID_CREDENTIALS, forced ? 'Senha provisória incorreta.' : 'Senha atual incorreta.');
     }
-    if (await this.twoFactor.isEnabled(auth.userId)) {
+    if (currentPassword === newPassword) {
+      throw AppError.validation({ fields: { newPassword: ['A nova senha precisa ser diferente da atual.'] } });
+    }
+    const twoFactorEnabled = await this.twoFactor.isEnabled(auth.userId);
+    if (twoFactorEnabled && !forced) {
       if (!code || !(await this.twoFactor.verifyLoginCode(auth.userId, code))) {
         throw AppError.domain(ErrorCode.TWO_FACTOR_INVALID, 'Código de verificação inválido.');
       }
+    }
+    let stage: SessionStage = 'ACTIVE';
+    if (forced) {
+      const memberships = await this.loadMemberships(auth.userId);
+      stage = this.stageFor(twoFactorEnabled, memberships.find((m) => m.id === auth.membership?.id) ?? null, true);
     }
     const passwordHash = await hashPassword(newPassword);
     const req = currentRequest();
 
     return this.db.system(async (tx) => {
-      await tx.user.update({ where: { id: auth.userId }, data: { passwordHash } });
-      const version = await this.sessions.bumpSecurityVersion(tx, auth.userId, 'password_changed');
+      await tx.user.update({
+        where: { id: auth.userId },
+        data: { passwordHash, mustChangePassword: false, ...(forced && stage === 'ACTIVE' ? { lastLoginAt: new Date() } : {}) },
+      });
+      const version = await this.sessions.bumpSecurityVersion(tx, auth.userId, forced ? 'temporary_password_replaced' : 'password_changed');
       const issued = await this.sessions.create(tx, {
         userId: auth.userId,
         securityVersion: version,
-        stage: 'ACTIVE',
+        stage,
         activeMembershipId: auth.membership?.id ?? null,
         ip: req.ip,
         userAgent: req.userAgent,
@@ -363,9 +381,9 @@ export class AuthService {
       await writeAudit(tx, systemCtx(auth.userId, auth.membership?.tenantId), { ...actorMeta(req), sessionId: issued.sessionId }, {
         entityType: 'user',
         entityId: auth.userId,
-        action: 'auth.password.changed',
+        action: forced ? 'auth.password.temporary_replaced' : 'auth.password.changed',
       });
-      return { ...issued, stage: 'ACTIVE' as const };
+      return { ...issued, stage };
     });
   }
 
@@ -380,7 +398,8 @@ export class AuthService {
     ]);
     const summaries = memberships.map(toSummary);
     const active = summaries.find((m) => m.id === auth.membership?.id) ?? null;
-    const permissions = active ? permissionsForRoles(active.roles) : new Set<Permission>();
+    // Permissões efetivas da sessão (papéis do sistema, personalizados e concessões individuais).
+    const permissions: ReadonlySet<Permission> = active ? auth.permissions : new Set<Permission>();
     const supportQueues = active?.scope === 'MATRIZ' ? await this.supportQueuesOf(active.id, active.tenant.id, permissions) : [];
     return {
       user: {

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Scope, SessionStage } from '@ordens/contracts';
-import { Database, type Tx } from '@ordens/db';
+import { Database, extraPermissionsByMembership, type Tx } from '@ordens/db';
 import type { Redis } from 'ioredis';
 import { ENV, type Env } from '../../config/env.js';
 import { REDIS } from '../../infra/infra.module.js';
@@ -12,6 +12,8 @@ export interface CachedMembership {
   organizationId: string;
   scope: Scope;
   roles: string[];
+  /** Permissões de papéis personalizados e concessões individuais (Q34/Q35). */
+  extraPermissions?: string[];
 }
 
 export interface ResolvedSession {
@@ -140,12 +142,16 @@ export class SessionService {
           }),
       );
       if (m) {
+        const extras = await this.db.run({ tenantId: m.tenantId, userId: row.userId, membershipId: m.id, scope: 'SYSTEM', orgIds: [] }, (tx) =>
+          extraPermissionsByMembership(tx, [m.id]),
+        );
         membership = {
           id: m.id,
           tenantId: m.tenantId,
           organizationId: m.organizationId,
           scope: m.scope,
           roles: m.roles.map((r) => r.roleCode),
+          extraPermissions: extras.get(m.id) ?? [],
         };
       }
     }

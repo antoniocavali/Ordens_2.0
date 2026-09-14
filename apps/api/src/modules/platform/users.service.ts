@@ -1,17 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  effectivePermissions,
   ErrorCode,
-  permissionsForRoles,
+  GRANTABLE_PERMISSIONS,
   ROLES,
+  type GrantablePermission,
   type InviteUserInput,
   type InviteUserResult,
   type Page,
   type RoleDefinition,
+  type UpdateMembershipInput,
   type UserListItem,
   type UserListQuery,
 } from '@ordens/contracts';
-import { Database, Prisma, writeOutbox } from '@ordens/db';
+import { Database, hashPassword, Prisma, systemContext, writeAudit, writeOutbox, type Tx } from '@ordens/db';
 import { ENV, type Env } from '../../config/env.js';
 import { AppError } from '../../common/errors.js';
 import { actorMeta, currentAuth } from '../../common/request-context.js';
@@ -52,9 +55,11 @@ export class UsersService {
         tx.membership.findMany({
           where,
           include: {
-            user: { select: { id: true, name: true, email: true, twoFactorEnabled: true, lastLoginAt: true, passwordHash: true } },
+            user: { select: { id: true, name: true, email: true, twoFactorEnabled: true, lastLoginAt: true, passwordHash: true, mustChangePassword: true } },
             organization: { select: { id: true, name: true, kind: true } },
             roles: { select: { roleCode: true } },
+            customRoles: { select: { role: { select: { id: true, name: true, status: true } } } },
+            permissionGrants: { select: { permissionCode: true } },
           },
           orderBy: [{ organization: { name: 'asc' } }, { user: { name: 'asc' } }],
           skip: (params.page - 1) * params.pageSize,
@@ -74,10 +79,13 @@ export class UsersService {
           organization: m.organization,
           scope: m.scope,
           roles: m.roles.map((r) => r.roleCode),
+          customRoles: m.customRoles.map((c) => ({ id: c.role.id, name: c.role.name, status: c.role.status })),
+          grants: m.permissionGrants.map((g) => g.permissionCode),
           status: m.status,
           twoFactorEnabled: m.user.twoFactorEnabled,
           lastLoginAt: m.user.lastLoginAt?.toISOString() ?? null,
           invitePending: !m.user.passwordHash,
+          mustChangePassword: m.user.mustChangePassword,
         })),
       };
     });
@@ -98,6 +106,7 @@ export class UsersService {
       if (invalidRole) {
         throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Perfil incompatível com o tipo da organização.', { fields: { roles: [invalidRole] } });
       }
+      await this.assertCustomRoles(tx, input.customRoleIds, org.kind);
 
       // Usuário novo: insert sem RETURNING. Pela RLS de users, quem convida só enxerga o usuário depois que a
       // membership existe; o id é gerado aqui para manter tudo na mesma transação.
@@ -112,11 +121,12 @@ export class UsersService {
 
       const membership = await tx.membership.create({ data: { tenantId, userId, organizationId: org.id, scope: org.kind } });
       await tx.membershipRole.createMany({ data: input.roles.map((roleCode) => ({ membershipId: membership.id, roleCode, tenantId })) });
+      await tx.membershipCustomRole.createMany({ data: input.customRoleIds.map((roleId) => ({ membershipId: membership.id, roleId, tenantId })) });
       await scope.audit({
         entityType: 'membership',
         entityId: membership.id,
         action: 'user.invited',
-        after: { email: input.email, organizationId: org.id, roles: input.roles, newUser: !existingUser },
+        after: { email: input.email, organizationId: org.id, roles: input.roles, customRoleIds: input.customRoleIds, newUser: !existingUser },
       });
       return { membershipId: membership.id, userId, organizationName: org.name };
     });
@@ -146,18 +156,22 @@ export class UsersService {
     await this.sendInviteEmail({ userId: row.user.id, email: row.user.email, name: row.user.name, organization: row.organization.name, tenantId, invalidatePrevious: true });
   }
 
-  async updateMembership(id: string, input: { roles?: string[]; status?: 'ACTIVE' | 'INACTIVE' }) {
+  async updateMembership(id: string, input: UpdateMembershipInput) {
     const auth = currentAuth();
     const updated = await this.tenantDb.write(async (scope) => {
       const { tx } = scope;
-      const m = await tx.membership.findUnique({ where: { id }, include: { roles: true } });
+      const m = await tx.membership.findUnique({ where: { id }, include: { roles: true, customRoles: { select: { roleId: true } } } });
       if (!m) throw AppError.notFound('Usuário não encontrado.');
       if (m.userId === auth.userId && input.status === 'INACTIVE') {
         throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Você não pode desativar o próprio acesso.');
       }
-      const before = { roles: m.roles.map((r) => r.roleCode), status: m.status };
+      const before = { roles: m.roles.map((r) => r.roleCode), customRoleIds: m.customRoles.map((c) => c.roleId), status: m.status };
       const nextRoles = input.roles ?? before.roles;
+      const nextCustom = input.customRoleIds ?? before.customRoleIds;
       const nextStatus = input.status ?? m.status;
+      if ((input.roles || input.customRoleIds) && nextRoles.length + nextCustom.length === 0) {
+        throw AppError.validation({ fields: { roles: ['Selecione ao menos um papel'] } });
+      }
 
       // Matriz e cada Fazenda mantêm ao menos um administrador ativo (Q33).
       const adminRole = ADMIN_ROLE[m.scope];
@@ -186,8 +200,20 @@ export class UsersService {
         if (invalid) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Perfil incompatível com a organização.', { fields: { roles: [invalid] } });
         await tx.membershipRole.deleteMany({ where: { membershipId: id } });
         await tx.membershipRole.createMany({ data: input.roles.map((roleCode) => ({ membershipId: id, roleCode, tenantId: m.tenantId })) });
+      }
+      if (input.customRoleIds) {
+        const added = input.customRoleIds.filter((r) => !before.customRoleIds.includes(r));
+        await this.assertCustomRoles(tx, added, m.scope);
+        await tx.membershipCustomRole.deleteMany({ where: { membershipId: id, roleId: { notIn: input.customRoleIds } } });
+        await tx.membershipCustomRole.createMany({ data: added.map((roleId) => ({ membershipId: id, roleId, tenantId: m.tenantId })) });
+      }
+      if (input.roles || input.customRoleIds) {
         // Sem permissão de atender: sai das filas do atendimento (Q31).
-        const perms = permissionsForRoles(input.roles);
+        const customPerms = await tx.tenantRolePermission.findMany({
+          where: { roleId: { in: nextCustom }, role: { status: 'ACTIVE' } },
+          select: { permissionCode: true },
+        });
+        const perms = effectivePermissions(nextRoles, customPerms.map((p) => p.permissionCode));
         if (m.scope === 'MATRIZ' && !perms.has('support.attend') && !perms.has('support.manage')) {
           await tx.supportQueueMember.deleteMany({ where: { membershipId: id } });
         }
@@ -197,6 +223,91 @@ export class UsersService {
       return m;
     });
     await this.sessions.signalAuthzChange(updated.userId);
+  }
+
+  /** Concessões individuais de um acesso da Matriz (Q34). */
+  async setGrants(membershipId: string, permissions: GrantablePermission[]): Promise<{ grants: string[] }> {
+    const auth = currentAuth();
+    if (auth.membership?.scope !== 'MATRIZ') throw AppError.forbidden('Somente a Matriz concede permissões individuais.');
+    const wanted = GRANTABLE_PERMISSIONS.filter((p) => permissions.includes(p));
+    const result = await this.tenantDb.write(async (scope) => {
+      const { tx } = scope;
+      const m = await tx.membership.findUnique({ where: { id: membershipId }, include: { permissionGrants: { select: { permissionCode: true } } } });
+      if (!m) throw AppError.notFound('Usuário não encontrado.');
+      if (m.scope !== 'MATRIZ') throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Permissões individuais valem apenas para acessos da Matriz.');
+      const current = m.permissionGrants.map((g) => g.permissionCode);
+      const removed = current.filter((p) => !(wanted as string[]).includes(p));
+      const added = wanted.filter((p) => !current.includes(p));
+      if (removed.length) await tx.membershipPermissionGrant.deleteMany({ where: { membershipId, permissionCode: { in: removed } } });
+      if (added.length) {
+        await tx.membershipPermissionGrant.createMany({ data: added.map((permissionCode) => ({ membershipId, permissionCode, tenantId: m.tenantId, grantedBy: auth.userId })) });
+      }
+      if (removed.length || added.length) {
+        await scope.audit({ entityType: 'membership', entityId: membershipId, action: 'user.permissions_granted', before: { grants: current }, after: { grants: wanted } });
+      }
+      return { userId: m.userId, grants: [...wanted] };
+    });
+    await this.sessions.signalAuthzChange(result.userId);
+    return { grants: result.grants };
+  }
+
+  /**
+   * Senha provisória: derruba as sessões da pessoa e exige nova senha no próximo acesso (Q34).
+   * A senha é global na plataforma, por isso só vale para quem acessa apenas este tenant.
+   */
+  async setTemporaryPassword(membershipId: string, temporaryPassword: string): Promise<void> {
+    const auth = currentAuth();
+    const tenantId = auth.membership!.tenantId;
+    const target = await this.tenantDb.read((tx) =>
+      tx.membership.findUnique({
+        where: { id: membershipId },
+        include: { roles: { select: { roleCode: true } }, user: { select: { id: true, email: true, status: true, isPlatformAdmin: true } } },
+      }),
+    );
+    if (!target) throw AppError.notFound('Usuário não encontrado.');
+    if (target.userId === auth.userId) {
+      throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Para alterar a sua própria senha, use Minha conta → Segurança.');
+    }
+    if (target.user.isPlatformAdmin) throw AppError.forbidden('Não é possível redefinir a senha deste usuário.');
+    const targetIsAdmin = target.roles.some((r) => r.roleCode === 'MATRIZ_ADMIN');
+    const actorIsAdmin = auth.membership?.roles.includes('MATRIZ_ADMIN') ?? false;
+    if (targetIsAdmin && !actorIsAdmin) {
+      throw AppError.forbidden('Somente um Administrador Matriz pode redefinir a senha de outro administrador.');
+    }
+    const otherTenants = await this.db.system((tx) => tx.membership.count({ where: { userId: target.userId, tenantId: { not: tenantId } } }));
+    if (otherTenants) {
+      throw AppError.domain(
+        ErrorCode.VALIDATION_FAILED,
+        'Esta pessoa também acessa outra empresa na plataforma. Peça que ela use "Esqueci minha senha" na tela de login.',
+      );
+    }
+
+    const passwordHash = await hashPassword(temporaryPassword);
+    await this.db.run(systemContext(tenantId), async (tx) => {
+      await tx.user.update({ where: { id: target.userId }, data: { passwordHash, mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } });
+      // Links de convite ou de redefinição pendentes deixam de valer.
+      await tx.passwordResetToken.updateMany({ where: { userId: target.userId, usedAt: null }, data: { usedAt: new Date() } });
+      await this.sessions.bumpSecurityVersion(tx, target.userId, 'temporary_password_set');
+      await writeAudit(tx, systemContext(tenantId), actorMeta(), {
+        entityType: 'membership',
+        entityId: membershipId,
+        action: 'user.temporary_password_set',
+        after: { userId: target.userId, email: target.user.email, mustChangePassword: true },
+      });
+    });
+  }
+
+  /** Papéis personalizados existentes, ativos e do mesmo escopo da organização. */
+  private async assertCustomRoles(tx: Tx, ids: readonly string[], scope: string) {
+    if (!ids.length) return;
+    const roles = await tx.tenantRole.findMany({ where: { id: { in: [...ids] } }, select: { id: true, scope: true, status: true } });
+    const invalid = ids.find((id) => {
+      const r = roles.find((x) => x.id === id);
+      return !r || r.status !== 'ACTIVE' || r.scope !== scope;
+    });
+    if (invalid) {
+      throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Papel personalizado inexistente, arquivado ou incompatível com a organização.', { fields: { roles: [invalid] } });
+    }
   }
 
   private async sendInviteEmail(p: { userId: string; email: string; name: string; organization: string; tenantId: string; invalidatePrevious: boolean }) {

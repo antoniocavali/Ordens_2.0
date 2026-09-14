@@ -13,4 +13,5 @@ export {
 } from './unit-of-work.js';
 export { toAuditJson, shallowDiff, SENSITIVE_KEYS } from './serialize.js';
 export { nextSequence } from './sequences.js';
+export { extraPermissionsByMembership } from './permissions.js';
 export { hashPassword, verifyPassword, needsRehash, ARGON2_OPTIONS, DUMMY_PASSWORD_HASH } from './password.js';

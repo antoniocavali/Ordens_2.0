@@ -29,6 +29,22 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 | `BUYER_USER` | Comprador | BUYER |
 | `CARRIER_USER` | Usuário Transportadora (futuro) | CARRIER |
 
+## Papéis personalizados, concessões individuais e senha provisória
+
+Permissões efetivas de um acesso = **papéis do sistema** (catálogo fixo em `@ordens/contracts`) + **papéis personalizados** ativos do tenant + **concessões individuais**. A sessão calcula e guarda em cache (60 s); qualquer mudança sinaliza revalidação imediata (`signalAuthzChange`).
+
+| Recurso | Onde | Quem gerencia | Regras |
+|---|---|---|---|
+| Papéis do sistema | `roles` / `role_permissions` (seed) | ninguém (somente consulta) | Fixos; podem ser duplicados como base |
+| Papéis personalizados | `tenant_roles`, `tenant_role_permissions`, `membership_custom_roles` | `role.manage` (Administrador Matriz) em Gestão → Papéis e permissões | Por tipo de organização; só permissões que algum papel do sistema do mesmo tipo já tem (Q35); RLS: leitura no tenant, escrita só Matriz; atribuição só a acesso do mesmo tipo |
+| Concessão individual | `membership_permission_grants` | `user.manage` na Matriz, no drawer do usuário | Hoje só `user.password.manage`; só acessos da Matriz (Q34) |
+| Senha provisória | `users.must_change_password` + estágio `PENDING_PASSWORD_CHANGE` | `user.password.manage` | Derruba sessões; troca obrigatória no próximo acesso; não vale para si, administradores (salvo por Administrador Matriz) nem para quem acessa outro tenant |
+
+| Permissão | M_ADMIN | Demais papéis do sistema | Papel personalizado / concessão |
+|---|---|---|---|
+| `role.manage` | ● | — | papel personalizado da Matriz |
+| `user.password.manage` | ● | — | papel personalizado da Matriz ou concessão individual |
+
 ## Atendimento (filas)
 
 | Permissão | M_ADMIN | M_MGR | M_OPER | ATENDENTE | M_VIEW | Fazenda / Comprador / Transportadora |

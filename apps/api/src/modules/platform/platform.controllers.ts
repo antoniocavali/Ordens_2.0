@@ -5,7 +5,9 @@ import { Throttle } from '@nestjs/throttler';
 import {
   auditQuerySchema,
   inviteUserSchema,
+  membershipGrantsSchema,
   savedViewSchema,
+  temporaryPasswordSchema,
   updateMembershipSchema,
   updatePreferencesSchema,
   updateSecurityPolicySchema,
@@ -49,6 +51,21 @@ export class UsersController {
   @RequirePermission('user.manage')
   resendInvite(@Param('id', uuid) id: string) {
     return this.users.resendInvite(id);
+  }
+
+  /** Concessões individuais (Q34): hoje, definir senha provisória de outros usuários. */
+  @Put('memberships/:id/grants')
+  @RequirePermission('user.manage')
+  setGrants(@Param('id', uuid) id: string, @Body(new ZodPipe(membershipGrantsSchema)) body: z.infer<typeof membershipGrantsSchema>) {
+    return this.users.setGrants(id, body.permissions);
+  }
+
+  @Post('memberships/:id/password')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @RequirePermission('user.password.manage')
+  setTemporaryPassword(@Param('id', uuid) id: string, @Body(new ZodPipe(temporaryPasswordSchema)) body: z.infer<typeof temporaryPasswordSchema>) {
+    return this.users.setTemporaryPassword(id, body.temporaryPassword);
   }
 
   @Patch('memberships/:id')

@@ -11,6 +11,7 @@ import {
   Gauge,
   Headphones,
   History,
+  KeyRound,
   LifeBuoy,
   LineChart,
   MapPin,
@@ -104,6 +105,7 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Relatórios', href: '/gestao/relatorios', icon: BarChart3, permission: 'report.export', soon: true },
       { label: 'Auditoria', href: '/gestao/auditoria', icon: History, permission: 'audit.read', soon: true },
       { label: 'Usuários', href: '/gestao/usuarios', icon: Users, permission: 'user.read' },
+      { label: 'Papéis e permissões', href: '/gestao/papeis', icon: KeyRound, permission: 'role.manage' },
     ],
   },
   {

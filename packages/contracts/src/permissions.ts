@@ -11,6 +11,8 @@ export const PERMISSIONS = {
   'organization.manage': 'Gerenciar organizações',
   'user.read': 'Visualizar usuários',
   'user.manage': 'Gerenciar usuários e papéis',
+  'user.password.manage': 'Definir senha provisória de outros usuários',
+  'role.manage': 'Criar e editar papéis personalizados',
   'audit.read': 'Consultar auditoria',
   'partner.read': 'Visualizar parceiros',
   'partner.manage': 'Gerenciar parceiros',
@@ -121,6 +123,8 @@ export const ROLES = {
     permissions: [
       ...MATRIZ_MANAGE,
       'user.manage',
+      'user.password.manage',
+      'role.manage',
       'organization.manage',
       'security.policy.manage',
       'settings.manage',
@@ -215,3 +219,47 @@ export function permissionsForRoles(roles: readonly string[]): Set<Permission> {
   }
   return set;
 }
+
+/** Permissões efetivas: papéis do sistema + extras (papéis personalizados e concessões individuais). */
+export function effectivePermissions(roles: readonly string[], extra: Iterable<string> = []): Set<Permission> {
+  const set = permissionsForRoles(roles);
+  for (const p of extra) if (Object.hasOwn(PERMISSIONS, p)) set.add(p as Permission);
+  return set;
+}
+
+/** Permissões que podem ser concedidas individualmente, fora de papéis (Q34). */
+export const GRANTABLE_PERMISSIONS = ['user.password.manage'] as const satisfies readonly Permission[];
+export type GrantablePermission = (typeof GRANTABLE_PERMISSIONS)[number];
+
+export const CUSTOM_ROLE_SCOPES = ['MATRIZ', 'FARM', 'BUYER', 'CARRIER'] as const;
+export type CustomRoleScope = (typeof CUSTOM_ROLE_SCOPES)[number];
+
+/**
+ * Permissões permitidas em um papel personalizado do escopo: as que algum papel do sistema
+ * do mesmo escopo já possui (Q35). Impede, por exemplo, papel de Fazenda com poderes da Matriz.
+ */
+export function permissionsAllowedForScope(scope: string): Permission[] {
+  const allowed = new Set<Permission>();
+  for (const def of Object.values(ROLES) as RoleDefinition[]) if (def.scope === scope) def.permissions.forEach((p) => allowed.add(p));
+  return PERMISSION_CODES.filter((p) => allowed.has(p));
+}
+
+/** Agrupamento das permissões para escolha na tela de papéis. */
+export const PERMISSION_GROUPS: { key: string; label: string; permissions: Permission[] }[] = [
+  { key: 'orders', label: 'Ordens de carregamento', permissions: ['order.read', 'order.create', 'order.update', 'order.publish', 'order.cancel', 'order.release'] },
+  {
+    key: 'logistics',
+    label: 'Logística',
+    permissions: ['appointment.read', 'appointment.manage', 'load.read', 'load.manage', 'occurrence.read', 'occurrence.manage'],
+  },
+  { key: 'documents', label: 'Documentos e NF-e', permissions: ['document.read', 'document.upload', 'invoice.upload'] },
+  { key: 'commercial', label: 'Comercial', permissions: ['contract.read', 'contract.manage', 'commodity.read', 'commodity.manage'] },
+  { key: 'registry', label: 'Cadastros', permissions: ['partner.read', 'partner.manage', 'farm.read', 'farm.manage', 'carrier.read', 'carrier.manage'] },
+  { key: 'dashboards', label: 'Painéis e relatórios', permissions: ['dashboard.matriz', 'dashboard.farm', 'dashboard.buyer', 'report.export'] },
+  { key: 'support', label: 'Atendimento', permissions: ['support.use', 'support.attend', 'support.manage'] },
+  {
+    key: 'admin',
+    label: 'Administração',
+    permissions: ['organization.read', 'organization.manage', 'user.read', 'user.manage', 'user.password.manage', 'role.manage', 'audit.read', 'security.policy.manage', 'settings.manage'],
+  },
+];

@@ -57,6 +57,8 @@ export const switchContextSchema = z.object({
 export const SessionStage = {
   PENDING_2FA: 'PENDING_2FA',
   PENDING_2FA_SETUP: 'PENDING_2FA_SETUP',
+  /** Senha provisória definida por administrador: só permite trocar a senha. */
+  PENDING_PASSWORD_CHANGE: 'PENDING_PASSWORD_CHANGE',
   ACTIVE: 'ACTIVE',
 } as const;
 export type SessionStage = (typeof SessionStage)[keyof typeof SessionStage];

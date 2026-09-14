@@ -15,7 +15,9 @@ test.describe('Atendimento', () => {
     await page.getByRole('button', { name: /^Abrir atendimento/ }).click();
     const chat = page.getByRole('dialog', { name: 'Atendimento' });
     await chat.getByRole('button', { name: 'Nova conversa' }).click();
-    await expect(chat.getByText(/Sobre o que você precisa de ajuda\?/)).toBeVisible();
+    // Espera a conversa nova abrir: a lista anterior pode ter prévias com a mesma saudação.
+    await expect(chat.getByText(/^Atendimento ATD-\d{4}-\d{4}$/)).toBeVisible();
+    await expect(chat.getByText(/Sobre o que você precisa de ajuda\?/).last()).toBeVisible();
 
     await chat.getByRole('button', { name: /^Faturamento/ }).click();
     await expect(chat.getByText(/Descreva em poucas palavras/)).toBeVisible();

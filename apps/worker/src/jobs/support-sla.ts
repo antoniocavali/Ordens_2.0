@@ -1,5 +1,5 @@
 import {
-  permissionsForRoles,
+  effectivePermissions,
   REALTIME_CHANNEL,
   SUPPORT_FIRST_RESPONSE_SLA_MINUTES,
   SUPPORT_QUEUE_LABELS,
@@ -15,13 +15,15 @@ export interface SlaMember {
   userId: string;
   roles: string[];
   queues: string[];
+  /** Permissões de papéis personalizados ativos (Q35). */
+  extraPermissions?: string[];
 }
 
 /** Quem é avisado do SLA estourado: supervisão e atendentes da fila da conversa (Q30/Q31). */
 export function slaRecipients(members: SlaMember[], queue: string): string[] {
   const ids = members
     .filter((m) => {
-      const perms = permissionsForRoles(m.roles);
+      const perms = effectivePermissions(m.roles, m.extraPermissions ?? []);
       return perms.has('support.manage') || (perms.has('support.attend') && m.queues.includes(queue));
     })
     .map((m) => m.userId);
@@ -52,9 +54,19 @@ export async function notifySupportSla(ctx: WorkerContext, publisher: Redis, now
 
       const memberships = await tx.membership.findMany({
         where: { scope: 'MATRIZ', status: 'ACTIVE', user: { status: 'ACTIVE' } },
-        select: { userId: true, roles: { select: { roleCode: true } }, supportQueues: { select: { queue: true } } },
+        select: {
+          userId: true,
+          roles: { select: { roleCode: true } },
+          supportQueues: { select: { queue: true } },
+          customRoles: { where: { role: { status: 'ACTIVE' } }, select: { role: { select: { permissions: { select: { permissionCode: true } } } } } },
+        },
       });
-      const members: SlaMember[] = memberships.map((m) => ({ userId: m.userId, roles: m.roles.map((r) => r.roleCode), queues: m.supportQueues.map((s) => s.queue) }));
+      const members: SlaMember[] = memberships.map((m) => ({
+        userId: m.userId,
+        roles: m.roles.map((r) => r.roleCode),
+        queues: m.supportQueues.map((s) => s.queue),
+        extraPermissions: m.customRoles.flatMap((c) => c.role.permissions.map((p) => p.permissionCode)),
+      }));
       const users = new Set<string>();
 
       for (const conv of due) {

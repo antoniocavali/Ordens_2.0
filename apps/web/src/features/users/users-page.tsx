@@ -2,7 +2,7 @@
 
 import type { UserListItem } from '@ordens/contracts';
 import { Badge, Button, Card, cn, EmptyState, Input, Select, Skeleton } from '@ordens/ui';
-import { ChevronLeft, ChevronRight, MailWarning, Search, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, KeyRound, MailWarning, Search, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { StatusPill } from '@/features/registry/registry-list';
 import { formatRelative } from '@/lib/format';
@@ -25,6 +25,10 @@ function PersonCell({ u, self }: { u: UserListItem; self: boolean }) {
       {u.invitePending ? (
         <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-warning">
           <MailWarning className="size-3" /> Convite pendente
+        </span>
+      ) : u.mustChangePassword ? (
+        <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-info">
+          <KeyRound className="size-3" /> Senha provisória
         </span>
       ) : null}
     </div>
@@ -168,6 +172,16 @@ export function UsersPage() {
                             {roleName(r)}
                           </Badge>
                         ))}
+                        {u.customRoles.map((c) => (
+                          <Badge key={c.id} size="sm" tone="primary">
+                            {c.name}
+                          </Badge>
+                        ))}
+                        {u.grants.length ? (
+                          <Badge size="sm" tone="info">
+                            + permissão individual
+                          </Badge>
+                        ) : null}
                       </div>
                     </td>
                     <td className="border-b border-border/60 px-4">
@@ -203,7 +217,7 @@ export function UsersPage() {
                     <div className="min-w-0 space-y-1">
                       <PersonCell u={u} self={u.userId === me?.user.id} />
                       <div className="text-xs text-muted">
-                        {u.organization.name} · {u.roles.map(roleName).join(', ')}
+                        {u.organization.name} · {[...u.roles.map(roleName), ...u.customRoles.map((c) => c.name)].join(', ')}
                       </div>
                     </div>
                     <StatusPill status={u.status} />

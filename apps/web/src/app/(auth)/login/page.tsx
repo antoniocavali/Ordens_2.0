@@ -29,6 +29,7 @@ function LoginForm() {
       const res = await post<LoginResponse>('/auth/login', values);
       qc.clear();
       if (res.stage === 'PENDING_2FA') router.replace('/login/2fa');
+      else if (res.stage === 'PENDING_PASSWORD_CHANGE') router.replace('/login/nova-senha');
       else if (res.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
       else router.replace(params.get('next') ?? '/');
     } catch (err) {

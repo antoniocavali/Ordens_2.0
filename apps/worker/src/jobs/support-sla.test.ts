@@ -16,6 +16,11 @@ describe('avisos de SLA do atendimento', () => {
     expect(slaRecipients(members, 'SUPPORT').sort()).toEqual(['atendente-sup', 'gestor']);
   });
 
+  it('considera permissões de papéis personalizados', () => {
+    const custom = [{ userId: 'papel-custom', roles: ['MATRIZ_VIEWER'], queues: ['BILLING'], extraPermissions: ['support.attend'] }];
+    expect(slaRecipients([...members, ...custom], 'BILLING').sort()).toEqual(['gestor', 'operador-fat', 'papel-custom']);
+  });
+
   it('não duplica destinatários', () => {
     expect(slaRecipients([...members, members[0]!], 'SUPPORT')).toHaveLength(2);
   });

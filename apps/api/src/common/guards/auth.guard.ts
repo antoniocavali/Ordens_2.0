@@ -1,6 +1,6 @@
 import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ErrorCode, permissionsForRoles, type SessionStage } from '@ordens/contracts';
+import { effectivePermissions, ErrorCode, type SessionStage } from '@ordens/contracts';
 import type { Request } from 'express';
 import { SessionService } from '../../modules/auth/session.service.js';
 import { ALLOWED_STAGES, IS_PUBLIC } from '../decorators.js';
@@ -34,6 +34,9 @@ export class AuthGuard implements CanActivate {
       if (session.stage === 'PENDING_2FA_SETUP') {
         throw new AppError(ErrorCode.TWO_FACTOR_SETUP_REQUIRED, 403, 'Ative a verificação em duas etapas para continuar.');
       }
+      if (session.stage === 'PENDING_PASSWORD_CHANGE') {
+        throw new AppError(ErrorCode.PASSWORD_CHANGE_REQUIRED, 403, 'Defina uma nova senha para continuar.');
+      }
       throw AppError.forbidden();
     }
 
@@ -49,7 +52,7 @@ export class AuthGuard implements CanActivate {
       securityVersion: session.securityVersion,
       isPlatformAdmin: session.isPlatformAdmin,
       membership: m ? { ...m, orgIds: [m.organizationId] } : null,
-      permissions: m ? permissionsForRoles(m.roles) : new Set(),
+      permissions: m ? effectivePermissions(m.roles, m.extraPermissions ?? []) : new Set(),
     };
     return true;
   }
