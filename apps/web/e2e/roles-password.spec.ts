@@ -49,7 +49,7 @@ test.describe('Papéis e senha provisória', () => {
     await drawer.getByRole('button', { name: 'Definir senha provisória' }).click();
     await drawer.getByLabel('Senha provisória', { exact: true }).fill(provisional);
     await drawer.getByRole('button', { name: 'Confirmar senha provisória' }).click();
-    await expect(page.getByText('Senha provisória definida')).toBeVisible();
+    await expect(page.getByText('Senha provisória definida', { exact: true })).toBeVisible();
 
     // Papel personalizado atribuído pela tela.
     await drawer.getByRole('checkbox', { name: new RegExp(`^${roleName}`) }).check();
