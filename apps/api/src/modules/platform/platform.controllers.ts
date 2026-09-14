@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   auditQuerySchema,
   inviteUserSchema,
@@ -8,9 +9,11 @@ import {
   updateMembershipSchema,
   updatePreferencesSchema,
   updateSecurityPolicySchema,
+  userListQuery,
   type AuditEventDto,
   type InviteUserInput,
   type Page,
+  type UserListQuery,
 } from '@ordens/contracts';
 import { Database, writeAudit } from '@ordens/db';
 import { z } from 'zod';
@@ -22,11 +25,6 @@ import { TenantDb } from '../../infra/tenant-db.service.js';
 import { UsersService } from './users.service.js';
 
 const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
-const pageQuery = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  q: z.string().trim().max(120).optional(),
-});
 
 @ApiTags('users')
 @Controller('users')
@@ -35,7 +33,7 @@ export class UsersController {
 
   @Get()
   @RequirePermission('user.read')
-  list(@Query(new ZodPipe(pageQuery)) q: z.infer<typeof pageQuery>) {
+  list(@Query(new ZodPipe(userListQuery)) q: UserListQuery) {
     return this.users.list(q);
   }
 
@@ -43,6 +41,14 @@ export class UsersController {
   @RequirePermission('user.manage')
   invite(@Body(new ZodPipe(inviteUserSchema)) body: InviteUserInput) {
     return this.users.invite(body);
+  }
+
+  @Post('memberships/:id/resend-invite')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @RequirePermission('user.manage')
+  resendInvite(@Param('id', uuid) id: string) {
+    return this.users.resendInvite(id);
   }
 
   @Patch('memberships/:id')

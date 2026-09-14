@@ -349,6 +349,28 @@ describe('fiscal, ocorrências e documentos', () => {
   });
 });
 
+describe('usuários (convite)', () => {
+  it('Fazenda cria usuário novo e acesso só na própria organização, sem deixar usuário órfão', async () => {
+    const invited = randomUUID();
+    await db.run(farm(A, 0), async (tx) => {
+      // Mesmo caminho da API: insert sem RETURNING (o convidado só fica visível após a membership).
+      await tx.$executeRaw`insert into users (id, email, name, updated_at) values (${invited}::uuid, ${`rls-convite-${invited}@teste.local`}, 'Convidado', now())`;
+      await tx.membership.create({ data: { tenantId: A.tenantId, userId: invited, organizationId: A.farmOrgs[0]!, scope: 'FARM' } });
+    });
+    expect(await db.run(farm(A, 0), (tx) => tx.user.findMany({ where: { id: invited } }))).toHaveLength(1);
+    expect(await db.run(farm(A, 1), (tx) => tx.membership.findMany({ where: { userId: invited } }))).toHaveLength(0);
+
+    const outsider = randomUUID();
+    await expect(
+      db.run(farm(A, 0), async (tx) => {
+        await tx.$executeRaw`insert into users (id, email, name, updated_at) values (${outsider}::uuid, ${`rls-convite-${outsider}@teste.local`}, 'Fora', now())`;
+        await tx.membership.create({ data: { tenantId: A.tenantId, userId: outsider, organizationId: A.farmOrgs[1]!, scope: 'FARM' } });
+      }),
+    ).rejects.toThrow();
+    expect(await db.system((tx) => tx.user.findMany({ where: { id: outsider } }))).toHaveLength(0);
+  });
+});
+
 describe('atendimento (chat)', () => {
   const people = async () =>
     db.system((tx) =>
