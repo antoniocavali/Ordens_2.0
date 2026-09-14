@@ -4,9 +4,12 @@ import {
   REPORT_EXPORT_LIMIT,
   REPORT_INFO,
   REPORT_MAX_DAYS,
+  REPORT_PDF_LIMIT,
   REPORT_PREVIEW_LIMIT,
+  reportFormatSchema,
   reportKindSchema,
   reportQuerySchema,
+  type ReportFormat,
   type ReportKind,
   type ReportQuery,
   type ReportResult,
@@ -18,7 +21,15 @@ import { AppError } from '../../common/errors.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { toCsv } from './csv.js';
+import { toPdf } from './pdf.js';
 import { REPORTS, TZ } from './reports.definitions.js';
+import { toXlsx } from './xlsx.js';
+
+const CONTENT_TYPES: Record<ReportFormat, string> = {
+  csv: 'text/csv; charset=utf-8',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
+};
 
 const DAY = 86_400_000;
 const todayInTz = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
@@ -74,17 +85,27 @@ export class ReportsService {
     return this.db.read((tx) => this.run(tx, kind, q, REPORT_PREVIEW_LIMIT));
   }
 
-  /** Exportação completa (até o limite), auditada na mesma transação da leitura. */
-  export(kind: ReportKind, q: ReportQuery): Promise<{ csv: string; filename: string; result: ReportResult }> {
+  /** Exportação completa (até o limite do formato), auditada na mesma transação da leitura. */
+  export(kind: ReportKind, q: ReportQuery, format: ReportFormat): Promise<{ body: string | Buffer; filename: string; contentType: string; result: ReportResult }> {
     return this.db.write(async (scope) => {
-      const result = await this.run(scope.tx, kind, q, REPORT_EXPORT_LIMIT);
+      const result = await this.run(scope.tx, kind, q, format === 'pdf' ? REPORT_PDF_LIMIT : REPORT_EXPORT_LIMIT);
       await scope.audit({
         entityType: 'report',
         entityId: null,
         action: 'report.exported',
-        after: { kind, label: result.label, from: result.from, to: result.to, commodityId: q.commodityId ?? null, rows: result.rows.length, total: result.total },
+        after: {
+          kind,
+          format,
+          label: result.label,
+          from: result.from,
+          to: result.to,
+          commodityId: q.commodityId ?? null,
+          rows: result.rows.length,
+          total: result.total,
+        },
       });
-      return { csv: toCsv(result.columns, result.rows), filename: `relatorio-${kind}-${result.from}-a-${result.to}.csv`, result };
+      const body = format === 'xlsx' ? await toXlsx(result) : format === 'pdf' ? await toPdf(result) : toCsv(result.columns, result.rows);
+      return { body, filename: `relatorio-${kind}-${result.from}-a-${result.to}.${format}`, contentType: CONTENT_TYPES[format], result };
     });
   }
 }
@@ -102,14 +123,19 @@ export class ReportsController {
 
   @Get(':kind/export')
   @RequirePermission('report.export')
-  async export(@Param('kind', new ZodPipe(reportKindSchema)) kind: ReportKind, @Query(new ZodPipe(reportQuerySchema)) q: ReportQuery, @Res() res: Response) {
-    const { csv, filename, result } = await this.reports.export(kind, q);
-    res.setHeader('content-type', 'text/csv; charset=utf-8');
+  async export(
+    @Param('kind', new ZodPipe(reportKindSchema)) kind: ReportKind,
+    @Query(new ZodPipe(reportQuerySchema)) q: ReportQuery,
+    @Query('format', new ZodPipe(reportFormatSchema)) format: ReportFormat,
+    @Res() res: Response,
+  ) {
+    const { body, filename, contentType, result } = await this.reports.export(kind, q, format);
+    res.setHeader('content-type', contentType);
     res.setHeader('content-disposition', `attachment; filename="${filename}"`);
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-report-rows', String(result.rows.length));
     res.setHeader('x-report-truncated', String(result.truncated));
-    res.send(csv);
+    res.send(body);
   }
 }
 

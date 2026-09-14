@@ -3,12 +3,31 @@ import { expect, type Browser, type Page } from '@playwright/test';
 /** Senha do seed demo (gerada no CI, nunca fixa no repositório). */
 export const password = process.env.E2E_PASSWORD ?? '';
 
+/**
+ * Envia o formulário de login. A API limita tentativas por IP (20/min) e toda a suíte roda do mesmo IP:
+ * em 429 espera o Retry-After e tenta de novo, sem afrouxar o limite de produção.
+ */
+export async function submitLogin(page: Page, email: string, secret: string, expectedUrl: string | RegExp) {
+  for (let attempt = 1; ; attempt++) {
+    await page.goto('/login');
+    await page.getByLabel('E-mail').fill(email);
+    await page.getByLabel('Senha', { exact: true }).fill(secret);
+    const responsePromise = page.waitForResponse((r) => r.url().includes('/api/auth/login') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Entrar' }).click();
+    const response = await responsePromise;
+    if (response.status() === 429 && attempt < 4) {
+      const headers = response.headers();
+      const wait = Number(headers['retry-after'] ?? headers['retry-after-default'] ?? 30);
+      await page.waitForTimeout((Number.isFinite(wait) && wait > 0 ? wait : 30) * 1000 + 500);
+      continue;
+    }
+    await expect(page).toHaveURL(expectedUrl);
+    return;
+  }
+}
+
 export async function login(page: Page, email: string) {
-  await page.goto('/login');
-  await page.getByLabel('E-mail').fill(email);
-  await page.getByLabel('Senha', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page).toHaveURL('/');
+  await submitLogin(page, email, password, '/');
 }
 
 /** Abre um contexto isolado (cookies próprios) já autenticado. */

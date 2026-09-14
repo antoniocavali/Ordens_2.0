@@ -1,9 +1,20 @@
 'use client';
 
-import { REPORT_EXPORT_LIMIT, REPORT_INFO, REPORT_KINDS, type ReportColumn, type ReportKind, type ReportResult } from '@ordens/contracts';
+import {
+  REPORT_EXPORT_LIMIT,
+  REPORT_FORMAT_LABELS,
+  REPORT_FORMATS,
+  REPORT_INFO,
+  REPORT_KINDS,
+  REPORT_PDF_LIMIT,
+  type ReportColumn,
+  type ReportFormat,
+  type ReportKind,
+  type ReportResult,
+} from '@ordens/contracts';
 import { Button, Card, cn, EmptyState, Input, Skeleton } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AlertTriangle, BarChart3, ClipboardList, Download, PackageCheck, ShieldOff, Truck, Users } from 'lucide-react';
+import { AlertTriangle, BarChart3, ClipboardList, Download, FileSpreadsheet, FileText, PackageCheck, ShieldOff, Truck, Users } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ApiRequestError, get } from '@/lib/api';
@@ -48,14 +59,20 @@ function cell(type: ReportColumn['type'], v: string | number | null): string {
   }
 }
 
-/** Baixa o CSV pela mesma origem (cookie de sessão); a API audita a exportação. */
-async function downloadReport(kind: ReportKind, from: string, to: string) {
-  const res = await fetch(`/api/reports/${kind}/export?${new URLSearchParams({ from, to })}`, { credentials: 'same-origin' });
+const FORMAT_ICONS: Record<ReportFormat, ReactNode> = {
+  csv: <Download />,
+  xlsx: <FileSpreadsheet />,
+  pdf: <FileText />,
+};
+
+/** Baixa o arquivo pela mesma origem (cookie de sessão); a API audita a exportação. */
+async function downloadReport(kind: ReportKind, from: string, to: string, format: ReportFormat) {
+  const res = await fetch(`/api/reports/${kind}/export?${new URLSearchParams({ from, to, format })}`, { credentials: 'same-origin' });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
     throw new ApiRequestError(res.status, body?.error?.code ?? 'UNKNOWN', body?.error?.message ?? 'Não foi possível exportar.');
   }
-  const filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? `relatorio-${kind}.csv`;
+  const filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? `relatorio-${kind}.${format}`;
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement('a');
   a.href = url;
@@ -74,7 +91,7 @@ export function ReportsPage() {
   const [kind, setKind] = useState<ReportKind>('orders');
   const [from, setFrom] = useState(() => daysAgo(29));
   const [to, setTo] = useState(() => localDay(new Date()));
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<ReportFormat | null>(null);
 
   const validRange = Boolean(from && to && from <= to);
   const report = useQuery({
@@ -95,17 +112,20 @@ export function ReportsPage() {
   const data = report.data?.kind === kind ? report.data : undefined;
   const error = report.error instanceof ApiRequestError ? (report.error.fieldErrors.from?.[0] ?? report.error.message) : report.error ? 'Não foi possível gerar o relatório.' : null;
 
-  const onExport = async () => {
-    setExporting(true);
+  const onExport = async (format: ReportFormat) => {
+    setExporting(format);
     try {
-      const r = await downloadReport(kind, from, to);
-      toast.success('Relatório exportado', {
-        description: r.truncated ? `${r.rows.toLocaleString('pt-BR')} linhas (limite de ${REPORT_EXPORT_LIMIT.toLocaleString('pt-BR')}). Reduza o período para ver tudo.` : `${r.filename} · ${r.rows.toLocaleString('pt-BR')} linhas`,
+      const r = await downloadReport(kind, from, to, format);
+      const limit = format === 'pdf' ? REPORT_PDF_LIMIT : REPORT_EXPORT_LIMIT;
+      toast.success(`Relatório exportado em ${REPORT_FORMAT_LABELS[format]}`, {
+        description: r.truncated
+          ? `${r.rows.toLocaleString('pt-BR')} linhas (limite de ${limit.toLocaleString('pt-BR')}${format === 'pdf' ? ' no PDF; use Excel ou CSV para tudo' : '; reduza o período para ver tudo'}).`
+          : `${r.filename} · ${r.rows.toLocaleString('pt-BR')} linhas`,
       });
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível exportar.');
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -117,7 +137,7 @@ export function ReportsPage() {
         </span>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Relatórios</h1>
-          <p className="text-sm text-muted">Confira a prévia e exporte em CSV (abre direto no Excel). Toda exportação fica registrada na auditoria.</p>
+          <p className="text-sm text-muted">Confira a prévia e exporte em Excel, PDF ou CSV. Toda exportação fica registrada na auditoria.</p>
         </div>
       </div>
 
@@ -170,9 +190,22 @@ export function ReportsPage() {
           <span className="ml-auto self-center text-xs text-subtle tabular" aria-live="polite">
             {report.isFetching ? 'Gerando…' : data ? (data.truncated ? `Prévia: ${data.rows.length} de ${data.total.toLocaleString('pt-BR')} linhas` : `${data.total.toLocaleString('pt-BR')} linhas`) : null}
           </span>
-          <Button onClick={onExport} loading={exporting} disabled={!validRange || !data?.total}>
-            <Download /> Exportar CSV
-          </Button>
+          <div className="flex items-center gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Exportar relatório">
+            <span className="px-2 text-xs font-medium text-muted">Exportar</span>
+            {REPORT_FORMATS.map((f) => (
+              <Button
+                key={f}
+                size="sm"
+                variant={f === 'xlsx' ? 'primary' : 'ghost'}
+                aria-label={`Exportar ${REPORT_FORMAT_LABELS[f]}`}
+                onClick={() => onExport(f)}
+                loading={exporting === f}
+                disabled={!validRange || !data?.total || (exporting !== null && exporting !== f)}
+              >
+                {FORMAT_ICONS[f]} {REPORT_FORMAT_LABELS[f]}
+              </Button>
+            ))}
+          </div>
         </div>
 
         {error ? (
@@ -217,7 +250,7 @@ export function ReportsPage() {
         )}
         {data?.truncated ? (
           <div className="border-t border-border/70 px-4 py-2 text-xs text-muted">
-            A prévia mostra as {data.rows.length} primeiras linhas. A exportação traz até {REPORT_EXPORT_LIMIT.toLocaleString('pt-BR')} linhas.
+            A prévia mostra as {data.rows.length} primeiras linhas. Excel e CSV trazem até {REPORT_EXPORT_LIMIT.toLocaleString('pt-BR')} linhas; o PDF, até {REPORT_PDF_LIMIT.toLocaleString('pt-BR')}.
           </div>
         ) : null}
       </Card>

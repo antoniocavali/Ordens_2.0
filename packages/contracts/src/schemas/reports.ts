@@ -22,6 +22,13 @@ export interface ReportColumn {
 
 export const REPORT_PREVIEW_LIMIT = 200;
 export const REPORT_EXPORT_LIMIT = 50_000;
+/** PDF é para leitura/impressão: tabela limitada para manter o arquivo utilizável. */
+export const REPORT_PDF_LIMIT = 5_000;
+
+export const REPORT_FORMATS = ['csv', 'xlsx', 'pdf'] as const;
+export type ReportFormat = (typeof REPORT_FORMATS)[number];
+export const REPORT_FORMAT_LABELS: Record<ReportFormat, string> = { csv: 'CSV', xlsx: 'Excel', pdf: 'PDF' };
+export const reportFormatSchema = z.enum(REPORT_FORMATS).default('csv');
 export const REPORT_MAX_DAYS = 366;
 
 const dateOnly = z.iso.date();

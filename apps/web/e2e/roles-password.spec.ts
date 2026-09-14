@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, login, loginAs, password } from './helpers';
+import { api, apiOk, login, loginAs, password, submitLogin } from './helpers';
 
 /**
  * Papéis personalizados (Q35), concessão individual (Q34) e senha provisória com troca obrigatória.
@@ -59,11 +59,7 @@ test.describe('Papéis e senha provisória', () => {
     // ─── Login com senha provisória → troca obrigatória ───
     const ctx = await browser.newContext();
     const tp = await ctx.newPage();
-    await tp.goto('/login');
-    await tp.getByLabel('E-mail').fill(tEmail);
-    await tp.getByLabel('Senha', { exact: true }).fill(provisional);
-    await tp.getByRole('button', { name: 'Entrar' }).click();
-    await expect(tp).toHaveURL(/\/login\/nova-senha/);
+    await submitLogin(tp, tEmail, provisional, /\/login\/nova-senha/);
     // Enquanto não troca a senha, nada além disso é permitido.
     expect((await api(tp, 'GET', '/orders')).status).toBe(403);
     const newPassword = `NovaSenha-${stamp}!`;
