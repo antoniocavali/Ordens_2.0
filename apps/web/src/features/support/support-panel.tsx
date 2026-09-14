@@ -153,7 +153,7 @@ export function SupportPanel({ team }: { team?: SupportQueue }) {
   const showQueueColumn = !team && access.queues.length > 1;
 
   return (
-    <div className="mx-auto flex max-w-[1800px] flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex max-w-450 flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
           <span className={cn('grid size-11 place-items-center rounded-xl', identity.accent)}>
