@@ -113,6 +113,8 @@ export interface AuditEventDto {
   actorRole: string | null;
   entityType: string;
   entityId: string | null;
+  /** Nome legível da entidade (nº da OC, carga, nome da pessoa…), quando ainda existe. */
+  entityLabel: string | null;
   action: string;
   before: unknown;
   after: unknown;
