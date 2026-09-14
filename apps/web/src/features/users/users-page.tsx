@@ -47,6 +47,7 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -75,11 +76,18 @@ export function UsersPage() {
             <p className="text-sm text-muted">Quem tem acesso, em qual organização, com quais papéis — e convites pendentes.</p>
           </div>
         </div>
-        {can('user.manage') ? (
-          <Button onClick={() => setInviting(true)}>
-            <UserPlus /> Convidar usuário
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {can('user.create') ? (
+            <Button variant={can('user.manage') ? 'outline' : 'primary'} onClick={() => setCreatingUser(true)}>
+              <KeyRound /> Criar usuário
+            </Button>
+          ) : null}
+          {can('user.manage') ? (
+            <Button onClick={() => setInviting(true)}>
+              <UserPlus /> Convidar usuário
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <Card className="overflow-hidden">
@@ -244,6 +252,7 @@ export function UsersPage() {
 
       <UserDrawer user={open} onClose={() => setOpenId(null)} />
       <InviteDrawer open={inviting} onClose={() => setInviting(false)} />
+      <InviteDrawer mode="create" open={creatingUser} onClose={() => setCreatingUser(false)} />
     </div>
   );
 }

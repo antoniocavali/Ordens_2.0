@@ -75,6 +75,9 @@ describe('papéis personalizados e concessões', () => {
       expect(permissionsForRoles([role]).has('role.manage')).toBe(false);
     }
     expect([...GRANTABLE_PERMISSIONS]).toEqual(['user.password.manage']);
+    // Criação direta de usuários: Administrador e Gestor (Q36).
+    for (const role of ['MATRIZ_ADMIN', 'MATRIZ_MANAGER'] as const) expect(permissionsForRoles([role]).has('user.create')).toBe(true);
+    for (const role of ['MATRIZ_OPERATOR', 'MATRIZ_VIEWER', 'FARM_ADMIN'] as const) expect(permissionsForRoles([role]).has('user.create')).toBe(false);
     const grouped = PERMISSION_GROUPS.flatMap((g) => g.permissions);
     expect(new Set(grouped).size).toBe(grouped.length);
     expect(PERMISSION_CODES.filter((p) => p !== 'tenant.manage' && !grouped.includes(p))).toEqual([]);

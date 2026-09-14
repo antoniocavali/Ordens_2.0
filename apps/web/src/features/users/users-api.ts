@@ -1,6 +1,6 @@
 'use client';
 
-import type { CustomRoleInput, GrantablePermission, InviteUserInput, InviteUserResult, Page, RoleDto, UserListItem } from '@ordens/contracts';
+import type { CreateUserInput, CustomRoleInput, GrantablePermission, InviteUserInput, InviteUserResult, Page, RoleDto, UserListItem } from '@ordens/contracts';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, patch, post, put } from '@/lib/api';
 
@@ -41,6 +41,7 @@ export function useUserMutations() {
   };
   return {
     invite: useMutation({ mutationFn: (body: InviteUserInput) => post<InviteUserResult>('/users/invite', body), onSuccess: refresh }),
+    create: useMutation({ mutationFn: (body: CreateUserInput) => post<InviteUserResult>('/users', body), onSuccess: refresh }),
     update: useMutation({
       mutationFn: ({ id, ...body }: { id: string; roles?: string[]; customRoleIds?: string[]; status?: 'ACTIVE' | 'INACTIVE' }) => patch<void>(`/users/memberships/${id}`, body),
       onSuccess: refresh,
