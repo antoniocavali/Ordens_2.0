@@ -18,5 +18,6 @@
 | [environments.md](environments.md) | Dev vs produção, migrations, seed |
 | [design-system.md](design-system.md) | Tokens, tipografia, motion, componentes |
 | [wireframes.md](wireframes.md) | Shell, Ordens, Drawer, Quick View, dashboards |
+| [realtime.md](realtime.md) | Notificações in-app e atualização em tempo real (SSE) |
 | [definition-of-done.md](definition-of-done.md) | Critério de pronto |
 | [decisions/](decisions/README.md) | ADRs e questões em aberto |

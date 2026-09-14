@@ -13,4 +13,5 @@ export * from './schemas/commercial.js';
 export * from './schemas/logistics.js';
 export * from './schemas/fiscal.js';
 export * from './schemas/dashboard.js';
+export * from './schemas/notifications.js';
 export * from './documents.js';

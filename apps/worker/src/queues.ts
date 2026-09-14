@@ -3,6 +3,7 @@ import type { JobsOptions } from 'bullmq';
 export const QUEUE = {
   FILE_PROCESSING: 'file-processing',
   INVOICES: 'invoices',
+  REALTIME: 'realtime',
   EMAIL: 'email',
   NOTIFICATIONS: 'notifications',
   MAINTENANCE: 'upload-maintenance',
@@ -29,10 +30,20 @@ export interface OutboxJob {
 /** Roteamento de eventos de domínio para filas. */
 export const ROUTES: Record<string, string[]> = {
   'upload.completed': [QUEUE.FILE_PROCESSING],
-  'upload.available': [QUEUE.INVOICES],
+  'upload.available': [QUEUE.INVOICES, QUEUE.REALTIME],
+  'upload.rejected': [QUEUE.REALTIME],
   'auth.password_reset_requested': [QUEUE.EMAIL],
   'user.invited': [QUEUE.EMAIL],
-  'order.published': [QUEUE.NOTIFICATIONS],
-  'order.version_created': [QUEUE.NOTIFICATIONS],
-  'order.release_created': [QUEUE.NOTIFICATIONS],
+  'order.published': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'order.version_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'order.release_created': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'order.viewed': [QUEUE.REALTIME],
+  'appointment.created': [QUEUE.REALTIME],
+  'appointment.status_changed': [QUEUE.REALTIME],
+  'load.created': [QUEUE.REALTIME],
+  'load.status_changed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'invoice.processed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'invoice.cancelled': [QUEUE.REALTIME],
+  'occurrence.opened': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'occurrence.status_changed': [QUEUE.REALTIME],
 };
