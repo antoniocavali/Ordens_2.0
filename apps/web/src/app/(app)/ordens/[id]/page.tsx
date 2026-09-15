@@ -2,7 +2,7 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, PackageCheck, PackageX, Pencil, Send } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, Pencil, Send, Sprout } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -12,7 +12,20 @@ import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
-import { registerView, requestPublishOrder, useInvalidateOrders, useOrder, useTimeline, useVersions, useViewHistory } from '@/features/orders/orders-api';
+import type { OrderDetail } from '@ordens/contracts';
+import { AssignFarmDrawer } from '@/features/orders/assign-farm-drawer';
+import { BuyerOrderDrawer } from '@/features/orders/buyer-order-drawer';
+import {
+  billingPublish,
+  registerView,
+  requestPublishOrder,
+  submitOrder,
+  useInvalidateOrders,
+  useOrder,
+  useTimeline,
+  useVersions,
+  useViewHistory,
+} from '@/features/orders/orders-api';
 import { CancelReleaseDialog, type CancelReleaseTarget } from '@/features/orders/cancel-release-dialog';
 import { ReleaseDialog } from '@/features/orders/release-dialog';
 import { ReleaseStatusBadge } from '@/features/orders/releases-page';
@@ -50,6 +63,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [scheduling, setScheduling] = useState(false);
   const [cancelling, setCancelling] = useState<CancelReleaseTarget | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const [buyerEditing, setBuyerEditing] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [acting, setActing] = useState<'submit' | 'publish' | null>(null);
+  const act = async (kind: 'submit' | 'publish', fn: () => Promise<OrderDetail>) => {
+    setActing(kind);
+    try {
+      invalidate(await fn());
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível concluir a ação.');
+    } finally {
+      setActing(null);
+    }
+  };
   const scope = me?.activeMembership?.scope;
 
   // Abertura efetiva do detalhe = visualização (Fazenda/Comprador).
@@ -132,6 +158,44 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <Send /> {o.workflow?.publishRequestedAt ? 'Solicitar de novo' : 'Solicitar publicação'}
             </Button>
           ) : null}
+          {o.allowedActions.includes('buyer_edit') ? (
+            <Button variant="outline" onClick={() => setBuyerEditing(true)}>
+              <Pencil /> Editar solicitação
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('submit') ? (
+            <Button
+              loading={acting === 'submit'}
+              onClick={() =>
+                act('submit', async () => {
+                  const d = await submitOrder(o.id, o.updatedAt);
+                  toast.success(`Solicitação ${d.number} enviada ao Faturamento`, { description: 'A Matriz vai definir a fazenda e publicar a ordem.' });
+                  return d;
+                })
+              }
+            >
+              <Send /> Enviar ao Faturamento
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('assign_farm') ? (
+            <Button variant={o.allowedActions.includes('billing_publish') ? 'outline' : undefined} onClick={() => setAssigning(true)}>
+              <Sprout /> {o.farm ? 'Revisar fazenda' : 'Definir fazenda'}
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('billing_publish') ? (
+            <Button
+              loading={acting === 'publish'}
+              onClick={() =>
+                act('publish', async () => {
+                  const d = await billingPublish(o.id, o.updatedAt);
+                  toast.success(`Ordem ${d.number} publicada para a Fazenda`, { description: `${d.farm?.name ?? 'Fazenda'} foi notificada.` });
+                  return d;
+                })
+              }
+            >
+              <Send /> Publicar para a Fazenda
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -144,6 +208,23 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             </span>
           ) : null}
           {o.workflow.blockedByFourEyes ? <span className="text-muted">Dupla checagem ativa: como você fez a última alteração, outra pessoa precisa publicar.</span> : null}
+        </div>
+      ) : null}
+
+      {o.status === 'PENDING_BILLING' ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-soft/50 px-4 py-3 text-sm ring-1 ring-warning/20">
+          <Hourglass className="size-4 text-warning" />
+          <span>
+            <strong>Aguardando faturamento</strong>
+            {o.submittedAt ? ` · enviada por ${o.submittedBy ?? 'Comprador'} em ${formatDateTime(o.submittedAt)}` : ''}.
+          </span>
+          <span className="text-muted">
+            {scope === 'BUYER'
+              ? 'A Matriz vai definir a fazenda e publicar a ordem. A solicitação não pode mais ser alterada.'
+              : o.farm
+                ? `Fazenda definida: ${o.farm.name}. Confira contrato e saldo e publique para a Fazenda.`
+                : 'Defina vendedor e fazenda, confira contrato e saldo e publique para a Fazenda.'}
+          </span>
         </div>
       ) : null}
 
@@ -343,6 +424,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       <OrderFormDrawer open={editing} order={o} onClose={() => setEditing(false)} />
       <ReleaseDialog order={o} open={releasing} onOpenChange={setReleasing} />
       <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
+      <BuyerOrderDrawer open={buyerEditing} order={o} onClose={() => setBuyerEditing(false)} />
+      {o.allowedActions.includes('assign_farm') ? <AssignFarmDrawer open={assigning} order={o} onClose={() => setAssigning(false)} /> : null}
       <AppointmentDrawer
         appointment={null}
         open={scheduling}

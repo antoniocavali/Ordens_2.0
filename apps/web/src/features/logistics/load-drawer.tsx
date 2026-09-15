@@ -1,8 +1,8 @@
 'use client';
 
-import { LOAD_STATUS_LABELS, type LoadStatus } from '@ordens/contracts';
-import { Button, Card, Drawer, Field, Input, Skeleton, Textarea } from '@ordens/ui';
-import { AlertTriangle, ArrowRight, Check, XCircle } from 'lucide-react';
+import { FISCAL_DOC_STATE_LABELS, LOAD_STATUS_LABELS, type FiscalDocState, type LoadFiscalChecklist, type LoadStatus } from '@ordens/contracts';
+import { Button, Card, cn, Drawer, Field, Input, Skeleton, Textarea } from '@ordens/ui';
+import { AlertTriangle, ArrowRight, Check, CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
@@ -28,7 +28,56 @@ interface Values extends FleetValues {
   notes: string;
 }
 
-const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
+const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING'];
+
+/** Rótulo da ação que leva a carga a cada status (a sequência operacional fica explícita no botão). */
+const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
+  LOADING: 'Iniciar carregamento',
+  LOADED: 'Confirmar carregamento',
+  FARM_INVOICED: 'Validar documentação fiscal',
+  IN_TRANSIT: 'Liberar para transporte',
+};
+
+function DocState({ state }: { state: FiscalDocState }) {
+  const cfg =
+    state === 'OK'
+      ? { icon: CheckCircle2, cls: 'text-success' }
+      : state === 'PENDING' || state === 'PROCESSING'
+        ? { icon: Loader2, cls: 'text-info' }
+        : state === 'MISSING'
+          ? { icon: CircleDashed, cls: 'text-subtle' }
+          : { icon: XCircle, cls: 'text-danger' };
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', cfg.cls)}>
+      <cfg.icon className={cn('size-4', (state === 'PENDING' || state === 'PROCESSING') && 'animate-spin')} aria-hidden />
+      {FISCAL_DOC_STATE_LABELS[state]}
+    </span>
+  );
+}
+
+/** Checklist para liberar a carga: pesagem, PDF da nota e XML da NF-e validado (Q41). */
+function FiscalChecklist({ c }: { c: LoadFiscalChecklist }) {
+  const rows: { label: string; state: FiscalDocState }[] = [
+    { label: 'Peso bruto e tara', state: c.weighed ? 'OK' : 'MISSING' },
+    { label: 'PDF da nota fiscal', state: c.pdf },
+    { label: 'XML da NF-e (processado e válido)', state: c.xml },
+  ];
+  return (
+    <div className="space-y-2 sm:col-span-6" aria-label="Checklist da documentação fiscal">
+      <ul className="divide-y divide-border/60 rounded-lg ring-1 ring-border/70">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+            <span>{r.label}</span>
+            <DocState state={r.state} />
+          </li>
+        ))}
+      </ul>
+      <p className={cn('text-xs', c.ready ? 'text-success' : 'text-muted')}>
+        {c.ready ? 'Documentação completa: a carga pode ser liberada para transporte.' : c.issues.join(' ')}
+      </p>
+    </div>
+  );
+}
 
 export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const can = useCan();
@@ -85,7 +134,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
       // Salva frota/pesagem pendentes antes de avançar.
       let current = l;
       if (form.formState.isDirty) current = { ...l, ...(await update.mutateAsync({ id: l.id, data: payload(v) })) };
-      await transition.mutateAsync({
+      const moved = await transition.mutateAsync({
         id: l.id,
         to,
         expectedUpdatedAt: current.updatedAt,
@@ -94,10 +143,11 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : null,
         receivedQty: v.receivedQty ? parseDecimalInput(v.receivedQty) : null,
       });
-      toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[to]}`);
+      toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
       setCancelOpen(false);
     } catch (err) {
       if (err instanceof ApiRequestError) {
+        if (err.code === 'FISCAL_DOCUMENTS_REQUIRED') toast.error(err.message);
         handleSaveError(err, (name, e) => form.setError((FLEET_API_TO_FORM[String(name)] ?? name) as keyof Values, e));
       } else toast.error('Não foi possível atualizar a carga.');
     }
@@ -140,7 +190,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 ) : null}
                 {forward.map((to) => (
                   <Button key={to} onClick={() => void move(to)} loading={transition.isPending && transition.variables?.to === to}>
-                    {LOAD_STATUS_LABELS[to]} <ArrowRight />
+                    {ACTION_LABELS[to] ?? LOAD_STATUS_LABELS[to]} <ArrowRight />
                   </Button>
                 ))}
               </div>
@@ -180,7 +230,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
             </div>
 
             <fieldset disabled={!canManage} className="contents">
-              <FormSection title="Transporte" description={fleetEditable ? 'Obrigatório informar motorista e cavalo antes do carregamento.' : 'Frota travada após o carregamento.'}>
+              <FormSection title="Transporte" description={fleetEditable ? 'Obrigatório informar motorista e cavalo antes do carregamento.' : 'Frota travada após a confirmação do carregamento.'}>
                 <Field label="Data de carregamento" className={span[3]}>
                   {(a) => <Input {...a} type="date" {...form.register('loadingDate')} />}
                 </Field>
@@ -188,7 +238,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 <FleetFields control={form.control} setValue={form.setValue} errors={errors} disabled={!fleetEditable} />
               </FormSection>
 
-              <FormSection title="Pesagem" description="Peso líquido = bruto − tara. Necessário para marcar a carga como carregada.">
+              <FormSection title="Pesagem" description="Peso líquido = bruto − tara. Peso bruto e tara são obrigatórios para confirmar o carregamento.">
                 <Field label="Peso bruto (kg)" className={span[2]} error={errors.grossKg?.message}>
                   {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...form.register('grossKg')} />}
                 </Field>
@@ -213,16 +263,19 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
               </FormSection>
             </fieldset>
 
-            <FormSection title="NF-e da carga" description="Envie o XML autorizado: chave, emitente, placa e peso são conferidos automaticamente. Obrigatória para marcar como faturada pela Fazenda.">
+            <FormSection
+              title="Documentação fiscal da Fazenda"
+              description="Após confirmar o carregamento, anexe o PDF da nota fiscal e o XML da NF-e. A carga só segue para transporte com os dois documentos e o XML validado."
+            >
+              {l.fiscalChecklist ? <FiscalChecklist c={l.fiscalChecklist} /> : null}
               <div className="space-y-3 sm:col-span-6">
                 {can('invoice.upload') && l.status !== 'CANCELLED' ? (
                   <UploadDropzone
                     entityType="load"
                     entityId={l.id}
                     accept=".xml,.pdf"
-                    title="Arraste o XML da NF-e (ou o DANFE em PDF)"
-                    hint="O XML é lido e validado; o PDF fica como anexo da carga"
-                    showExisting={false}
+                    title="Arraste o PDF da nota fiscal e o XML da NF-e"
+                    hint="O XML é lido e validado; o PDF fica vinculado à mesma carga"
                   />
                 ) : null}
                 <InvoiceList loadId={l.id} />

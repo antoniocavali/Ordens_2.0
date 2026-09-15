@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import {
+  BUYER_SUBMIT_REQUIRED,
   compareDecimalStrings,
   ErrorCode,
   ORDER_MATERIAL_FIELDS,
   ORDER_PUBLISH_REQUIRED,
+  type AssignFarmInput,
+  type BuyerOrderInput,
   type CancelReleaseInput,
+  type UpdateBuyerOrderInput,
   type CreateReleaseInput,
   type OrderDetail,
   type OrderDraftInput,
@@ -49,6 +53,11 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.created': 'Ordem criada',
   'order.draft_saved': 'Rascunho atualizado',
   'order.published': 'Ordem publicada',
+  'order.submitted': 'Solicitação enviada ao Faturamento',
+  'order.billing_updated': 'Solicitação complementada pelo Faturamento',
+  'order.farm_assigned': 'Fazenda definida pelo Faturamento',
+  'order.load_document_attached': 'Documento fiscal anexado à carga',
+  'order.load_documents_validated': 'Documentação fiscal da carga validada',
   'order.publish_requested': 'Publicação solicitada',
   'order.updated': 'Ordem atualizada',
   'order.version_created': 'Nova versão gerada',
@@ -67,6 +76,9 @@ const TIMELINE_LABELS: Record<string, string> = {
 
 // Ocorrências ficam fora da timeline externa: a visibilidade é por ocorrência (ver aba Ocorrências).
 const EXTERNAL_TIMELINE = new Set([
+  'order.submitted',
+  'order.load_document_attached',
+  'order.load_documents_validated',
   'order.published',
   'order.version_created',
   'order.release_created',
@@ -215,6 +227,7 @@ export class OrdersService {
 
   async create(input: OrderDraftInput): Promise<OrderDetail> {
     const auth = currentAuth();
+    this.assertInternal();
     return this.db.write(async (scope) => {
       const { tx } = scope;
       await this.validateRelations(tx, input);
@@ -242,6 +255,7 @@ export class OrdersService {
 
   async update(id: string, input: UpdateOrderInput): Promise<OrderDetail> {
     const auth = currentAuth();
+    this.assertInternal();
     return this.db.write(async (scope) => {
       const { tx } = scope;
       const before = await this.lockForWrite(tx, id, input.expectedUpdatedAt);
@@ -252,6 +266,12 @@ export class OrdersService {
         throw AppError.conflict('Esta ordem foi alterada por outra pessoa. Recarregue para ver a versão atual.', ErrorCode.ORDER_STALE);
       }
 
+      // Solicitação do Comprador: o comprador vem da organização que pediu e não é trocado pela Matriz.
+      if (before.origin === 'BUYER' && input.data.buyerPartnerId !== undefined && input.data.buyerPartnerId !== before.buyerPartnerId) {
+        throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'O comprador de uma solicitação do portal não pode ser alterado.', {
+          fields: { buyerPartnerId: ['Definido pela organização que enviou a solicitação'] },
+        });
+      }
       const merged = { ...before, ...toPrismaData(input.data) } as unknown as OrderRecord;
       await this.validateRelations(tx, merged as unknown as OrderDraftInput);
 
@@ -260,7 +280,8 @@ export class OrdersService {
       const changes = shallowDiff(beforeNorm, afterNorm);
       if (!changes.length) return this.loadDetail(tx, id);
 
-      const isDraft = before.status === 'DRAFT';
+      // Aguardando faturamento ainda não foi publicada: sem versões nem faróis.
+      const isDraft = before.status === 'DRAFT' || before.status === 'PENDING_BILLING';
       if (!isDraft) {
         this.assertPublishRequirements(merged);
         if (merged.quantity && compareDecimalStrings(new Prisma.Decimal(merged.quantity).toString(), before.releasedQty.toString()) < 0) {
@@ -289,7 +310,7 @@ export class OrdersService {
         await scope.audit({
           entityType: 'loading_order',
           entityId: id,
-          action: isDraft ? 'order.draft_saved' : 'order.updated',
+          action: before.status === 'PENDING_BILLING' ? 'order.billing_updated' : isDraft ? 'order.draft_saved' : 'order.updated',
           before: Object.fromEntries(changes.map((c) => [c.field, c.from])),
           after: Object.fromEntries(changes.map((c) => [c.field, c.to])),
         });
@@ -304,10 +325,12 @@ export class OrdersService {
    */
   async requestPublish(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
     const auth = currentAuth();
+    this.assertInternal();
     return this.db.write(async (scope) => {
       const { tx } = scope;
       const order = await this.lockForWrite(tx, id, expectedUpdatedAt);
       if (order.status !== 'DRAFT') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente rascunhos podem ter a publicação solicitada.');
+      if (order.origin === 'BUYER') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Solicitações do Comprador seguem pelo Faturamento.');
       this.assertPublishRequirements(order);
       await this.validateRelations(tx, order as unknown as OrderDraftInput);
       const now = new Date();
@@ -331,11 +354,18 @@ export class OrdersService {
 
   async publish(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
     const auth = currentAuth();
+    this.assertInternal();
     return this.db.write(async (scope) => {
       const { tx } = scope;
       const order = await this.lockForWrite(tx, id, expectedUpdatedAt);
       if (order.status !== 'DRAFT') {
-        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente rascunhos podem ser publicados.');
+        throw AppError.domain(
+          ErrorCode.INVALID_TRANSITION,
+          order.status === 'PENDING_BILLING' ? 'Solicitações do Comprador são publicadas pelo Faturamento.' : 'Somente rascunhos podem ser publicados.',
+        );
+      }
+      if (order.origin === 'BUYER') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'O Comprador ainda não enviou esta solicitação ao Faturamento.');
       }
       this.assertPublishRequirements(order);
       await this.validateRelations(tx, order as unknown as OrderDraftInput);
@@ -347,7 +377,16 @@ export class OrdersService {
           'Dupla checagem ativa: outra pessoa precisa publicar, porque você fez a última alteração. Use "Solicitar publicação".',
         );
       }
+      return this.publishInScope(scope, order, 'MATRIZ');
+    });
+  }
 
+  /** Publicação: versão 1, liberação inicial, auditoria e aviso às partes. Quem chama valida status e requisitos. */
+  private async publishInScope(scope: UnitOfWorkScope, order: OrderRecord, via: 'MATRIZ' | 'BILLING'): Promise<OrderDetail> {
+    const auth = currentAuth();
+    const { tx } = scope;
+    const id = order.id;
+    {
       const initial = order.initialReleaseQty ? new Prisma.Decimal(order.initialReleaseQty) : null;
       if (initial && initial.greaterThan(this.maxReleasable(order))) {
         throw AppError.domain(ErrorCode.RELEASE_EXCEEDS_ORDER, 'A liberação inicial excede a quantidade da ordem.', {
@@ -393,21 +432,22 @@ export class OrdersService {
         entityType: 'loading_order',
         entityId: id,
         action: 'order.published',
-        before: { status: 'DRAFT' },
-        after: { status: 'PUBLISHED', version: 1, initialRelease: initial?.toString() ?? null },
+        before: { status: order.status },
+        after: { status: 'PUBLISHED', version: 1, initialRelease: initial?.toString() ?? null, via, farmId: published.farmId },
       });
       await scope.outbox({
         type: 'order.published',
         aggregateType: 'loading_order',
         aggregateId: id,
-        payload: { orderId: id, number: published.number, version: 1, sellerOrgId: published.sellerOrgId, buyerOrgId: published.buyerOrgId },
+        payload: { orderId: id, number: published.number, version: 1, sellerOrgId: published.sellerOrgId, buyerOrgId: published.buyerOrgId, via },
       });
       return this.loadDetail(tx, id);
-    });
+    }
   }
 
   async createRelease(id: string, input: CreateReleaseInput): Promise<OrderDetail> {
     const auth = currentAuth();
+    this.assertInternal();
     return this.db.write(async (scope) => {
       const { tx } = scope;
       const order = await this.lockForWrite(tx, id, null);
@@ -546,6 +586,186 @@ export class OrdersService {
     return this.db.read((tx) => releasesSummary(tx));
   }
 
+  // ───────────────────────────── Portal do Comprador (Q41) ─────────────────────────────
+
+  /** Comprador cria a solicitação. O comprador vem da organização ativa; nunca do payload. */
+  async createBuyerOrder(input: BuyerOrderInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    const m = this.assertBuyer();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const buyerPartnerId = await this.buyerPartnerOf(tx, m.organizationId);
+      await this.validateBuyerFields(tx, input);
+      const now = new Date();
+      const seq = await nextSequence(tx, m.tenantId, 'loading_order', now.getUTCFullYear());
+      const number = `${now.getUTCFullYear()}/${String(seq).padStart(5, '0')}`;
+      const order = await tx.loadingOrder.create({
+        data: {
+          ...(toPrismaData(input as OrderDraftInput) as Prisma.LoadingOrderUncheckedCreateInput),
+          tenantId: m.tenantId,
+          number,
+          status: 'DRAFT',
+          origin: 'BUYER',
+          version: 0,
+          priority: 'NORMAL',
+          buyerPartnerId,
+          orderDate: new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`),
+          createdBy: auth.userId,
+          updatedBy: auth.userId,
+        },
+      });
+      await scope.audit({ entityType: 'loading_order', entityId: order.id, action: 'order.created', after: { number, origin: 'BUYER', ...snapshot(order) } });
+      return this.loadDetail(tx, order.id);
+    });
+  }
+
+  /** Comprador altera somente os próprios rascunhos, e só os campos do portal. */
+  async updateBuyerOrder(id: string, input: UpdateBuyerOrderInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertBuyer();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      this.assertOwnBuyerDraft(await tx.loadingOrder.findUnique({ where: { id } }), auth.userId);
+      const before = await this.lockForWrite(tx, id, input.expectedUpdatedAt);
+      await this.validateBuyerFields(tx, input.data);
+      const beforeNorm = Object.fromEntries(Object.keys(input.data).map((k) => [k, normalize(k, (before as Record<string, unknown>)[k])]));
+      const afterNorm = Object.fromEntries(Object.entries(input.data).map(([k, v]) => [k, normalize(k, v)]));
+      const changes = shallowDiff(beforeNorm, afterNorm);
+      if (!changes.length) return this.loadDetail(tx, id);
+      await tx.loadingOrder.update({ where: { id }, data: { ...toPrismaData(input.data as OrderDraftInput), updatedBy: auth.userId } });
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.draft_saved',
+        before: Object.fromEntries(changes.map((c) => [c.field, c.from])),
+        after: Object.fromEntries(changes.map((c) => [c.field, c.to])),
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  /** Comprador envia ao Faturamento: a solicitação fica travada para ele e visível só à Matriz e ao próprio Comprador. */
+  async submitOrder(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
+    const auth = currentAuth();
+    const m = this.assertBuyer();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      this.assertOwnBuyerDraft(await tx.loadingOrder.findUnique({ where: { id } }), auth.userId);
+      const order = await this.lockForWrite(tx, id, expectedUpdatedAt);
+      if (order.buyerOrgId !== m.organizationId) throw AppError.forbidden('Solicitação de outra organização.');
+      const o = order as unknown as Record<string, unknown>;
+      const missing = BUYER_SUBMIT_REQUIRED.filter((f) => o[f] === null || o[f] === undefined || o[f] === '');
+      if (missing.length) {
+        throw AppError.domain(ErrorCode.PUBLISH_REQUIREMENTS_MISSING, 'Preencha os campos obrigatórios antes de enviar ao Faturamento.', {
+          fields: Object.fromEntries(missing.map((f) => [f, [`${FIELD_LABELS[f] ?? f} é obrigatório para enviar`]])),
+        });
+      }
+      const now = new Date();
+      await tx.loadingOrder.update({ where: { id }, data: { status: 'PENDING_BILLING', submittedAt: now, submittedBy: auth.userId, updatedBy: auth.userId } });
+      await scope.audit({ entityType: 'loading_order', entityId: id, action: 'order.submitted', before: { status: 'DRAFT' }, after: { status: 'PENDING_BILLING', submittedAt: now.toISOString() } });
+      await scope.outbox({
+        type: 'order.submitted',
+        aggregateType: 'loading_order',
+        aggregateId: id,
+        payload: { orderId: id, number: order.number, buyerOrgId: order.buyerOrgId, submittedBy: auth.userId },
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  // ───────────────────────────── Faturamento da Matriz (Q41) ─────────────────────────────
+
+  /** Faturamento complementa a solicitação e define vendedor/fazenda; a ordem segue aguardando faturamento. */
+  async assignFarm(id: string, input: AssignFarmInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, input.expectedUpdatedAt);
+      if (order.status !== 'PENDING_BILLING') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Vendedor e fazenda são definidos enquanto a solicitação aguarda faturamento.');
+      }
+      const data: Record<string, unknown> = { sellerPartnerId: input.sellerPartnerId, farmId: input.farmId };
+      for (const key of ['contractId', 'unitPrice', 'loadingInstructions', 'farmNotes', 'internalNotes'] as const) {
+        if (input[key] !== undefined) data[key] = input[key];
+      }
+      if (input.tolerancePct !== undefined) data.tolerancePct = input.tolerancePct ?? '0';
+      const merged = { ...order, ...data } as unknown as OrderDraftInput;
+      await this.validateRelations(tx, merged);
+      await tx.loadingOrder.update({ where: { id }, data: { ...(data as Prisma.LoadingOrderUncheckedUpdateInput), updatedBy: auth.userId } });
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.farm_assigned',
+        before: { sellerPartnerId: order.sellerPartnerId, farmId: order.farmId, contractId: order.contractId },
+        after: { sellerPartnerId: input.sellerPartnerId, farmId: input.farmId, contractId: (data.contractId as string | null | undefined) ?? order.contractId },
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  /**
+   * Faturamento publica a solicitação para a Fazenda: exige vendedor, fazenda e demais requisitos de publicação,
+   * valida contrato e saldo. Sem dupla checagem: o pedido do Comprador e a análise do Faturamento já são dois olhares.
+   */
+  async billingPublish(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, expectedUpdatedAt);
+      if (order.status !== 'PENDING_BILLING') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente solicitações aguardando faturamento são publicadas por aqui.');
+      if (!order.farmId || !order.sellerPartnerId) {
+        throw AppError.domain(ErrorCode.PUBLISH_REQUIREMENTS_MISSING, 'Defina vendedor e fazenda antes de publicar para a Fazenda.', {
+          fields: { farmId: ['Fazenda é obrigatória para publicar'] },
+        });
+      }
+      this.assertPublishRequirements(order);
+      await this.validateRelations(tx, order as unknown as OrderDraftInput);
+      await this.assertContractBalance(tx, order);
+      return this.publishInScope(scope, order, 'BILLING');
+    });
+  }
+
+  private assertInternal() {
+    if (currentAuth().membership?.scope !== 'MATRIZ') throw AppError.forbidden('Somente a Matriz executa esta ação.');
+  }
+
+  private assertBuyer() {
+    const m = currentAuth().membership;
+    if (!m || m.scope !== 'BUYER') throw AppError.forbidden('Ação exclusiva do portal do Comprador.');
+    return m;
+  }
+
+  private assertOwnBuyerDraft(order: OrderRecord | null, userId: string) {
+    if (!order) throw AppError.notFound('Ordem não encontrada.');
+    if (order.origin !== 'BUYER' || order.createdBy !== userId) throw AppError.forbidden('Você só altera as solicitações que criou.');
+    if (order.status !== 'DRAFT') {
+      throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Solicitação já enviada ao Faturamento: não pode mais ser alterada.');
+    }
+  }
+
+  /** Parceiro comprador vinculado à organização ativa (nunca aceito do payload). */
+  private async buyerPartnerOf(tx: Tx, organizationId: string): Promise<string> {
+    const org = await tx.organization.findUnique({ where: { id: organizationId }, select: { kind: true, partnerId: true } });
+    if (!org || org.kind !== 'BUYER' || !org.partnerId) throw AppError.forbidden('Sua organização não está vinculada a um comprador cadastrado.');
+    const role = await tx.partnerRoleAssignment.findFirst({ where: { partnerId: org.partnerId, role: 'BUYER' } });
+    if (!role) throw AppError.forbidden('Sua organização não está vinculada a um comprador cadastrado.');
+    return org.partnerId;
+  }
+
+  private async validateBuyerFields(tx: Tx, i: Partial<BuyerOrderInput>) {
+    const fields: Record<string, string[]> = {};
+    if (i.commodityId) {
+      const c = await tx.commodity.findUnique({ where: { id: i.commodityId }, select: { status: true } });
+      if (!c || c.status !== 'ACTIVE') fields.commodityId = ['Commodity não encontrada ou inativa'];
+    }
+    if (i.unitId && !(await tx.unit.findUnique({ where: { id: i.unitId }, select: { id: true } }))) fields.unitId = ['Unidade não encontrada'];
+    if (i.preferredCarrierId && !(await tx.partnerRoleAssignment.findFirst({ where: { partnerId: i.preferredCarrierId, role: 'CARRIER' } }))) {
+      fields.preferredCarrierId = ['Parceiro não é transportadora'];
+    }
+    if (Object.keys(fields).length) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Verifique os dados da solicitação.', { fields });
+  }
+
   /** Registra visualização efetiva (abertura do detalhe) por Fazenda ou Comprador. */
   async registerView(id: string): Promise<{ recorded: boolean; version: number | null }> {
     const auth = currentAuth();
@@ -557,6 +777,8 @@ export class OrdersService {
       const { tx } = scope;
       const order = await tx.loadingOrder.findUnique({ where: { id } });
       if (!order) throw AppError.notFound('Ordem não encontrada.');
+      // Rascunho e solicitação em análise não têm versão publicada para visualizar.
+      if (order.status === 'DRAFT' || order.status === 'PENDING_BILLING') return { recorded: false, version: null };
       const sideOrg = m.scope === 'FARM' ? order.sellerOrgId : order.buyerOrgId;
       if (sideOrg !== m.organizationId) throw AppError.forbidden();
 
@@ -712,16 +934,24 @@ export class OrdersService {
       };
     }
     if (perms.has('order.update') && !['COMPLETED', 'CANCELLED'].includes(status)) actions.push('update');
-    if (perms.has('order.publish') && status === 'DRAFT' && !workflow?.blockedByFourEyes) actions.push('publish');
+    if (perms.has('order.publish') && status === 'DRAFT' && row.origin !== 'BUYER' && !workflow?.blockedByFourEyes) actions.push('publish');
     if (
       internal &&
       status === 'DRAFT' &&
+      row.origin !== 'BUYER' &&
       (perms.has('order.create') || perms.has('order.update')) &&
       (!perms.has('order.publish') || workflow?.blockedByFourEyes)
     ) {
       actions.push('request_publish');
     }
     if (perms.has('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(status)) actions.push('release');
+    if (internal && status === 'PENDING_BILLING' && perms.has('order.billing.manage')) {
+      actions.push('assign_farm');
+      if (row.farm_id && row.seller_partner_id) actions.push('billing_publish');
+    }
+    if (auth.membership!.scope === 'BUYER' && row.origin === 'BUYER' && status === 'DRAFT' && row.created_by === auth.userId && perms.has('order.submit')) {
+      actions.push('buyer_edit', 'submit');
+    }
     if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
     if (perms.has('order.cancel') && ACTIVE_STATUSES.includes(status)) actions.push('cancel');
 

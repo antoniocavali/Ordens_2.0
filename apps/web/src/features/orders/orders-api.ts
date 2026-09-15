@@ -62,7 +62,14 @@ export const createOrder = (data: OrderDraftInput) => post<OrderDetail>('/orders
 export const updateOrder = (id: string, expectedVersion: number, expectedUpdatedAt: string, data: OrderDraftInput) =>
   patch<OrderDetail>(`/orders/${id}`, { expectedVersion, expectedUpdatedAt, data });
 export const publishOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish`, { expectedUpdatedAt });
-export const requestPublishOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish-request`, { expectedUpdatedAt });
+// Portal do Comprador e Faturamento (Q41)
+export const createBuyerOrder = (data: Record<string, unknown>) => post<OrderDetail>('/orders/buyer', data);
+export const updateBuyerOrder = (id: string, expectedUpdatedAt: string, data: Record<string, unknown>) => patch<OrderDetail>(`/orders/buyer/${id}`, { expectedUpdatedAt, data });
+export const submitOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/submit`, { expectedUpdatedAt });
+export const assignFarm = (id: string, body: Record<string, unknown>) => post<OrderDetail>(`/orders/${id}/billing/assign`, body);
+export const billingPublish = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/billing/publish`, { expectedUpdatedAt });
+
+export const requestPublishOrder =(id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish-request`, { expectedUpdatedAt });
 
 export function useCreateRelease(orderId: string) {
   const invalidate = useInvalidateOrders();

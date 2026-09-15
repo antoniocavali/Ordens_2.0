@@ -91,10 +91,11 @@ export class UploadsService {
           sha256Declared: input.sha256 ?? null,
           status: multipart ? 'UPLOADING' : 'PENDING',
           idempotencyKey: input.idempotencyKey,
-          // Q18: NF-e para todas as partes; Fazenda compartilha com a Matriz; Matriz mantém interno; cadastros sempre internos.
+          // Q18/Q41: documentos fiscais da carga (XML e PDF da nota) para todas as partes; Fazenda compartilha com a Matriz;
+          // Matriz mantém interno; cadastros sempre internos.
           visibility: !['loading_order', 'load', 'occurrence'].includes(input.entityType)
             ? 'INTERNAL'
-            : input.kind === 'NFE_XML'
+            : input.kind === 'NFE_XML' || (input.entityType === 'load' && input.kind === 'PDF')
               ? 'PARTIES'
               : m.scope === 'FARM'
                 ? 'FARM'
@@ -162,6 +163,18 @@ export class UploadsService {
         data: { status: 'UPLOADED', completedAt: new Date() },
       });
       await scope.audit({ entityType: 'file_upload', entityId: upload.id, action: 'upload.completed', after: { sizeBytes: head.size } });
+      // Documentos fiscais da carga entram na linha do tempo da ordem.
+      if (upload.entityType === 'load' && (upload.kind === 'PDF' || upload.kind === 'NFE_XML')) {
+        const load = await scope.tx.load.findUnique({ where: { id: upload.entityId }, select: { orderId: true, number: true } });
+        if (load) {
+          await scope.audit({
+            entityType: 'loading_order',
+            entityId: load.orderId,
+            action: 'order.load_document_attached',
+            after: { loadNumber: load.number, statusLabel: upload.kind === 'PDF' ? 'PDF da nota fiscal' : 'XML da NF-e', number: upload.originalName },
+          });
+        }
+      }
       await scope.outbox({
         type: 'upload.completed',
         aggregateType: 'file_upload',

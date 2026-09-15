@@ -2,10 +2,13 @@ import { Injectable } from '@nestjs/common';
 import {
   canTransitionLoad,
   ErrorCode,
+  evaluateFiscalDocuments,
+  LOAD_FISCAL_CHECK_STATUSES,
   LOAD_STATUS_LABELS,
   LOAD_TRANSITIONS,
   loadInputSchema,
   type LoadDto,
+  type LoadFiscalChecklist,
   type LoadHistoryItem,
   type LoadStatus,
   type LoadTransitionInput,
@@ -26,8 +29,37 @@ type LoadData = z.output<typeof loadInputSchema>;
 type LoadRow = NonNullable<Awaited<ReturnType<Tx['load']['findUnique']>>>;
 
 const D = Prisma.Decimal;
-const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
-const FLEET_REQUIRED_FROM: LoadStatus[] = ['LOADING', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED', 'LOADED'];
+/** Frota ainda pode ser trocada: antes da confirmação do carregamento (pesagem). */
+const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING'];
+const FLEET_REQUIRED_FROM: LoadStatus[] = ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
+
+/** Checklist de pesagem e documentos fiscais por carga (uma consulta por tipo, sem N+1). */
+export async function fiscalChecklists(
+  tx: Tx,
+  rows: Pick<LoadRow, 'id' | 'status' | 'grossKg' | 'tareKg'>[],
+  force = false,
+): Promise<Map<string, LoadFiscalChecklist>> {
+  const target = rows.filter((r) => force || LOAD_FISCAL_CHECK_STATUSES.includes(r.status));
+  if (!target.length) return new Map();
+  const ids = target.map((r) => r.id);
+  const [uploads, invoices] = await Promise.all([
+    tx.fileUpload.findMany({
+      where: { entityType: 'load', entityId: { in: ids }, kind: { in: ['PDF', 'NFE_XML'] }, status: { notIn: ['ABORTED', 'EXPIRED'] } },
+      select: { id: true, entityId: true, kind: true, status: true, createdAt: true },
+    }),
+    tx.invoice.findMany({ where: { loadId: { in: ids }, fileUploadId: { not: null } }, select: { loadId: true, fileUploadId: true, status: true } }),
+  ]);
+  return new Map(
+    target.map((r) => [
+      r.id,
+      evaluateFiscalDocuments({
+        weighed: Boolean(r.grossKg && r.tareKg),
+        uploads: uploads.filter((u) => u.entityId === r.id),
+        invoices: invoices.filter((i) => i.loadId === r.id),
+      }),
+    ]),
+  );
+}
 
 @Injectable()
 export class LoadsService {
@@ -54,7 +86,7 @@ export class LoadsService {
   detail(id: string): Promise<LoadDto & { history: LoadHistoryItem[] }> {
     return this.db.read(async (tx) => {
       const dto = await this.dto(tx, id);
-      const history = await tx.loadStatusHistory.findMany({ where: { loadId: id }, orderBy: { occurredAt: 'asc' } });
+      const history = await tx.loadStatusHistory.findMany({ where: { loadId: id }, orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }] });
       const users = await tx.user.findMany({ where: { id: { in: history.map((h) => h.actorUserId).filter((v): v is string => Boolean(v)) } }, select: { id: true, name: true } });
       const names = new Map(users.map((u) => [u.id, u.name]));
       return {
@@ -78,7 +110,10 @@ export class LoadsService {
     });
   }
 
-  /** Cria a carga dentro de uma unidade de trabalho existente (reutilizado na conversão de agendamento). */
+  /**
+   * Cria a carga dentro de uma unidade de trabalho existente (reutilizado na conversão de agendamento).
+   * Carga de agendamento exige veículo na fazenda (CHECKED_IN) e já nasce aguardando carregamento.
+   */
   async createInScope(scope: UnitOfWorkScope, input: LoadData): Promise<string> {
     const { tx, audit, outbox } = scope;
     const order = await orderForLogistics(tx, input.orderId);
@@ -89,11 +124,14 @@ export class LoadsService {
       const appt = await tx.appointment.findUnique({ where: { id: input.appointmentId }, include: { load: true } });
       if (!appt || appt.orderId !== order.id) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Agendamento não pertence a esta ordem.');
       if (appt.load) throw AppError.conflict('Este agendamento já gerou uma carga.');
-      if (!['REQUESTED', 'CONFIRMED', 'CHECKED_IN'].includes(appt.status)) throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Agendamento cancelado não gera carga.');
+      if (appt.status !== 'CHECKED_IN') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Registre a chegada do veículo na fazenda antes de criar a carga.');
+      }
       freed = appt.expectedQty;
     }
     assertWithinReleased(fresh, input.expectedQty, freed);
     const fleet = await resolveFleet(tx, input);
+    const initial: LoadStatus = input.appointmentId ? 'AWAITING_LOADING' : 'SCHEDULED';
 
     const agg = await tx.load.aggregate({ where: { orderId: order.id }, _max: { sequence: true } });
     const sequence = (agg._max.sequence ?? 0) + 1;
@@ -108,15 +146,18 @@ export class LoadsService {
         loadingDate: toDate(input.loadingDate),
         expectedQty: input.expectedQty,
         notes: input.notes ?? null,
+        status: initial,
         createdBy: currentAuth().userId,
         ...fleet,
       },
     });
-    await tx.loadStatusHistory.create({ data: { tenantId: order.tenantId, loadId: load.id, fromStatus: null, toStatus: 'SCHEDULED', actorUserId: currentAuth().userId } });
+    await tx.loadStatusHistory.create({
+      data: { tenantId: order.tenantId, loadId: load.id, fromStatus: null, toStatus: initial, actorUserId: currentAuth().userId, notes: input.appointmentId ? 'Veículo na fazenda' : null },
+    });
     if (input.appointmentId) await tx.appointment.update({ where: { id: input.appointmentId }, data: { status: 'CONVERTED' } });
     await recalcOrder(tx, order.id);
 
-    await audit({ entityType: 'load', entityId: load.id, action: 'load.created', after: { number, ...input, plates: fleet.plates } });
+    await audit({ entityType: 'load', entityId: load.id, action: 'load.created', after: { number, status: initial, ...input, plates: fleet.plates } });
     await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.load_created', after: { loadNumber: number, quantity: input.expectedQty, plates: fleet.plates } });
     await outbox({ type: 'load.created', aggregateType: 'load', aggregateId: load.id, payload: { loadId: load.id, orderId: order.id, number } });
     return load.id;
@@ -174,13 +215,6 @@ export class LoadsService {
       const { tx, audit, outbox } = scope;
       const load = await this.lock(tx, id, input.expectedUpdatedAt);
       const to = input.to as LoadStatus;
-      if (to === 'FARM_INVOICED') {
-        // Q13: exige NF-e da Fazenda registrada (válida ou com divergência).
-        const invoices = await tx.invoice.count({ where: { loadId: id, origin: 'FARM', status: { in: ['VALID', 'DIVERGENT'] } } });
-        if (!invoices) {
-          throw AppError.domain(ErrorCode.INVOICE_REQUIRED, 'Anexe o XML da NF-e da Fazenda antes de marcar a carga como faturada.');
-        }
-      }
       if (!canTransitionLoad(load.status, to, scopeName)) {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, `Não é possível passar de "${LOAD_STATUS_LABELS[load.status]}" para "${LOAD_STATUS_LABELS[to]}" com seu perfil.`);
       }
@@ -191,20 +225,32 @@ export class LoadsService {
         });
       }
 
-      const weights = this.weights(input.grossKg ?? load.grossKg?.toString() ?? null, input.tareKg ?? load.tareKg?.toString() ?? null);
-      const data: Prisma.LoadUncheckedUpdateInput = { status: to, ...weights };
+      // Q41: documentação fiscal validada (e o trânsito) exigem pesagem, PDF e XML válidos da mesma carga.
+      let checklist: LoadFiscalChecklist | null = null;
+      if (to === 'FARM_INVOICED' || to === 'IN_TRANSIT') {
+        checklist = (await fiscalChecklists(tx, [load], true)).get(id)!;
+        if (!checklist.ready) {
+          throw AppError.domain(ErrorCode.FISCAL_DOCUMENTS_REQUIRED, `Documentação fiscal incompleta. ${checklist.issues.join(' ')}`, { checklist });
+        }
+      }
+
+      const gross = input.grossKg ?? load.grossKg?.toString() ?? null;
+      const tare = input.tareKg ?? load.tareKg?.toString() ?? null;
+      const weights = this.weights(gross, tare);
+      const data: Prisma.LoadUncheckedUpdateInput = { ...weights };
 
       if (to === 'LOADED') {
-        const net = weights.netKg ?? load.netKg;
-        if (!net) {
-          throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Informe peso bruto e tara para registrar o carregamento.', { fields: { grossKg: ['Obrigatório'], tareKg: ['Obrigatório'] } });
+        if (!gross || !tare) {
+          throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Informe peso bruto e tara para confirmar o carregamento.', {
+            fields: { grossKg: gross ? [] : ['Obrigatório'], tareKg: tare ? [] : ['Obrigatório'] },
+          });
         }
+        const net = new D(weights.netKg ?? load.netKg ?? 0);
         const order = await orderForLogistics(tx, load.orderId).catch(async () => recalcOrder(tx, load.orderId).then((o) => ({ ...o, unitFactorToKg: new D(1), unitCode: 'T' })));
         const fresh = await recalcOrder(tx, load.orderId);
         const factor = 'unitFactorToKg' in order ? order.unitFactorToKg : new D(1);
-        const loadedInUnit = new D(net).dividedBy(factor);
         // Ao carregar, a quantidade prevista desta carga deixa de contar como agendada e passa a contar o peso real.
-        assertWithinReleased(fresh, loadedInUnit, load.expectedQty);
+        assertWithinReleased(fresh, net.dividedBy(factor), load.expectedQty);
         data.loadedAt = new Date();
       }
       if (to === 'RECEIVED') {
@@ -214,20 +260,34 @@ export class LoadsService {
         data.receivedAt = new Date();
       }
 
+      // Carregamento confirmado segue direto para "Aguardando documentação fiscal da Fazenda".
+      const steps: LoadStatus[] = to === 'LOADED' ? ['LOADED', 'AWAITING_FARM_INVOICE'] : [to];
+      const finalStatus = steps[steps.length - 1]!;
+      data.status = finalStatus;
       await tx.load.update({ where: { id }, data });
-      await tx.loadStatusHistory.create({ data: { tenantId: load.tenantId, loadId: id, fromStatus: load.status, toStatus: to, actorUserId: auth.userId, notes: input.notes ?? null } });
-      if (to === 'CHECKED') await this.openWeightDivergence(scope, id, auth.userId);
+
+      let from = load.status;
+      for (const step of steps) {
+        const notes = step === 'AWAITING_FARM_INVOICE' && to === 'LOADED' ? 'Aguardando PDF da nota e XML da NF-e da Fazenda' : (input.notes ?? null);
+        await tx.loadStatusHistory.create({ data: { tenantId: load.tenantId, loadId: id, fromStatus: from, toStatus: step, actorUserId: auth.userId, notes } });
+        await audit({ entityType: 'load', entityId: id, action: 'load.status_changed', before: { status: from }, after: { status: step, notes, ...(step === 'LOADED' ? weights : {}) } });
+        await audit({ entityType: 'loading_order', entityId: load.orderId, action: 'order.load_status', after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS[step], plates: load.plates } });
+        from = step;
+      }
+      if (to === 'FARM_INVOICED' && checklist) {
+        await audit({ entityType: 'load', entityId: id, action: 'load.documents_validated', after: { pdf: checklist.pdf, xml: checklist.xml } });
+        await audit({ entityType: 'loading_order', entityId: load.orderId, action: 'order.load_documents_validated', after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS.FARM_INVOICED } });
+      }
+      if (finalStatus === 'CHECKED') await this.openWeightDivergence(scope, id, auth.userId);
 
       const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId } });
-      if (order.status === 'PUBLISHED' && !['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'CANCELLED'].includes(to)) {
+      if (order.status === 'PUBLISHED' && !['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'CANCELLED'].includes(finalStatus)) {
         await tx.loadingOrder.update({ where: { id: order.id }, data: { status: 'IN_PROGRESS' } });
         await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.status_changed', before: { status: 'PUBLISHED' }, after: { status: 'IN_PROGRESS', reason: `Carga ${load.number} iniciou o carregamento` } });
       }
       await recalcOrder(tx, load.orderId);
 
-      await audit({ entityType: 'load', entityId: id, action: 'load.status_changed', before: { status: load.status }, after: { status: to, notes: input.notes ?? null, ...weights } });
-      await audit({ entityType: 'loading_order', entityId: load.orderId, action: 'order.load_status', after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS[to], plates: load.plates } });
-      await outbox({ type: 'load.status_changed', aggregateType: 'load', aggregateId: id, payload: { loadId: id, orderId: load.orderId, number: load.number, from: load.status, to } });
+      await outbox({ type: 'load.status_changed', aggregateType: 'load', aggregateId: id, payload: { loadId: id, orderId: load.orderId, number: load.number, from: load.status, to: finalStatus } });
       return this.dto(tx, id);
     });
   }
@@ -292,6 +352,7 @@ export class LoadsService {
   private async toDtos(tx: Tx, rows: LoadRow[]): Promise<LoadDto[]> {
     if (!rows.length) return [];
     const refs = await fleetRefs(tx, rows);
+    const checklists = await fiscalChecklists(tx, rows);
     const orderIds = [...new Set(rows.map((r) => r.orderId))];
     const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string | null; factor: Prisma.Decimal | null }[]>(Prisma.sql`
       select lo.id, lo.number, c.name as commodity, f.name as farm, coalesce(bp.trade_name, bp.legal_name) as buyer, u.code as unit, u.factor_to_kg as factor
@@ -329,6 +390,7 @@ export class LoadsService {
         notes: r.notes,
         updatedAt: r.updatedAt.toISOString(),
         allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName)) : [],
+        fiscalChecklist: checklists.get(r.id) ?? null,
         ...refs(r),
       };
     });

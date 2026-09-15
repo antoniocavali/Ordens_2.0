@@ -62,6 +62,7 @@ export function toListItem(row: OrderRow, scope: Scope): OrderListItem {
     buyerView: signal(row, 'BUYER', scope),
     updatedAt: row.updated_at.toISOString(),
     updatedBy: row.updated_by_name,
+    origin: row.origin as OrderListItem['origin'],
   };
 }
 
@@ -88,6 +89,8 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     publishedAt: iso(row.published_at),
     createdAt: row.created_at.toISOString(),
     createdBy: row.created_by_name,
+    submittedAt: iso(row.submitted_at),
+    submittedBy: row.submitted_by_name,
     releases,
     allowedActions,
   } as OrderDetail;

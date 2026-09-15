@@ -44,6 +44,8 @@ export type RecordStatus = (typeof RecordStatus)[keyof typeof RecordStatus];
 
 export const OrderStatus = {
   DRAFT: 'DRAFT',
+  /** Solicitação do Comprador enviada ao Faturamento da Matriz (Q41). */
+  PENDING_BILLING: 'PENDING_BILLING',
   PUBLISHED: 'PUBLISHED',
   IN_PROGRESS: 'IN_PROGRESS',
   SUSPENDED: 'SUSPENDED',
@@ -52,6 +54,11 @@ export const OrderStatus = {
 } as const;
 export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
 export const ORDER_STATUSES = values(OrderStatus);
+
+/** Quem originou a ordem: Matriz (fluxo interno) ou portal do Comprador. */
+export const OrderOrigin = { MATRIZ: 'MATRIZ', BUYER: 'BUYER' } as const;
+export type OrderOrigin = (typeof OrderOrigin)[keyof typeof OrderOrigin];
+export const ORDER_ORIGINS = values(OrderOrigin);
 
 export const OrderPriority = { LOW: 'LOW', NORMAL: 'NORMAL', HIGH: 'HIGH', URGENT: 'URGENT' } as const;
 export type OrderPriority = (typeof OrderPriority)[keyof typeof OrderPriority];

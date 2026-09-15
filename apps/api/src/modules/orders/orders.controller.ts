@@ -1,6 +1,13 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
+  assignFarmSchema,
+  buyerOrderSchema,
+  submitOrderSchema,
+  updateBuyerOrderSchema,
+  type AssignFarmInput,
+  type BuyerOrderInput,
+  type UpdateBuyerOrderInput,
   cancelReleaseSchema,
   createReleaseSchema,
   orderDraftSchema,
@@ -53,6 +60,19 @@ export class OrdersController {
     return this.orders.releasesSummary();
   }
 
+  /** Portal do Comprador: payload próprio (estrito); comprador derivado da organização ativa. */
+  @Post('buyer')
+  @RequirePermission('order.submit')
+  createBuyer(@Body(new ZodPipe(buyerOrderSchema)) body: BuyerOrderInput) {
+    return this.orders.createBuyerOrder(body);
+  }
+
+  @Patch('buyer/:id')
+  @RequirePermission('order.submit')
+  updateBuyer(@Param('id', uuid) id: string, @Body(new ZodPipe(updateBuyerOrderSchema)) body: UpdateBuyerOrderInput) {
+    return this.orders.updateBuyerOrder(id, body);
+  }
+
   @Get(':id')
   @RequirePermission('order.read')
   detail(@Param('id', uuid) id: string) {
@@ -76,6 +96,27 @@ export class OrdersController {
   @RequirePermission('order.publish')
   publish(@Param('id', uuid) id: string, @Body(new ZodPipe(publishOrderSchema)) body: z.infer<typeof publishOrderSchema>) {
     return this.orders.publish(id, body.expectedUpdatedAt);
+  }
+
+  @Post(':id/submit')
+  @HttpCode(200)
+  @RequirePermission('order.submit')
+  submit(@Param('id', uuid) id: string, @Body(new ZodPipe(submitOrderSchema)) body: z.infer<typeof submitOrderSchema>) {
+    return this.orders.submitOrder(id, body.expectedUpdatedAt);
+  }
+
+  @Post(':id/billing/assign')
+  @HttpCode(200)
+  @RequirePermission('order.billing.manage')
+  assignFarm(@Param('id', uuid) id: string, @Body(new ZodPipe(assignFarmSchema)) body: AssignFarmInput) {
+    return this.orders.assignFarm(id, body);
+  }
+
+  @Post(':id/billing/publish')
+  @HttpCode(200)
+  @RequirePermission('order.billing.manage')
+  billingPublish(@Param('id', uuid) id: string, @Body(new ZodPipe(submitOrderSchema)) body: z.infer<typeof submitOrderSchema>) {
+    return this.orders.billingPublish(id, body.expectedUpdatedAt);
   }
 
   @Post(':id/publish-request')

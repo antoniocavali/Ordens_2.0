@@ -2,12 +2,13 @@
 
 import type { OrderPriority, OrderQuantities, OrderStatus, ViewSignal, ViewSignalInfo } from '@ordens/contracts';
 import { Badge, cn, Tooltip } from '@ordens/ui';
-import { AlertTriangle, CheckCircle2, Eye, EyeOff, FilePen, History, Minus, PauseCircle, Send, Truck, XCircle, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, FilePen, History, Hourglass, Minus, PauseCircle, Send, Truck, XCircle, type LucideIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDateTime, formatQty, ratio } from '@/lib/format';
 
 const STATUS: Record<OrderStatus, { label: string; tone: 'neutral' | 'primary' | 'info' | 'warning' | 'success' | 'danger'; icon: LucideIcon }> = {
   DRAFT: { label: 'Rascunho', tone: 'neutral', icon: FilePen },
+  PENDING_BILLING: { label: 'Aguardando faturamento', tone: 'warning', icon: Hourglass },
   PUBLISHED: { label: 'Publicada', tone: 'primary', icon: Send },
   IN_PROGRESS: { label: 'Em execução', tone: 'info', icon: Truck },
   SUSPENDED: { label: 'Suspensa', tone: 'warning', icon: PauseCircle },

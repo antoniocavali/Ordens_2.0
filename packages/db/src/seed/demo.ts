@@ -255,7 +255,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     { email: 'gestor@graoforte.demo', name: 'Rafael Lima', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_MANAGER'] },
     { email: 'operador@graoforte.demo', name: 'Bruna Costa', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_OPERATOR'] },
     { email: 'leitura@graoforte.demo', name: 'Diego Alves', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_VIEWER'] },
-    { email: 'faturamento@graoforte.demo', name: 'Luana Prado', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_SUPPORT_AGENT'] },
+    { email: 'faturamento@graoforte.demo', name: 'Luana Prado', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_BILLING'] },
     { email: 'suporte@graoforte.demo', name: 'Marcos Teixeira', org: orgMatriz.id, scope: 'MATRIZ', roles: ['MATRIZ_SUPPORT_AGENT'] },
     { email: 'fazenda.joao@graoforte.demo', name: 'João da Silva', org: orgJoao.id, scope: 'FARM', roles: ['FARM_ADMIN'] },
     { email: 'fazenda.maria@graoforte.demo', name: 'Ana Souza', org: orgMaria.id, scope: 'FARM', roles: ['FARM_OPERATOR'] },
@@ -327,6 +327,9 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     'COMPLETED',
     'COMPLETED',
     'CANCELLED',
+    // Solicitações do portal do Comprador aguardando o Faturamento (Q41).
+    'PENDING_BILLING',
+    'PENDING_BILLING',
   ];
   const quantities = [300, 450, 600, 800, 1000, 1200, 1500, 2000];
   const carriers = [transAgro.id, rodoviaSul.id, null];
@@ -343,13 +346,15 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
 
   for (let i = 0; i < statusPlan.length; i++) {
     const status = statusPlan[i]!;
+    const pending = status === 'PENDING_BILLING';
     const k = r.pick(contracts);
     const qtyPreview = quantities[i % quantities.length]!;
     const fits = committed.get(k.c.id)! + qtyPreview <= Number(k.c.quantity);
-    const useContract = r.next() < 0.8 && (status === 'DRAFT' || fits);
+    const useContract = !pending && r.next() < 0.8 && (status === 'DRAFT' || fits);
     if (useContract && status !== 'DRAFT' && status !== 'CANCELLED') committed.set(k.c.id, committed.get(k.c.id)! + qtyPreview);
     const seller = useContract ? k.seller : r.pick([joao.id, maria.id, valeVerde.id]);
-    const buyer = useContract ? k.buyer : r.pick([abc.id, nutri.id, exporta.id]);
+    const buyer = pending ? r.pick([abc.id, nutri.id]) : useContract ? k.buyer : r.pick([abc.id, nutri.id, exporta.id]);
+    const buyerUser = buyer === abc.id ? userIds['comprador.abc@graoforte.demo']! : userIds['comprador.nutri@graoforte.demo']!;
     const commodityCode = useContract ? k.commodity : r.pick(['MILHO', 'SOJA', 'MILHETO', 'TRIGO']);
     const commodity = commodities[commodityCode]!;
     const farmRow = r.pick(farmsBySeller[seller]!);
@@ -360,7 +365,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     const createdAt = addDays(starts, -r.int(3, 15));
     const seq = await nextSequence(tx, tenantId, 'loading_order', 2026);
     const number = `2026/${String(seq).padStart(5, '0')}`;
-    const isPublished = status !== 'DRAFT';
+    const isPublished = status !== 'DRAFT' && !pending;
     const version = isPublished ? r.int(1, 3) : 0;
     const creator = r.next() < 0.5 ? admin : gestor;
 
@@ -375,17 +380,17 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         operationType: 'PURCHASE',
         version,
         contractId: useContract ? k.c.id : null,
-        sellerPartnerId: status === 'DRAFT' && i === 0 ? seller : seller,
-        farmId: status === 'DRAFT' && i === 1 ? null : farmRow.id,
+        sellerPartnerId: pending ? null : seller,
+        farmId: pending || (status === 'DRAFT' && i === 1) ? null : farmRow.id,
         buyerPartnerId: status === 'DRAFT' && i === 2 ? null : buyer,
         commodityId: commodity.id,
         cropYear: '25/26',
         quantity: status === 'DRAFT' && i === 3 ? null : String(qty),
         unitId: units.T.id,
-        unitPrice: commodity.price,
+        unitPrice: pending ? null : commodity.price,
         currency: 'BRL',
         freightMode: r.pick(['FOB', 'CIF', 'TO_DEFINE'] as const),
-        freightEstimate: String(qty * r.int(90, 180)) + '.00',
+        freightEstimate: pending ? null : String(qty * r.int(90, 180)) + '.00',
         preferredCarrierId: r.pick(carriers),
         loadingStartsOn: starts,
         loadingEndsOn: dateOnly(ends),
@@ -393,14 +398,18 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         destinationName: buyer === abc.id ? 'Unidade Castro — Recebimento' : buyer === nutri.id ? 'Fábrica Chapecó' : 'Terminal Paranaguá',
         destinationCity: buyer === abc.id ? 'Castro' : buyer === nutri.id ? 'Chapecó' : 'Paranaguá',
         destinationState: buyer === nutri.id ? 'SC' : 'PR',
-        loadingInstructions: 'Umidade máxima 14%. Impurezas até 1%. Apresentar romaneio na portaria.',
-        farmNotes: r.next() < 0.5 ? 'Priorizar carregamento no período da manhã.' : null,
-        internalNotes: r.next() < 0.3 ? 'Acompanhar margem com a mesa comercial.' : null,
+        loadingInstructions: pending ? null : 'Umidade máxima 14%. Impurezas até 1%. Apresentar romaneio na portaria.',
+        farmNotes: !pending && r.next() < 0.5 ? 'Priorizar carregamento no período da manhã.' : null,
+        internalNotes: !pending && r.next() < 0.3 ? 'Acompanhar margem com a mesa comercial.' : null,
+        buyerNotes: pending ? 'Recebimento de segunda a sexta, das 7h às 17h.' : null,
         publishedAt: isPublished ? addDays(createdAt, 1) : null,
         lastMaterialChangeAt: isPublished ? addDays(createdAt, version) : null,
         createdAt,
-        createdBy: creator.userId,
-        updatedBy: creator.userId,
+        createdBy: (pending ? buyerUser : creator).userId,
+        updatedBy: (pending ? buyerUser : creator).userId,
+        origin: pending ? 'BUYER' : 'MATRIZ',
+        submittedAt: pending ? addDays(createdAt, 1) : null,
+        submittedBy: pending ? buyerUser.userId : null,
       },
     });
 
@@ -408,6 +417,15 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     const ctx = systemContext(tenantId);
     await writeAudit(tx, ctx, meta, { entityType: 'loading_order', entityId: order.id, action: 'order.created', after: { number } });
 
+    if (pending) {
+      await writeAudit(tx, ctx, { ...meta, actorUserId: buyerUser.userId, actorMembershipId: buyerUser.membershipId, actorRole: 'BUYER_USER' }, {
+        entityType: 'loading_order',
+        entityId: order.id,
+        action: 'order.submitted',
+        before: { status: 'DRAFT' },
+        after: { status: 'PENDING_BILLING' },
+      });
+    }
     if (!isPublished) continue;
 
     await writeAudit(tx, ctx, meta, { entityType: 'loading_order', entityId: order.id, action: 'order.published', after: { version: 1 } });
@@ -478,7 +496,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     const trucks = split(loadedTarget);
     const receivedTrucks = status === 'COMPLETED' ? trucks.length : Math.floor((trucks.length * r.int(30, 80)) / 100);
     // Histórico real: a carga só vira "Carregada" depois da NF-e da Fazenda (um evento a cada 3 h).
-    const path = ['SCHEDULED', 'LOADING', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED', 'LOADED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as const;
+    // Fluxo Q41: pesagem confirmada antes da documentação fiscal; transporte só com documentação validada.
+    const path = ['SCHEDULED', 'AWAITING_LOADING', 'LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as const;
     const stepAt = (base: Date, step: (typeof path)[number]) => new Date(base.getTime() + path.indexOf(step) * 3 * 3_600_000);
     const sellerPartner = trucks.length
       ? await tx.businessPartner.findUniqueOrThrow({ where: { id: seller }, select: { legalName: true, document: true } })
@@ -487,7 +506,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     let sequence = 0;
     for (const [t, tons] of trucks.entries()) {
       sequence++;
-      const finalStatus = t < receivedTrucks ? 'COMPLETED' : r.pick(['LOADED', 'IN_TRANSIT', 'ARRIVED'] as const);
+      const finalStatus = t < receivedTrucks ? 'COMPLETED' : r.pick(['AWAITING_FARM_INVOICE', 'IN_TRANSIT', 'ARRIVED'] as const);
       const loadingDate = addDays(createdAt, 2 + t);
       const netKg = tons * 1000;
       const tareKg = 16_000 + r.int(0, 3000);
@@ -525,6 +544,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         })),
       });
 
+      // Carga ainda aguardando a documentação fiscal: sem NF-e registrada.
+      if (finalStatus === 'AWAITING_FARM_INVOICE') continue;
       // NF-e da Fazenda que permitiu o faturamento (sem XML anexado: dado demo).
       const issuedAt = stepAt(loadingDate, 'FARM_INVOICED');
       const issuerDoc = (sellerPartner!.document ?? '').replace(/\D/g, '');
