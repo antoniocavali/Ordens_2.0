@@ -31,6 +31,8 @@ export const PERMISSIONS = {
   'order.publish': 'Publicar ordens de carregamento',
   'order.cancel': 'Cancelar ou suspender ordens',
   'order.release': 'Criar liberações de quantidade',
+  'order.submit': 'Criar, editar os próprios rascunhos e enviar solicitações de ordem ao Faturamento (Comprador)',
+  'order.billing.manage': 'Tratar solicitações do Comprador: definir vendedor e fazenda e publicar (Faturamento)',
   'appointment.read': 'Visualizar agendamentos',
   'appointment.manage': 'Gerenciar agendamentos',
   'load.read': 'Visualizar cargas',
@@ -94,6 +96,7 @@ const MATRIZ_MANAGE: Permission[] = [
   'order.publish',
   'order.cancel',
   'order.release',
+  'order.billing.manage',
   'report.export',
   'support.manage',
   // Gestor e Administrador criam usuários diretamente (Q36).
@@ -137,6 +140,8 @@ export const ROLES = {
   MATRIZ_OPERATOR: { name: 'Operador Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_OPERATE },
   MATRIZ_VIEWER: { name: 'Somente leitura Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_READ },
   MATRIZ_SUPPORT_AGENT: { name: 'Atendente', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'support.attend'] },
+  /** Setor de Faturamento (Q41): trata solicitações do Comprador, define fazenda e publica; atende a fila de faturamento. */
+  MATRIZ_BILLING: { name: 'Faturamento', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'order.update', 'order.billing.manage', 'support.attend'] },
   FARM_ADMIN: {
     name: 'Administrador Fazenda',
     scope: Scope.FARM,
@@ -196,6 +201,7 @@ export const ROLES = {
       'commodity.read',
       'contract.read',
       'order.read',
+      'order.submit',
       'appointment.read',
       'load.read',
       'occurrence.read',
@@ -249,7 +255,7 @@ export function permissionsAllowedForScope(scope: string): Permission[] {
 
 /** Agrupamento das permissões para escolha na tela de papéis. */
 export const PERMISSION_GROUPS: { key: string; label: string; permissions: Permission[] }[] = [
-  { key: 'orders', label: 'Ordens de carregamento', permissions: ['order.read', 'order.create', 'order.update', 'order.publish', 'order.cancel', 'order.release'] },
+  { key: 'orders', label: 'Ordens de carregamento', permissions: ['order.read', 'order.create', 'order.update', 'order.publish', 'order.cancel', 'order.release', 'order.submit', 'order.billing.manage'] },
   {
     key: 'logistics',
     label: 'Logística',

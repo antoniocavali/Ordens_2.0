@@ -508,6 +508,88 @@ describe('atendimento (chat)', () => {
   });
 });
 
+describe('portal do Comprador e Faturamento (Q41)', () => {
+  const buyerDraft = (f: TenantFixture, ctx: DbContext, extra: Record<string, unknown> = {}) =>
+    db.run(ctx, (tx) =>
+      tx.loadingOrder.create({
+        data: {
+          tenantId: f.tenantId,
+          number: `B-${randomUUID().slice(0, 8)}`,
+          origin: 'BUYER',
+          status: 'DRAFT',
+          createdBy: ctx.userId!,
+          buyerPartnerId: f.buyers[0],
+          commodityId: f.commodity,
+          unitId: f.unit,
+          quantity: '40',
+          ...extra,
+        },
+      }),
+    );
+  const visible = (ctx: DbContext, id: string) => db.run(ctx, (tx) => tx.loadingOrder.count({ where: { id } }));
+
+  it('Comprador cria rascunho só para a própria organização, sem fazenda, vendedor ou campos internos', async () => {
+    const ctx = buyer(A, 0);
+    const own = await buyerDraft(A, ctx);
+    expect(own.buyerOrgId).toBe(A.buyerOrgs[0]);
+    expect(await visible(ctx, own.id)).toBe(1);
+
+    const denied = /row-level security|42501|Comprador só informa/;
+    await expect(buyerDraft(A, ctx, { sellerPartnerId: A.sellers[0], farmId: A.farms[0] })).rejects.toThrow(denied);
+    await expect(buyerDraft(A, ctx, { buyerPartnerId: A.buyers[1] })).rejects.toThrow(denied);
+    await expect(buyerDraft(A, ctx, { unitPrice: '10' })).rejects.toThrow(denied);
+    await expect(buyerDraft(A, ctx, { internalNotes: 'interno' })).rejects.toThrow(denied);
+    await expect(buyerDraft(A, ctx, { status: 'PUBLISHED' })).rejects.toThrow();
+    await expect(buyerDraft(A, ctx, { origin: 'MATRIZ' })).rejects.toThrow(denied);
+
+    // Rascunho é só de quem criou: outro usuário do mesmo Comprador, outro Comprador e a Fazenda não enxergam.
+    expect(await visible(buyer(A, 0), own.id)).toBe(0);
+    expect(await visible(buyer(A, 1), own.id)).toBe(0);
+    expect(await visible(farm(A, 0), own.id)).toBe(0);
+    expect(await visible(matriz(A), own.id)).toBe(1);
+  });
+
+  it('envio trava a edição; Fazenda só enxerga depois de fazenda definida e publicação', async () => {
+    const ctx = buyer(A, 0);
+    const o = await buyerDraft(A, ctx);
+    await db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { quantity: '45' } }));
+    // Comprador não publica nem define status arbitrário.
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { status: 'PUBLISHED' } }))).rejects.toThrow();
+    // Envio exige registrar quem enviou.
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { status: 'PENDING_BILLING' } }))).rejects.toThrow();
+    await db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { status: 'PENDING_BILLING', submittedAt: new Date(), submittedBy: ctx.userId! } }));
+
+    // Após o envio: o Comprador acompanha, mas não altera nem volta para rascunho.
+    expect(await visible(ctx, o.id)).toBe(1);
+    expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { quantity: '50' } }))).count).toBe(0);
+    expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { status: 'DRAFT', submittedAt: null, submittedBy: null } }))).count).toBe(0);
+    expect(await visible(buyer(A, 1), o.id)).toBe(0);
+
+    // Faturamento define vendedor e fazenda: ainda invisível à Fazenda enquanto aguarda faturamento.
+    await db.run(matriz(A), (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { sellerPartnerId: A.sellers[0], farmId: A.farms[0] } }));
+    expect(await visible(farm(A, 0), o.id)).toBe(0);
+    await expect(db.run(farm(A, 0), (tx) => tx.appointment.create({ data: { tenantId: A.tenantId, orderId: o.id, scheduledOn: new Date('2026-09-20T00:00:00Z'), expectedQty: '10' } }))).rejects.toThrow(
+      /row-level security|Ordem inexistente/,
+    );
+
+    await db.run(matriz(A), (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { status: 'PUBLISHED', version: 1, publishedAt: new Date() } }));
+    expect(await visible(farm(A, 0), o.id)).toBe(1);
+    expect(await visible(farm(A, 1), o.id)).toBe(0);
+    expect(await visible(ctx, o.id)).toBe(1);
+    // Publicada, o Comprador não altera mais nada diretamente no banco.
+    expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { buyerNotes: 'x' } }))).count).toBe(0);
+  });
+
+  it('Comprador numera ordens, mas não outras sequências internas', async () => {
+    const seq = () => db.run(buyer(A, 0), (tx) => tx.$queryRaw<{ n: number }[]>`select 1 as n from tenant_sequences where name = 'contract' limit 1`);
+    await expect(seq()).resolves.toEqual([]);
+    await expect(
+      db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'contract', 2099, 1)`),
+    ).rejects.toThrow(/row-level security/);
+    await db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'loading_order', 2099, 1) on conflict do nothing`);
+  });
+});
+
 describe('locais', () => {
   it('Matriz cadastra; comprador lê só os próprios; Fazenda e outro tenant não gravam nem leem', async () => {
     const suffix = randomUUID().slice(0, 6);

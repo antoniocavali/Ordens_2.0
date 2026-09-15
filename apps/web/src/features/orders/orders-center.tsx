@@ -25,6 +25,7 @@ import {
   Eye,
   EyeOff,
   Filter,
+  Hourglass,
   MoreHorizontal,
   Plus,
   Rows3,
@@ -43,6 +44,7 @@ import { formatDate, formatMoney, formatQty, formatQtyCompact, formatRelative, f
 import { useCan, useMe } from '@/lib/session';
 import { Farol, PriorityDot, QuantityBar, SIGNAL_OPTIONS, STATUS_OPTIONS, StatusBadge } from './indicators';
 import { KpiCard } from './kpi';
+import { BuyerOrderDrawer } from './buyer-order-drawer';
 import { OrderFormDrawer } from './order-form-drawer';
 import { useOrder, useOrders, useOrdersSummary, type ListParams } from './orders-api';
 import { QuickView } from './quick-view';
@@ -131,6 +133,8 @@ const BUILTIN_VIEWS: ViewPreset[] = [
   { id: 'all', name: 'Todas', state: {} },
   { id: 'open', name: 'Abertas', state: { status: ['PUBLISHED', 'IN_PROGRESS', 'SUSPENDED'] } },
   { id: 'drafts', name: 'Rascunhos', state: { status: ['DRAFT'] } },
+  { id: 'pending-billing', name: 'Aguardando faturamento', state: { status: ['PENDING_BILLING'] } },
+  { id: 'my-requests', name: 'Minhas solicitações', state: { status: ['DRAFT', 'PENDING_BILLING'] } },
   { id: 'farm-pending', name: 'Não visualizadas pela Fazenda', state: { farmSignal: 'OVERDUE' } },
   { id: 'new-version', name: 'Nova versão pendente', state: { farmSignal: 'OUTDATED' } },
   { id: 'in-progress', name: 'Em execução', state: { status: ['IN_PROGRESS'] } },
@@ -180,6 +184,7 @@ export function OrdersCenter() {
   };
   const orders = useOrders(listParams);
   const summary = useOrdersSummary();
+  const pendingBilling = useOrders({ status: ['PENDING_BILLING'], pageSize: 10 });
   const editing = useOrder(editId);
   const releasing = useOrder(releaseId);
 
@@ -189,7 +194,13 @@ export function OrdersCenter() {
   });
   const MATRIZ_ONLY_VIEWS = ['drafts', 'farm-pending', 'new-version'];
   const views: ViewPreset[] = [
-    ...BUILTIN_VIEWS.filter((v) => scope === 'MATRIZ' || !MATRIZ_ONLY_VIEWS.includes(v.id)),
+    ...BUILTIN_VIEWS.filter((v) =>
+      scope === 'MATRIZ'
+        ? v.id !== 'my-requests'
+        : scope === 'BUYER'
+          ? !MATRIZ_ONLY_VIEWS.includes(v.id)
+          : !MATRIZ_ONLY_VIEWS.includes(v.id) && !['pending-billing', 'my-requests'].includes(v.id),
+    ),
     ...(savedViews.data ?? []).map((v) => ({ ...v, saved: true })),
   ];
 
@@ -426,7 +437,11 @@ export function OrdersCenter() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Ordens de Carregamento</h1>
           <p className="mt-1 text-sm text-muted">
-            {scope === 'MATRIZ' ? 'Central operacional: liberações, execução e visualização por Fazenda e Comprador.' : 'Ordens publicadas para sua organização.'}
+            {scope === 'MATRIZ'
+              ? 'Central operacional: solicitações do Comprador, liberações, execução e visualização por Fazenda e Comprador.'
+              : scope === 'BUYER'
+                ? 'Suas solicitações e as ordens publicadas para sua organização.'
+                : 'Ordens publicadas para sua organização.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -437,9 +452,9 @@ export function OrdersCenter() {
               </Button>
             </span>
           </Tooltip>
-          {can('order.create') ? (
+          {(scope === 'MATRIZ' && can('order.create')) || (scope === 'BUYER' && can('order.submit')) ? (
             <Button onClick={() => router.push('/ordens?nova=1', { scroll: false })}>
-              <Plus /> Nova Ordem
+              <Plus /> {scope === 'BUYER' ? 'Nova solicitação' : 'Nova Ordem'}
             </Button>
           ) : null}
         </div>
@@ -457,6 +472,15 @@ export function OrdersCenter() {
             <KpiCard label="Carregado" value={formatQtyCompact(s.loadedQty, 't')} hint={`${formatQtyCompact(s.receivedQty, 't')} recebidas`} icon={<Truck />} tone="success" progress={{ value: s.loadedQty, total: s.totalQty }} />
             {scope === 'MATRIZ' ? (
               <>
+                <KpiCard
+                  label="Aguardando faturamento"
+                  value={pendingBilling.data?.total ?? 0}
+                  hint="Solicitações do Comprador"
+                  icon={<Hourglass />}
+                  tone="warning"
+                  active={filters.status.join() === 'PENDING_BILLING'}
+                  onClick={() => setFilters({ status: ['PENDING_BILLING'], farmSignal: '', buyerSignal: '' })}
+                />
                 <KpiCard label="Fazenda não visualizou" value={s.awaitingFarmView} hint="Versão atual pendente" icon={<EyeOff />} tone="danger" active={filters.farmSignal === 'OVERDUE'} onClick={() => setFilters({ farmSignal: filters.farmSignal === 'OVERDUE' ? '' : 'OVERDUE', status: [] })} />
                 <KpiCard label="Comprador não visualizou" value={s.awaitingBuyerView} hint="Versão atual pendente" icon={<Eye />} tone="warning" active={filters.buyerSignal === 'OVERDUE'} onClick={() => setFilters({ buyerSignal: filters.buyerSignal === 'OVERDUE' ? '' : 'OVERDUE', status: [] })} />
               </>
@@ -513,7 +537,7 @@ export function OrdersCenter() {
           <FilterMenu
             label="Status"
             count={filters.status.length}
-            options={STATUS_OPTIONS.filter((o) => scope === 'MATRIZ' || o.value !== 'DRAFT')}
+            options={STATUS_OPTIONS.filter((o) => scope === 'MATRIZ' || scope === 'BUYER' || !['DRAFT', 'PENDING_BILLING'].includes(o.value))}
             selected={filters.status}
             onChange={(status) => setFilters({ status: status as OrderStatus[] })}
           />
@@ -766,7 +790,11 @@ export function OrdersCenter() {
           setReleaseId(id);
         }}
       />
-      <OrderFormDrawer open={creating} order={null} onClose={closeCreate} onPublished={(o) => setQuickId(o.id)} />
+      {scope === 'BUYER' ? (
+        <BuyerOrderDrawer open={creating} order={null} onClose={closeCreate} />
+      ) : (
+        <OrderFormDrawer open={creating} order={null} onClose={closeCreate} onPublished={(o) => setQuickId(o.id)} />
+      )}
       <OrderFormDrawer open={Boolean(editId && editing.data)} order={editing.data ?? null} onClose={() => setEditId(null)} onPublished={(o) => setQuickId(o.id)} />
       {releasing.data ? <ReleaseDialog order={releasing.data} open={Boolean(releaseId)} onOpenChange={(o) => !o && setReleaseId(null)} /> : null}
     </div>

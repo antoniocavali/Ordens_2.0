@@ -18,8 +18,8 @@ import { decimal, oneOf, uniq } from './fiscal.util.js';
 
 type InvoiceRow = NonNullable<Awaited<ReturnType<Tx['invoice']['findUnique']>>>;
 
-/** Até o faturamento pela Fazenda, ela mesma pode cancelar a própria NF-e. */
-const FARM_CAN_CANCEL: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING', 'AWAITING_FARM_INVOICE'];
+/** Até a documentação fiscal ser validada, a Fazenda pode cancelar a própria NF-e (e reenviar). */
+const FARM_CAN_CANCEL: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING', 'LOADED', 'AWAITING_FARM_INVOICE'];
 const ACTIVE = ['VALID', 'DIVERGENT'];
 
 @Injectable()

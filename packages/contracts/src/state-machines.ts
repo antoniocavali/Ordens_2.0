@@ -2,8 +2,13 @@ import { type LoadStatus, type OrderStatus, type Scope } from './enums.js';
 
 type Transitions<S extends string> = Record<S, readonly S[]>;
 
+/**
+ * Ordem (Q41): o Comprador cria rascunho e envia ao Faturamento (PENDING_BILLING); a Matriz define
+ * vendedor/fazenda e publica. Ordens criadas pela própria Matriz seguem DRAFT → PUBLISHED.
+ */
 export const ORDER_TRANSITIONS: Transitions<OrderStatus> = {
-  DRAFT: ['PUBLISHED', 'CANCELLED'],
+  DRAFT: ['PENDING_BILLING', 'PUBLISHED', 'CANCELLED'],
+  PENDING_BILLING: ['PUBLISHED', 'CANCELLED'],
   PUBLISHED: ['IN_PROGRESS', 'SUSPENDED', 'CANCELLED'],
   IN_PROGRESS: ['SUSPENDED', 'COMPLETED', 'CANCELLED'],
   SUSPENDED: ['PUBLISHED', 'IN_PROGRESS'],
@@ -15,14 +20,18 @@ export function canTransitionOrder(from: OrderStatus, to: OrderStatus): boolean 
   return ORDER_TRANSITIONS[from].includes(to);
 }
 
+/**
+ * Carga: chegada do veículo (agendamento CHECKED_IN) → carga criada → carregamento → carregada (pesagem)
+ * → aguardando documentação fiscal da Fazenda (PDF + XML) → documentação validada → trânsito → recebimento.
+ */
 export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   SCHEDULED: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['AWAITING_LOADING', 'CANCELLED'],
   AWAITING_LOADING: ['LOADING', 'CANCELLED'],
-  LOADING: ['AWAITING_FARM_INVOICE', 'CANCELLED'],
+  LOADING: ['LOADED', 'CANCELLED'],
+  LOADED: ['AWAITING_FARM_INVOICE'],
   AWAITING_FARM_INVOICE: ['FARM_INVOICED'],
-  FARM_INVOICED: ['LOADED'],
-  LOADED: ['IN_TRANSIT'],
+  FARM_INVOICED: ['IN_TRANSIT'],
   IN_TRANSIT: ['ARRIVED'],
   ARRIVED: ['RECEIVED'],
   RECEIVED: ['CHECKED'],
@@ -39,9 +48,9 @@ export const LOAD_TRANSITION_SCOPES: Record<LoadStatus, readonly Scope[]> = {
   CONFIRMED: ['MATRIZ', 'FARM'],
   AWAITING_LOADING: ['MATRIZ', 'FARM'],
   LOADING: ['MATRIZ', 'FARM'],
+  LOADED: ['MATRIZ', 'FARM'],
   AWAITING_FARM_INVOICE: ['MATRIZ', 'FARM'],
   FARM_INVOICED: ['MATRIZ', 'FARM'],
-  LOADED: ['MATRIZ', 'FARM'],
   IN_TRANSIT: ['MATRIZ', 'FARM'],
   ARRIVED: ['MATRIZ'],
   RECEIVED: ['MATRIZ'],
@@ -64,6 +73,7 @@ export function canTransitionLoad(from: LoadStatus, to: LoadStatus, scope: Scope
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   DRAFT: 'Rascunho',
+  PENDING_BILLING: 'Aguardando faturamento',
   PUBLISHED: 'Publicada',
   IN_PROGRESS: 'Em execução',
   SUSPENDED: 'Suspensa',
@@ -76,9 +86,9 @@ export const LOAD_STATUS_LABELS: Record<LoadStatus, string> = {
   CONFIRMED: 'Confirmada',
   AWAITING_LOADING: 'Aguardando carregamento',
   LOADING: 'Em carregamento',
-  AWAITING_FARM_INVOICE: 'Aguardando faturamento',
-  FARM_INVOICED: 'Faturada pela Fazenda',
   LOADED: 'Carregada',
+  AWAITING_FARM_INVOICE: 'Aguardando documentação fiscal',
+  FARM_INVOICED: 'Documentação fiscal validada',
   IN_TRANSIT: 'Em trânsito',
   ARRIVED: 'Chegada ao destino',
   RECEIVED: 'Recebida',

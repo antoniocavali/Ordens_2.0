@@ -1,4 +1,4 @@
-import { effectivePermissions, INVOICE_REJECT_LABELS, REALTIME_CHANNEL, type InvoiceRejectCode, type RealtimeMessage } from '@ordens/contracts';
+import { effectivePermissions, INVOICE_REJECT_LABELS, REALTIME_CHANNEL, type InvoiceRejectCode, type Permission, type RealtimeMessage } from '@ordens/contracts';
 import { systemContext, type Tx } from '@ordens/db';
 import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
@@ -20,13 +20,31 @@ export interface ApproverCandidate {
   extraPermissions?: string[];
 }
 
+/** Usuários com a permissão efetiva (papéis do sistema, personalizados e concessões), exceto quem originou o evento. */
+export function usersWithPermission(members: ApproverCandidate[], permission: Permission, exceptUserId: string | null): string[] {
+  return [...new Set(members.filter((m) => m.userId !== exceptUserId && effectivePermissions(m.roles, m.extraPermissions ?? []).has(permission)).map((m) => m.userId))];
+}
+
 /** Quem pode publicar (permissão efetiva order.publish), exceto quem pediu (Q40). */
 export function publishApprovers(members: ApproverCandidate[], requesterId: string | null): string[] {
-  return [
-    ...new Set(
-      members.filter((m) => m.userId !== requesterId && effectivePermissions(m.roles, m.extraPermissions ?? []).has('order.publish')).map((m) => m.userId),
-    ),
-  ];
+  return usersWithPermission(members, 'order.publish', requesterId);
+}
+
+async function matrizCandidates(tx: Tx): Promise<ApproverCandidate[]> {
+  const memberships = await tx.membership.findMany({
+    where: { scope: 'MATRIZ', status: 'ACTIVE', user: { status: 'ACTIVE' } },
+    select: {
+      userId: true,
+      roles: { select: { roleCode: true } },
+      customRoles: { where: { role: { status: 'ACTIVE' } }, select: { role: { select: { permissions: { select: { permissionCode: true } } } } } },
+      permissionGrants: { select: { permissionCode: true } },
+    },
+  });
+  return memberships.map((m) => ({
+    userId: m.userId,
+    roles: m.roles.map((r) => r.roleCode),
+    extraPermissions: [...m.customRoles.flatMap((c) => c.role.permissions.map((x) => x.permissionCode)), ...m.permissionGrants.map((g) => g.permissionCode)],
+  }));
 }
 
 async function usersOf(tx: Tx, orgIds: (string | null | undefined)[]) {
@@ -57,6 +75,23 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
             ? 'Uma nova ordem de carregamento foi publicada para sua organização.'
             : 'A Matriz alterou informações relevantes. Revise a nova versão.',
         data: { orderId, version: order.version },
+      };
+    }
+
+    case 'order.submitted': {
+      const orderId = str(p.orderId);
+      const order = orderId
+        ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, status: true, buyerPartnerId: true } })
+        : null;
+      if (!order || order.status !== 'PENDING_BILLING') return null;
+      const buyer = order.buyerPartnerId
+        ? await tx.businessPartner.findUnique({ where: { id: order.buyerPartnerId }, select: { legalName: true, tradeName: true } })
+        : null;
+      return {
+        userIds: usersWithPermission(await matrizCandidates(tx), 'order.billing.manage', str(p.submittedBy)),
+        title: `Solicitação ${order.number} aguardando faturamento`,
+        body: `${buyer?.tradeName ?? buyer?.legalName ?? 'Um comprador'} enviou uma nova ordem: defina vendedor e fazenda e publique.`,
+        data: { orderId },
       };
     }
 

@@ -6,6 +6,7 @@ import {
   ORDER_STATUSES,
   type FreightMode,
   type OperationType,
+  type OrderOrigin,
   type OrderPriority,
   type OrderStatus,
   type ReleaseStatus,
@@ -95,6 +96,63 @@ export const updateOrderSchema = z.object({
   data: orderDraftSchema,
 });
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
+
+export const ORDER_ORIGIN_LABELS = { MATRIZ: 'Matriz', BUYER: 'Portal do Comprador' } as const;
+
+/**
+ * Portal do Comprador (Q41): somente os campos que pertencem ao Comprador. Objeto estrito — vendedor, fazenda,
+ * contrato, preço, comprador ou qualquer campo interno da Matriz são recusados na validação.
+ */
+export const buyerOrderSchema = z
+  .strictObject({
+    externalNumber: optionalText(60),
+    commodityId: z.uuid().nullish(),
+    cropYear: z
+      .string()
+      .regex(/^\d{2}\/\d{2}$|^\d{4}$/, 'Safra no formato 25/26 ou 2026')
+      .nullish(),
+    quantity: quantityString.nullish(),
+    unitId: z.uuid().nullish(),
+    loadingStartsOn: dateOnly.nullish(),
+    loadingEndsOn: dateOnly.nullish(),
+    destinationName: optionalText(160),
+    destinationAddress: optionalText(255),
+    destinationCity: optionalText(120),
+    destinationState: z.string().length(2).toUpperCase().nullish(),
+    freightMode: z.enum(FREIGHT_MODES).nullish(),
+    preferredCarrierId: z.uuid().nullish(),
+    buyerNotes: optionalText(4000),
+  })
+  .refine((v) => !v.loadingStartsOn || !v.loadingEndsOn || v.loadingStartsOn <= v.loadingEndsOn, {
+    message: 'A data limite deve ser posterior à data inicial',
+    path: ['loadingEndsOn'],
+  });
+export type BuyerOrderInput = z.infer<typeof buyerOrderSchema>;
+
+export const updateBuyerOrderSchema = z.strictObject({
+  expectedUpdatedAt: z.iso.datetime(),
+  data: buyerOrderSchema,
+});
+export type UpdateBuyerOrderInput = z.infer<typeof updateBuyerOrderSchema>;
+
+/** Campos exigidos para o Comprador enviar ao Faturamento. */
+export const BUYER_SUBMIT_REQUIRED = ['commodityId', 'quantity', 'unitId', 'loadingStartsOn', 'loadingEndsOn'] as const satisfies readonly (keyof BuyerOrderInput)[];
+
+export const submitOrderSchema = z.strictObject({ expectedUpdatedAt: z.iso.datetime() });
+
+/** Faturamento: completa dados internos e define vendedor/fazenda (a ordem continua aguardando faturamento). */
+export const assignFarmSchema = z.strictObject({
+  expectedUpdatedAt: z.iso.datetime(),
+  sellerPartnerId: z.uuid('Selecione o vendedor'),
+  farmId: z.uuid('Selecione a fazenda'),
+  contractId: z.uuid().nullish(),
+  unitPrice: priceString.nullish(),
+  tolerancePct: percentString.nullish(),
+  loadingInstructions: optionalText(4000),
+  farmNotes: optionalText(4000),
+  internalNotes: optionalText(4000),
+});
+export type AssignFarmInput = z.infer<typeof assignFarmSchema>;
 
 /** Campos exigidos para publicar. */
 export const ORDER_PUBLISH_REQUIRED = [
@@ -256,6 +314,7 @@ export interface OrderListItem {
   buyerView: ViewSignalInfo;
   updatedAt: string;
   updatedBy: string | null;
+  origin: OrderOrigin;
 }
 
 export interface OrderDetail extends OrderListItem {
@@ -278,6 +337,9 @@ export interface OrderDetail extends OrderListItem {
   publishedAt: string | null;
   createdAt: string;
   createdBy: string | null;
+  /** Envio do Comprador ao Faturamento. */
+  submittedAt: string | null;
+  submittedBy: string | null;
   releases: ReleaseDto[];
   allowedActions: string[];
   /** Somente Matriz: fluxo de publicação (Q40). */

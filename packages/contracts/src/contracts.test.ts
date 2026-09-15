@@ -20,16 +20,26 @@ describe('permissões', () => {
   it('somente papéis MATRIZ podem criar ordens', () => {
     for (const [code, role] of Object.entries(ROLES)) {
       const canCreate = (role.permissions as readonly string[]).includes('order.create');
-      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_SUPPORT_AGENT'].includes(code);
+      // Faturamento complementa e publica solicitações, mas não cria ordens internas.
+      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_SUPPORT_AGENT', 'MATRIZ_BILLING'].includes(code);
       expect(canCreate, code).toBe(role.scope === 'MATRIZ' && !readOnlyMatriz);
     }
   });
 
-  it('comprador é somente leitura (pode abrir atendimento, não gerencia nada)', () => {
+  it('comprador só lê, abre atendimento e envia solicitações de ordem pelo portal (Q41)', () => {
     const perms = [...permissionsForRoles(['BUYER_USER'])];
-    // Abrir conversa de atendimento não altera dados operacionais.
-    expect(perms.every((p) => p.endsWith('.read') || p.startsWith('dashboard.') || p === 'support.use')).toBe(true);
-    expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload'))).toBe(false);
+    // Abrir conversa e enviar solicitação ao Faturamento não alteram ordens publicadas nem cadastros.
+    expect(perms.every((p) => p.endsWith('.read') || p.startsWith('dashboard.') || p === 'support.use' || p === 'order.submit')).toBe(true);
+    expect(perms).toContain('order.submit');
+    expect(perms.some((p) => p.endsWith('.manage') || p.endsWith('.upload') || ['order.create', 'order.update', 'order.publish'].includes(p))).toBe(false);
+  });
+
+  it('tratar solicitações do Comprador é da Matriz (Faturamento, Gestor e Administrador)', () => {
+    for (const [code, role] of Object.entries(ROLES)) {
+      const can = (role.permissions as readonly string[]).includes('order.billing.manage');
+      expect(can, code).toBe(['MATRIZ_ADMIN', 'MATRIZ_MANAGER', 'MATRIZ_BILLING'].includes(code));
+    }
+    expect(permissionsForRoles(['BUYER_USER']).has('order.billing.manage')).toBe(false);
   });
 
   it('atendimento: supervisão para Gestor/Admin; atuar em filas para Operador e Atendente', () => {

@@ -108,6 +108,7 @@ enum FreightMode {
 
 enum OrderStatus {
   DRAFT
+  PENDING_BILLING
   PUBLISHED
   IN_PROGRESS
   SUSPENDED
@@ -142,6 +143,13 @@ enum ReleaseStatus {
   CANCELLED
 
   @@map("release_status")
+}
+
+enum OrderOrigin {
+  MATRIZ
+  BUYER
+
+  @@map("order_origin")
 }
 
 enum UploadStatus {
@@ -985,6 +993,10 @@ model LoadingOrder {
   publishedAt        DateTime?      @map("published_at") @db.Timestamptz(6)
   publishRequestedAt DateTime?      @map("publish_requested_at") @db.Timestamptz(6)
   publishRequestedBy String?        @map("publish_requested_by") @db.Uuid
+  /// Origem (Q41): portal do Comprador segue DRAFT → PENDING_BILLING → PUBLISHED pelo Faturamento.
+  origin             OrderOrigin    @default(MATRIZ)
+  submittedAt        DateTime?      @map("submitted_at") @db.Timestamptz(6)
+  submittedBy        String?        @map("submitted_by") @db.Uuid
   lastMaterialChangeAt DateTime?    @map("last_material_change_at") @db.Timestamptz(6)
   createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)

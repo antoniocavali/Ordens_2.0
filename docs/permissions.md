@@ -10,8 +10,8 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 |---|---|---|
 | `PLATFORM` | — | tabela `tenants`; dados de tenant só ao entrar explicitamente em um tenant (auditado) |
 | `MATRIZ` | org `MATRIZ` | todos os dados do tenant |
-| `FARM` | org `FARM` | OCs **publicadas** onde `seller_org_id ∈ org_ids`, suas fazendas, cargas/agendamentos dessas OCs, documentos com visibilidade `FARM` |
-| `BUYER` | org `BUYER` | OCs **publicadas** onde `buyer_org_id ∈ org_ids`, cargas dessas OCs, documentos `BUYER` |
+| `FARM` | org `FARM` | OCs **publicadas** (nunca `DRAFT`/`PENDING_BILLING`) com fazenda definida e `seller_org_id ∈ org_ids`, suas fazendas, cargas/agendamentos dessas OCs, documentos com visibilidade `FARM`/`PARTIES` |
+| `BUYER` | org `BUYER` | OCs da organização (`buyer_org_id ∈ org_ids`) a partir de `PENDING_BILLING`, os **próprios** rascunhos do portal, cargas dessas OCs, documentos `BUYER`/`PARTIES`, transportadoras (para escolher a preferencial) |
 | `CARRIER` | org `CARRIER` | futuro: agendamentos/cargas atribuídos |
 
 ## Papéis
@@ -24,6 +24,7 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 | `MATRIZ_OPERATOR` | Operador Matriz | MATRIZ |
 | `MATRIZ_VIEWER` | Somente leitura Matriz | MATRIZ |
 | `MATRIZ_SUPPORT_AGENT` | Atendente (leitura Matriz + atendimento nas filas definidas na equipe) | MATRIZ |
+| `MATRIZ_BILLING` | Faturamento (leitura Matriz + `order.update` + `order.billing.manage` + atendimento) | MATRIZ |
 | `FARM_ADMIN` | Administrador Fazenda | FARM |
 | `FARM_OPERATOR` | Operador Fazenda | FARM |
 | `BUYER_USER` | Comprador | BUYER |
@@ -84,6 +85,8 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `order.publish` | — | ● | ● | — | — | — | — | — |
 | `order.cancel` | — | ● | ● | — | — | — | — | — |
 | `order.release` | — | ● | ● | — | — | — | — | — |
+| `order.submit` (portal: criar, editar próprios rascunhos, enviar ao Faturamento) | — | — | — | — | — | — | — | ○ |
+| `order.billing.manage` (definir vendedor/fazenda e publicar solicitações; também papel Faturamento) | — | ● | ● | — | — | — | — | — |
 | `appointment.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
 | `appointment.manage` | — | ● | ● | ● | — | ○ | ○ | — |
 | `load.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
@@ -99,10 +102,23 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `report.export` | — | ● | ● | — | — | — | — | — |
 | `settings.manage` | — | ● | — | — | — | — | — | — |
 
-Transições de carga possuem permissão por transição (ver [state-machines.md](state-machines.md)); ex.: `FATURADA_FAZENDA` só por escopo FARM ou MATRIZ.
+Transições de carga possuem permissão por transição (ver [state-machines.md](state-machines.md)); "Documentação fiscal validada" e "Em trânsito" só por FARM ou MATRIZ e com o checklist fiscal completo.
+
+## Portal do Comprador e Faturamento (Q41)
+
+Defesa em camadas — nenhuma regra depende só de ocultar botões:
+
+| Regra | API/domínio | Banco |
+|---|---|---|
+| Comprador cria só para a própria organização | `POST /orders/buyer` (`order.submit`, escopo BUYER); comprador derivado de `organizations.partner_id`; schema estrito | `orders_scope_insert`: `origin = BUYER`, `status = DRAFT`, `created_by = app_user_id()`, `buyer_org_id ∈ org_ids`, sem vendedor/fazenda/contrato |
+| Comprador altera só rascunhos próprios | `assertOwnBuyerDraft` (422 após o envio) | `orders_scope_update` (USING `DRAFT` + criador; CHECK só `DRAFT`/`PENDING_BILLING`) |
+| Comprador nunca define fazenda, vendedor, contrato, preço, status publicado ou campos internos | schema estrito + endpoints próprios; endpoints administrativos exigem escopo MATRIZ | políticas acima + trigger `loading_orders_buyer_guard` (preço, frete, notas internas/Fazenda, instruções, liberação, totais, versão, publicação, `submitted_by`) |
+| Fazenda só acessa ordens publicadas com a própria fazenda | detalhe/listas sob RLS | `orders_scope_read`: FARM exige status ≠ `DRAFT`/`PENDING_BILLING` e `farm_id` definido |
+| Faturamento trata todas as solicitações do tenant | `order.billing.manage` + escopo MATRIZ | leitura/escrita internas |
+| Numeração da solicitação | `nextSequence('loading_order')` | `tenant_sequences`: Comprador só a sequência `loading_order` |
 
 ## Testes obrigatórios
 
-- Fazenda e Comprador recebem **403** em `POST /orders` (guard) **e** `INSERT` direto em `loading_orders` com contexto FARM/BUYER é negado pelo RLS.
+- Fazenda recebe **403** em `POST /orders` (guard) **e** `INSERT` direto em `loading_orders` com contexto FARM é negado pelo RLS; Comprador só insere rascunho do portal da própria organização.
 - Usuário FARM da org A não lista OCs da org B; BUYER idem.
 - MATRIZ_VIEWER recebe 403 em qualquer `*.manage`/`order.*` de escrita.

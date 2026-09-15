@@ -89,7 +89,7 @@ erDiagram
   loading_orders ||--o{ occurrences : ""
 
   contracts { uuid id PK; uuid tenant_id; text number; uuid seller_partner_id; uuid buyer_partner_id; uuid commodity_id; text crop_year; numeric quantity; uuid unit_id; numeric unit_price; char3 currency; numeric total_value; date starts_on; date ends_on; freight_mode freight_mode; contract_status status }
-  loading_orders { uuid id PK; uuid tenant_id; text number UK; text external_number; order_status status; order_priority priority; int version; uuid contract_id; uuid seller_partner_id; uuid farm_id; uuid buyer_partner_id; uuid seller_org_id "RLS"; uuid buyer_org_id "RLS"; uuid commodity_id; numeric quantity; numeric released_qty; numeric scheduled_qty; numeric loaded_qty; numeric in_transit_qty; numeric received_qty; numeric cancelled_qty; numeric unit_price; numeric freight_estimate; numeric tolerance_pct; date loading_starts_on; date loading_ends_on; timestamptz published_at }
+  loading_orders { uuid id PK; uuid tenant_id; text number UK; text external_number; order_status status "DRAFT|PENDING_BILLING|PUBLISHED|…"; order_origin origin "MATRIZ|BUYER"; order_priority priority; int version; uuid contract_id; uuid seller_partner_id; uuid farm_id; uuid buyer_partner_id; uuid seller_org_id "RLS"; uuid buyer_org_id "RLS"; uuid commodity_id; numeric quantity; numeric released_qty; numeric scheduled_qty; numeric loaded_qty; numeric in_transit_qty; numeric received_qty; numeric cancelled_qty; numeric unit_price; numeric freight_estimate; numeric tolerance_pct; date loading_starts_on; date loading_ends_on; uuid created_by "RLS portal"; timestamptz submitted_at; uuid submitted_by; timestamptz published_at }
   loading_order_versions { uuid id PK; uuid order_id; int version; jsonb material_snapshot; jsonb changed_fields; uuid created_by; timestamptz created_at }
   loading_order_releases { uuid id PK; uuid order_id; int sequence; numeric quantity; date valid_until; release_status status; int order_version; uuid created_by }
   loading_order_views { uuid id PK; uuid order_id; uuid organization_id; uuid user_id; uuid membership_id; int version; timestamptz first_viewed_at; timestamptz last_viewed_at; int view_count; inet last_ip; text last_user_agent; uuid last_session_id }
@@ -98,6 +98,8 @@ erDiagram
   invoices { uuid id PK; uuid load_id; char44 access_key UK; text number; text series; timestamptz issued_at; text issuer_cnpj; text recipient_cnpj; numeric total_value; numeric weight_kg; text plate; uuid file_upload_id; invoice_origin origin; jsonb raw_extract }
   occurrences { uuid id PK; uuid order_id; uuid load_id; occurrence_type type; severity severity; text description; uuid responsible_user_id; occurrence_status status; text resolution }
 ```
+
+Solicitações do portal do Comprador (Q41): `origin = BUYER`, `created_by` identifica o dono do rascunho (RLS), `submitted_at/submitted_by` registram o envio ao Faturamento (constraint `loading_orders_pending_billing_origin` exige envio registrado em `PENDING_BILLING`). Documentos fiscais da carga ficam em `file_uploads` (`entity_type = 'load'`, `kind` `PDF`/`NFE_XML`, visibilidade `PARTIES`); o XML gera `invoices.file_upload_id`, base do checklist fiscal que libera o transporte.
 
 Totais de quantidade em `loading_orders` são **derivados** (atualizados na mesma transação de liberação/carga) e reconciliáveis a partir das tabelas filhas; cada mudança gera `audit_events`.
 

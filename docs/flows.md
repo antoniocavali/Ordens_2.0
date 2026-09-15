@@ -1,6 +1,55 @@
 # Fluxos Operacionais
 
-## Matriz
+## Visão geral (Q41)
+
+```mermaid
+flowchart LR
+  B[Comprador cria solicitação] --> S[Envia ao Faturamento<br/>PENDING_BILLING]
+  S --> F[Faturamento complementa dados<br/>define vendedor e fazenda]
+  F --> P[Publica para a Fazenda<br/>PUBLISHED]
+  M[Matriz cria ordem interna] --> P
+  P --> A[Fazenda agenda e registra chegada<br/>CHECKED_IN]
+  A --> C[Carga criada → carregamento → pesagem]
+  C --> D[PDF + XML da NF-e<br/>documentação validada]
+  D --> T[Trânsito → recebimento → conferência<br/>faturamento Matriz → conclusão]
+```
+
+## Comprador
+
+```mermaid
+flowchart TD
+  A[+ Nova solicitação: formulário do portal] --> B[Commodity, quantidade, unidade, janela,<br/>destino, frete, transportadora preferencial, observações]
+  B --> C{Salvar rascunho}
+  C -->|editar| B
+  C --> D[Enviar ao Faturamento]
+  D --> E[audit order.submitted + outbox → aviso ao Faturamento]
+  E --> F[Acompanha: Aguardando faturamento — somente leitura]
+  F --> G[Notificação: ordem publicada]
+  G --> H[Acompanha volumes, cargas, NF-e válidas e timeline]
+```
+
+- O comprador da ordem é **derivado da organização ativa** (`organizations.partner_id`); o payload do portal é estrito e recusa vendedor, fazenda, contrato, preço e campos internos.
+- Rascunho é visível e editável **só por quem criou**; após o envio, o Comprador apenas acompanha.
+- Endpoints próprios: `POST /orders/buyer`, `PATCH /orders/buyer/:id`, `POST /orders/:id/submit` (permissão `order.submit`).
+
+## Faturamento da Matriz
+
+```mermaid
+flowchart TD
+  A[Notificação / fila Aguardando faturamento] --> B[Abre a solicitação]
+  B --> C[Definir fazenda: contrato opcional → vendedor → fazenda<br/>preço, tolerância, instruções, observações]
+  C --> D[audit order.farm_assigned — continua PENDING_BILLING]
+  D --> E[Publicar para a Fazenda]
+  E --> F{Valida requisitos, relações, contrato e saldo}
+  F -->|ok| G[Versão 1 + audit order.published via BILLING + outbox]
+  G --> H[Notificações Fazenda e Comprador]
+```
+
+- Permissão `order.billing.manage` (papel **Faturamento**, Gestor e Administrador): `POST /orders/:id/billing/assign` e `POST /orders/:id/billing/publish`.
+- Correções adicionais usam o formulário interno (`order.update`); o comprador de uma solicitação do portal não pode ser trocado.
+- A Matriz mantém suspensão, cancelamento, liberações, correções e auditoria.
+
+## Matriz (ordem interna)
 
 ```mermaid
 flowchart TD
@@ -10,7 +59,7 @@ flowchart TD
   D --> E[Vendedor → filtra fazendas]
   E --> F[Quantidade, preço, janela, transportadora preferencial]
   F --> G[Liberação inicial opcional]
-  G --> H[Publicar]
+  G --> H[Publicar ou Solicitar publicação Q40]
   H --> I[Versão 1 + audit + outbox order.published]
   I --> J[Notificações Fazenda e Comprador]
   J --> K[Acompanhar faróis e exceções]
@@ -21,36 +70,27 @@ flowchart TD
   K -->|alteração material| P[Nova versão → faróis amarelos]
 ```
 
-Pontos de decisão:
-
-- Publicar exige validações de consistência (fazenda pertence ao vendedor; contrato compatível com vendedor/comprador/commodity; saldo contratual suficiente — **regra de bloqueio vs. alerta em aberto**, ver [open-questions.md](decisions/open-questions.md)).
-- Alteração material após publicação gera nova versão e exige nova visualização.
-
 ## Fazenda
 
 ```mermaid
 flowchart TD
-  A[Notificação: nova OC / nova versão] --> B[Abre detalhe da OC]
-  B --> C[Registro de visualização: farol verde]
-  C --> D[Consulta liberações e saldo liberado]
-  D --> E[Cria/confirma agendamento]
-  E --> F[Carga: em carregamento]
-  F --> G[Upload XML NF-e direto no storage]
-  G --> H[Worker extrai dados → vincula carga]
-  H --> I[Faturada pela Fazenda → Carregada]
+  A[Notificação: ordem publicada para a fazenda] --> B[Abre detalhe → farol verde]
+  B --> C[Consulta liberações e saldo liberado]
+  C --> D[Agendamento: confirmar motorista e veículo]
+  D --> E[Veículo chegou: CHECKED_IN]
+  E --> F[Carga criada: Aguardando carregamento]
+  F --> G[Em carregamento]
+  G --> H[Confirmar carregamento: peso bruto e tara obrigatórios]
+  H --> I[Aguardando documentação fiscal]
+  I --> J[Anexar PDF da nota + XML da NF-e na carga<br/>upload direto, visibilidade PARTIES]
+  J --> K[Worker valida XML → NF-e VALID/DIVERGENT]
+  K --> L[Validar documentação fiscal]
+  L --> M[Liberar para transporte]
 ```
 
-A Fazenda **não cria nem altera** OCs.
-
-## Comprador (read-only)
-
-```mermaid
-flowchart TD
-  A[Notificação: OC publicada] --> B[Abre detalhe → farol verde]
-  B --> C[Acompanha volumes: carregado, em trânsito, recebido, saldo]
-  C --> D[Timeline e ocorrências relevantes]
-  D --> E[Documentos autorizados: presigned GET auditado]
-```
+- A Fazenda **não enxerga** ordens em rascunho, aguardando faturamento ou sem fazenda definida (RLS).
+- "Validar documentação fiscal" e "Liberar para transporte" exigem pesagem, PDF disponível e o XML mais recente processado com NF-e válida ou com divergência; qualquer arquivo em envio/processamento, rejeitado ou infectado bloqueia (`FISCAL_DOCUMENTS_REQUIRED`).
+- A Fazenda **não cria nem altera** ordens.
 
 ## Autenticação
 
