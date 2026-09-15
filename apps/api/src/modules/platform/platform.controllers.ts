@@ -13,6 +13,9 @@ import {
   updatePreferencesSchema,
   updateSecurityPolicySchema,
   userListQuery,
+  workflowSettingsSchema,
+  type WorkflowSettingsDto,
+  type WorkflowSettingsInput,
   type AuditEventDto,
   type CreateUserInput,
   type InviteUserInput,
@@ -131,6 +134,40 @@ export class SettingsController {
       return updated;
     });
     return { ...after, coverage: await this.coverage(tenantId) };
+  }
+
+  @Get('workflow')
+  @RequirePermission('settings.manage')
+  getWorkflow(): Promise<WorkflowSettingsDto> {
+    const tenantId = currentAuth().membership!.tenantId;
+    return this.db.read(async (tx) => {
+      const t = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { publishFourEyes: true, publishFourEyesMinT: true } });
+      return { publishFourEyes: t.publishFourEyes, publishFourEyesMinT: t.publishFourEyesMinT?.toString() ?? null };
+    });
+  }
+
+  /** Fluxo de publicação da empresa (Q40), auditado. */
+  @Put('workflow')
+  @RequirePermission('settings.manage')
+  updateWorkflow(@Body(new ZodPipe(workflowSettingsSchema)) body: WorkflowSettingsInput): Promise<WorkflowSettingsDto> {
+    const tenantId = currentAuth().membership!.tenantId;
+    return this.db.write(async (scope) => {
+      const before = await scope.tx.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { publishFourEyes: true, publishFourEyesMinT: true } });
+      const after = await scope.tx.tenant.update({
+        where: { id: tenantId },
+        data: { publishFourEyes: body.publishFourEyes, publishFourEyesMinT: body.publishFourEyes ? body.publishFourEyesMinT : null },
+        select: { publishFourEyes: true, publishFourEyesMinT: true },
+      });
+      const dto = { publishFourEyes: after.publishFourEyes, publishFourEyesMinT: after.publishFourEyesMinT?.toString() ?? null };
+      await scope.audit({
+        entityType: 'tenant',
+        entityId: tenantId,
+        action: 'tenant.workflow_updated',
+        before: { publishFourEyes: before.publishFourEyes, publishFourEyesMinT: before.publishFourEyesMinT?.toString() ?? null },
+        after: dto,
+      });
+      return dto;
+    });
   }
 
   /**

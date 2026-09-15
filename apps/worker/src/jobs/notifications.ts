@@ -1,4 +1,4 @@
-import { INVOICE_REJECT_LABELS, REALTIME_CHANNEL, type InvoiceRejectCode, type RealtimeMessage } from '@ordens/contracts';
+import { effectivePermissions, INVOICE_REJECT_LABELS, REALTIME_CHANNEL, type InvoiceRejectCode, type RealtimeMessage } from '@ordens/contracts';
 import { systemContext, type Tx } from '@ordens/db';
 import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
@@ -13,6 +13,21 @@ interface Plan {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
+
+export interface ApproverCandidate {
+  userId: string;
+  roles: string[];
+  extraPermissions?: string[];
+}
+
+/** Quem pode publicar (permissão efetiva order.publish), exceto quem pediu (Q40). */
+export function publishApprovers(members: ApproverCandidate[], requesterId: string | null): string[] {
+  return [
+    ...new Set(
+      members.filter((m) => m.userId !== requesterId && effectivePermissions(m.roles, m.extraPermissions ?? []).has('order.publish')).map((m) => m.userId),
+    ),
+  ];
+}
 
 async function usersOf(tx: Tx, orgIds: (string | null | undefined)[]) {
   const ids = orgIds.filter((v): v is string => Boolean(v));
@@ -42,6 +57,37 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
             ? 'Uma nova ordem de carregamento foi publicada para sua organização.'
             : 'A Matriz alterou informações relevantes. Revise a nova versão.',
         data: { orderId, version: order.version },
+      };
+    }
+
+    case 'order.publish_requested': {
+      const orderId = str(p.orderId);
+      const requester = str(p.requestedBy);
+      const order = orderId ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, status: true } }) : null;
+      if (!order || order.status !== 'DRAFT') return null;
+      const memberships = await tx.membership.findMany({
+        where: { scope: 'MATRIZ', status: 'ACTIVE', user: { status: 'ACTIVE' } },
+        select: {
+          userId: true,
+          roles: { select: { roleCode: true } },
+          customRoles: { where: { role: { status: 'ACTIVE' } }, select: { role: { select: { permissions: { select: { permissionCode: true } } } } } },
+          permissionGrants: { select: { permissionCode: true } },
+        },
+      });
+      const approvers = publishApprovers(
+        memberships.map((m) => ({
+          userId: m.userId,
+          roles: m.roles.map((r) => r.roleCode),
+          extraPermissions: [...m.customRoles.flatMap((c) => c.role.permissions.map((x) => x.permissionCode)), ...m.permissionGrants.map((g) => g.permissionCode)],
+        })),
+        requester,
+      );
+      const name = requester ? (await tx.user.findUnique({ where: { id: requester }, select: { name: true } }))?.name : null;
+      return {
+        userIds: approvers,
+        title: `Ordem ${order.number} aguardando publicação`,
+        body: `${name ?? 'Um usuário da Matriz'} revisou o rascunho e pediu a publicação.`,
+        data: { orderId },
       };
     }
 

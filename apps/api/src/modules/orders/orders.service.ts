@@ -49,6 +49,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.created': 'Ordem criada',
   'order.draft_saved': 'Rascunho atualizado',
   'order.published': 'Ordem publicada',
+  'order.publish_requested': 'Publicação solicitada',
   'order.updated': 'Ordem atualizada',
   'order.version_created': 'Nova versão gerada',
   'order.release_created': 'Liberação criada',
@@ -297,6 +298,37 @@ export class OrdersService {
     });
   }
 
+  /**
+   * Quem monta a ordem sem poder publicar (ou barrado pela dupla checagem) pede a publicação (Q40).
+   * Valida os requisitos de publicação agora, para quem aprova não receber rascunho incompleto.
+   */
+  async requestPublish(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
+    const auth = currentAuth();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, expectedUpdatedAt);
+      if (order.status !== 'DRAFT') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente rascunhos podem ter a publicação solicitada.');
+      this.assertPublishRequirements(order);
+      await this.validateRelations(tx, order as unknown as OrderDraftInput);
+      const now = new Date();
+      await tx.loadingOrder.update({ where: { id }, data: { publishRequestedAt: now, publishRequestedBy: auth.userId } });
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.publish_requested',
+        before: { publishRequestedAt: order.publishRequestedAt?.toISOString() ?? null },
+        after: { publishRequestedAt: now.toISOString() },
+      });
+      await scope.outbox({
+        type: 'order.publish_requested',
+        aggregateType: 'loading_order',
+        aggregateId: id,
+        payload: { orderId: id, number: order.number, requestedBy: auth.userId },
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
   async publish(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
     const auth = currentAuth();
     return this.db.write(async (scope) => {
@@ -308,6 +340,13 @@ export class OrdersService {
       this.assertPublishRequirements(order);
       await this.validateRelations(tx, order as unknown as OrderDraftInput);
       await this.assertContractBalance(tx, order);
+      const fourEyes = await this.fourEyes(tx, order, auth.userId);
+      if (fourEyes.blocked) {
+        throw AppError.domain(
+          ErrorCode.FOUR_EYES_REQUIRED,
+          'Dupla checagem ativa: outra pessoa precisa publicar, porque você fez a última alteração. Use "Solicitar publicação".',
+        );
+      }
 
       const initial = order.initialReleaseQty ? new Prisma.Decimal(order.initialReleaseQty) : null;
       if (initial && initial.greaterThan(this.maxReleasable(order))) {
@@ -659,13 +698,51 @@ export class OrdersService {
     const perms = auth.permissions;
     const actions: string[] = [];
     const status = row.status;
+    const internal = auth.membership!.scope === 'MATRIZ';
+    let workflow: OrderDetail['workflow'] = null;
+    if (internal) {
+      const o = await tx.loadingOrder.findUniqueOrThrow({ where: { id } });
+      const fe = await this.fourEyes(tx, o, auth.userId);
+      const requester = o.publishRequestedBy ? await this.userNames(tx, [o.publishRequestedBy]) : new Map<string, string>();
+      workflow = {
+        publishRequestedAt: o.publishRequestedAt?.toISOString() ?? null,
+        publishRequestedBy: o.publishRequestedBy ? (requester.get(o.publishRequestedBy) ?? null) : null,
+        fourEyesRequired: fe.required,
+        blockedByFourEyes: status === 'DRAFT' && fe.blocked,
+      };
+    }
     if (perms.has('order.update') && !['COMPLETED', 'CANCELLED'].includes(status)) actions.push('update');
-    if (perms.has('order.publish') && status === 'DRAFT') actions.push('publish');
+    if (perms.has('order.publish') && status === 'DRAFT' && !workflow?.blockedByFourEyes) actions.push('publish');
+    if (
+      internal &&
+      status === 'DRAFT' &&
+      (perms.has('order.create') || perms.has('order.update')) &&
+      (!perms.has('order.publish') || workflow?.blockedByFourEyes)
+    ) {
+      actions.push('request_publish');
+    }
     if (perms.has('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(status)) actions.push('release');
     if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
     if (perms.has('order.cancel') && ACTIVE_STATUSES.includes(status)) actions.push('cancel');
 
-    return toDetail(row, releaseDtos, auth.membership!.scope, actions);
+    return { ...toDetail(row, releaseDtos, auth.membership!.scope, actions), workflow };
+  }
+
+  /**
+   * Dupla checagem (Q40): vale se a empresa ativou e a ordem atinge a quantidade mínima (t).
+   * Bloqueia quem fez a última alteração (ou criou, se nunca foi alterada).
+   */
+  private async fourEyes(tx: Tx, order: OrderRecord, userId: string): Promise<{ required: boolean; blocked: boolean }> {
+    const tenant = await tx.tenant.findUnique({ where: { id: order.tenantId }, select: { publishFourEyes: true, publishFourEyesMinT: true } });
+    if (!tenant?.publishFourEyes) return { required: false, blocked: false };
+    let required = true;
+    if (tenant.publishFourEyesMinT) {
+      const unit = order.unitId ? await tx.unit.findUnique({ where: { id: order.unitId }, select: { factorToKg: true } }) : null;
+      const tons = new Prisma.Decimal(order.quantity ?? 0).times(unit?.factorToKg ?? 1000).dividedBy(1000);
+      required = tons.greaterThanOrEqualTo(tenant.publishFourEyesMinT);
+    }
+    const lastEditor = order.updatedBy ?? order.createdBy;
+    return { required, blocked: required && lastEditor === userId };
   }
 
   /** Bloqueia a linha (SELECT … FOR UPDATE) e confere concorrência otimista por updatedAt. */

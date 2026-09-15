@@ -7,6 +7,7 @@ import {
   orderListQuerySchema,
   publishOrderSchema,
   releaseListQuerySchema,
+  requestPublishSchema,
   updateOrderSchema,
   type CancelReleaseInput,
   type CreateReleaseInput,
@@ -16,7 +17,7 @@ import {
   type UpdateOrderInput,
 } from '@ordens/contracts';
 import type { z } from 'zod';
-import { RequirePermission } from '../../common/decorators.js';
+import { RequireAnyPermission, RequirePermission } from '../../common/decorators.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { OrdersService } from './orders.service.js';
 
@@ -75,6 +76,13 @@ export class OrdersController {
   @RequirePermission('order.publish')
   publish(@Param('id', uuid) id: string, @Body(new ZodPipe(publishOrderSchema)) body: z.infer<typeof publishOrderSchema>) {
     return this.orders.publish(id, body.expectedUpdatedAt);
+  }
+
+  @Post(':id/publish-request')
+  @HttpCode(200)
+  @RequireAnyPermission('order.create', 'order.update')
+  requestPublish(@Param('id', uuid) id: string, @Body(new ZodPipe(requestPublishSchema)) body: z.infer<typeof requestPublishSchema>) {
+    return this.orders.requestPublish(id, body.expectedUpdatedAt);
   }
 
   @Post(':id/releases')

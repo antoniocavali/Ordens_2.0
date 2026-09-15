@@ -5,13 +5,14 @@ import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
 import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, PackageCheck, PackageX, Pencil, Send } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
 import { LoadsPage } from '@/features/logistics/loads-page';
 import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
-import { registerView, useInvalidateOrders, useOrder, useTimeline, useVersions, useViewHistory } from '@/features/orders/orders-api';
+import { registerView, requestPublishOrder, useInvalidateOrders, useOrder, useTimeline, useVersions, useViewHistory } from '@/features/orders/orders-api';
 import { CancelReleaseDialog, type CancelReleaseTarget } from '@/features/orders/cancel-release-dialog';
 import { ReleaseDialog } from '@/features/orders/release-dialog';
 import { ReleaseStatusBadge } from '@/features/orders/releases-page';
@@ -48,6 +49,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [releasing, setReleasing] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [cancelling, setCancelling] = useState<CancelReleaseTarget | null>(null);
+  const [requesting, setRequesting] = useState(false);
   const scope = me?.activeMembership?.scope;
 
   // Abertura efetiva do detalhe = visualização (Fazenda/Comprador).
@@ -110,8 +112,40 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <Send /> Revisar e publicar
             </Button>
           ) : null}
+          {o.allowedActions.includes('request_publish') ? (
+            <Button
+              variant={o.workflow?.publishRequestedAt ? 'outline' : undefined}
+              loading={requesting}
+              onClick={async () => {
+                setRequesting(true);
+                try {
+                  const d = await requestPublishOrder(o.id, o.updatedAt);
+                  invalidate(d);
+                  toast.success('Publicação solicitada', { description: 'Quem pode publicar foi avisado.' });
+                } catch (err) {
+                  toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível solicitar a publicação.');
+                } finally {
+                  setRequesting(false);
+                }
+              }}
+            >
+              <Send /> {o.workflow?.publishRequestedAt ? 'Solicitar de novo' : 'Solicitar publicação'}
+            </Button>
+          ) : null}
         </div>
       </div>
+
+      {o.status === 'DRAFT' && o.workflow && (o.workflow.publishRequestedAt || o.workflow.blockedByFourEyes) ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-soft/50 px-4 py-3 text-sm ring-1 ring-warning/20">
+          <Send className="size-4 text-warning" />
+          {o.workflow.publishRequestedAt ? (
+            <span>
+              <strong>Publicação solicitada</strong> por {o.workflow.publishRequestedBy ?? 'usuário da Matriz'} em {formatDateTime(o.workflow.publishRequestedAt)}.
+            </span>
+          ) : null}
+          {o.workflow.blockedByFourEyes ? <span className="text-muted">Dupla checagem ativa: como você fez a última alteração, outra pessoa precisa publicar.</span> : null}
+        </div>
+      ) : null}
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="overflow-hidden">

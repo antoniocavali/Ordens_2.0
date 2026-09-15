@@ -231,6 +231,10 @@ model Tenant {
   require2fa      Boolean      @default(false) @map("require_2fa")
   require2faRoles String[]     @default([]) @map("require_2fa_roles")
   viewSlaHours    Int          @default(24) @map("view_sla_hours")
+  /// Dupla checagem na publicação (Q40): quem publica não pode ser quem editou por último.
+  publishFourEyes     Boolean  @default(false) @map("publish_four_eyes")
+  /// Aplica a dupla checagem só a ordens com pelo menos esta quantidade (toneladas). Nulo = todas.
+  publishFourEyesMinT Decimal? @map("publish_four_eyes_min_t") @db.Decimal(18, 3)
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -979,6 +983,8 @@ model LoadingOrder {
   farmNotes          String?        @map("farm_notes")
   buyerNotes         String?        @map("buyer_notes")
   publishedAt        DateTime?      @map("published_at") @db.Timestamptz(6)
+  publishRequestedAt DateTime?      @map("publish_requested_at") @db.Timestamptz(6)
+  publishRequestedBy String?        @map("publish_requested_by") @db.Uuid
   lastMaterialChangeAt DateTime?    @map("last_material_change_at") @db.Timestamptz(6)
   createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)

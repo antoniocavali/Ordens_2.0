@@ -280,7 +280,29 @@ export interface OrderDetail extends OrderListItem {
   createdBy: string | null;
   releases: ReleaseDto[];
   allowedActions: string[];
+  /** Somente Matriz: fluxo de publicação (Q40). */
+  workflow: OrderWorkflowInfo | null;
 }
+
+export interface OrderWorkflowInfo {
+  publishRequestedAt: string | null;
+  publishRequestedBy: string | null;
+  /** A dupla checagem vale para esta ordem (empresa ativou e a quantidade atinge o mínimo). */
+  fourEyesRequired: boolean;
+  /** Quem consulta foi o último a editar e, com dupla checagem, não pode publicar. */
+  blockedByFourEyes: boolean;
+}
+
+export const requestPublishSchema = z.object({
+  expectedUpdatedAt: z.iso.datetime(),
+});
+
+export const workflowSettingsSchema = z.object({
+  publishFourEyes: z.boolean(),
+  publishFourEyesMinT: quantityString.nullable(),
+});
+export type WorkflowSettingsInput = z.infer<typeof workflowSettingsSchema>;
+export type WorkflowSettingsDto = WorkflowSettingsInput;
 
 export interface ReleaseDto {
   id: string;
