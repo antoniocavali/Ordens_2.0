@@ -91,6 +91,12 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     createdBy: row.created_by_name,
     submittedAt: iso(row.submitted_at),
     submittedBy: row.submitted_by_name,
+    // A Fazenda nunca enxerga solicitações não publicadas; devolução e cancelamento ficam com Matriz e Comprador.
+    returnedAt: scope === 'FARM' ? null : iso(row.returned_at),
+    returnedBy: scope === 'FARM' ? null : row.returned_by_name,
+    returnReason: scope === 'FARM' ? null : row.return_reason,
+    cancelledAt: iso(row.cancelled_at),
+    cancelReason: scope === 'FARM' ? null : row.cancel_reason,
     releases,
     allowedActions,
   } as OrderDetail;

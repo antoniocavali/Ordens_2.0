@@ -63,6 +63,11 @@ export interface OrderRow {
   created_by: string | null;
   submitted_at: Date | null;
   submitted_by_name: string | null;
+  returned_at: Date | null;
+  returned_by_name: string | null;
+  return_reason: string | null;
+  cancelled_at: Date | null;
+  cancel_reason: string | null;
   farm_signal: string;
   farm_viewed_version: number | null;
   farm_viewed_at: Date | null;
@@ -121,6 +126,7 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.published_at, lo.created_at, cu.name as created_by_name, lo.updated_at, uu.name as updated_by_name,
         lo.seller_org_id, lo.buyer_org_id,
         lo.origin::text as origin, lo.created_by, lo.submitted_at, su.name as submitted_by_name,
+        lo.returned_at, ru.name as returned_by_name, lo.return_reason, lo.cancelled_at, lo.cancel_reason,
         ${signalSql('FARM', opts.slaHours)} as farm_signal,
         fv.version as farm_viewed_version, fv.last_viewed_at as farm_viewed_at, fvu.name as farm_viewed_by,
         ${signalSql('BUYER', opts.slaHours)} as buyer_signal,
@@ -136,6 +142,7 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
       left join users cu on cu.id = lo.created_by
       left join users uu on uu.id = lo.updated_by
       left join users su on su.id = lo.submitted_by
+      left join users ru on ru.id = lo.returned_by
       left join lateral (
         select v.version, v.last_viewed_at, v.user_id from loading_order_views v
         where v.order_id = lo.id and v.side = 'FARM'

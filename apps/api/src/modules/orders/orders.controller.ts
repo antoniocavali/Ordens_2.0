@@ -3,6 +3,8 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   assignFarmSchema,
   buyerOrderSchema,
+  orderReasonActionSchema,
+  type OrderReasonActionInput,
   submitOrderSchema,
   updateBuyerOrderSchema,
   type AssignFarmInput,
@@ -117,6 +119,20 @@ export class OrdersController {
   @RequirePermission('order.billing.manage')
   billingPublish(@Param('id', uuid) id: string, @Body(new ZodPipe(submitOrderSchema)) body: z.infer<typeof submitOrderSchema>) {
     return this.orders.billingPublish(id, body.expectedUpdatedAt);
+  }
+
+  @Post(':id/billing/return')
+  @HttpCode(200)
+  @RequirePermission('order.billing.manage')
+  returnToBuyer(@Param('id', uuid) id: string, @Body(new ZodPipe(orderReasonActionSchema)) body: OrderReasonActionInput) {
+    return this.orders.returnToBuyer(id, body);
+  }
+
+  @Post(':id/buyer-cancel')
+  @HttpCode(200)
+  @RequirePermission('order.submit')
+  cancelByBuyer(@Param('id', uuid) id: string, @Body(new ZodPipe(orderReasonActionSchema)) body: OrderReasonActionInput) {
+    return this.orders.cancelBuyerOrder(id, body);
   }
 
   @Post(':id/publish-request')

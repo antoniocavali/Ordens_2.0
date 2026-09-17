@@ -2,7 +2,7 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, Pencil, Send, Sprout } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, Pencil, Send, Sprout, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -15,8 +15,11 @@ import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/
 import type { OrderDetail } from '@ordens/contracts';
 import { AssignFarmDrawer } from '@/features/orders/assign-farm-drawer';
 import { BuyerOrderDrawer } from '@/features/orders/buyer-order-drawer';
+import { ReasonDialog } from '@/features/logistics/reason-dialog';
 import {
   billingPublish,
+  cancelBuyerOrder,
+  returnToBuyer,
   registerView,
   requestPublishOrder,
   submitOrder,
@@ -65,8 +68,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [requesting, setRequesting] = useState(false);
   const [buyerEditing, setBuyerEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const [acting, setActing] = useState<'submit' | 'publish' | null>(null);
-  const act = async (kind: 'submit' | 'publish', fn: () => Promise<OrderDetail>) => {
+  const [reasonAction, setReasonAction] = useState<'return' | 'cancel' | null>(null);
+  const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | null>(null);
+  const act = async (kind: 'submit' | 'publish' | 'reason', fn: () => Promise<OrderDetail>) => {
     setActing(kind);
     try {
       invalidate(await fn());
@@ -196,6 +200,16 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <Send /> Publicar para a Fazenda
             </Button>
           ) : null}
+          {o.allowedActions.includes('return_to_buyer') ? (
+            <Button variant="outline" onClick={() => setReasonAction('return')}>
+              <Undo2 /> Devolver ao Comprador
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('buyer_cancel') ? (
+            <Button variant="ghost" onClick={() => setReasonAction('cancel')}>
+              <XCircle /> Cancelar solicitação
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -211,6 +225,26 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       ) : null}
 
+      {o.status === 'DRAFT' && o.returnedAt ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft/40 px-4 py-3 text-sm ring-1 ring-danger/20">
+          <Undo2 className="size-4 text-danger" />
+          <span>
+            <strong>Devolvida pelo Faturamento</strong>
+            {` em ${formatDateTime(o.returnedAt)}${o.returnedBy ? ` por ${o.returnedBy}` : ''}`}.
+          </span>
+          <span className="text-muted">Motivo: {o.returnReason}</span>
+        </div>
+      ) : null}
+      {o.status === 'CANCELLED' && o.cancelReason ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-4 py-3 text-sm ring-1 ring-border">
+          <XCircle className="size-4 text-muted" />
+          <span>
+            <strong>Solicitação cancelada</strong>
+            {o.cancelledAt ? ` em ${formatDateTime(o.cancelledAt)}` : ''}.
+          </span>
+          <span className="text-muted">Motivo: {o.cancelReason}</span>
+        </div>
+      ) : null}
       {o.status === 'PENDING_BILLING' ? (
         <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-soft/50 px-4 py-3 text-sm ring-1 ring-warning/20">
           <Hourglass className="size-4 text-warning" />
@@ -426,6 +460,27 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
       <BuyerOrderDrawer open={buyerEditing} order={o} onClose={() => setBuyerEditing(false)} />
       {o.allowedActions.includes('assign_farm') ? <AssignFarmDrawer open={assigning} order={o} onClose={() => setAssigning(false)} /> : null}
+      <ReasonDialog
+        open={reasonAction !== null}
+        title={reasonAction === 'return' ? 'Devolver ao Comprador' : 'Cancelar solicitação'}
+        description={
+          reasonAction === 'return'
+            ? 'A solicitação volta a rascunho para o Comprador ajustar e reenviar. Vendedor, fazenda, contrato e dados internos definidos na análise são descartados.'
+            : 'A solicitação é encerrada e não será analisada pelo Faturamento. Esta ação não pode ser desfeita.'
+        }
+        confirmLabel={reasonAction === 'return' ? 'Devolver ao Comprador' : 'Cancelar solicitação'}
+        tone={reasonAction === 'return' ? 'primary' : 'danger'}
+        loading={acting === 'reason'}
+        onCancel={() => setReasonAction(null)}
+        onConfirm={(reason) =>
+          void act('reason', async () => {
+            const d = reasonAction === 'return' ? await returnToBuyer(o.id, o.updatedAt, reason) : await cancelBuyerOrder(o.id, o.updatedAt, reason);
+            toast.success(reasonAction === 'return' ? `Solicitação ${d.number} devolvida ao Comprador` : `Solicitação ${d.number} cancelada`);
+            setReasonAction(null);
+            return d;
+          })
+        }
+      />
       <AppointmentDrawer
         appointment={null}
         open={scheduling}

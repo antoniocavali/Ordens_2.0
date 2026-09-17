@@ -997,6 +997,13 @@ model LoadingOrder {
   origin             OrderOrigin    @default(MATRIZ)
   submittedAt        DateTime?      @map("submitted_at") @db.Timestamptz(6)
   submittedBy        String?        @map("submitted_by") @db.Uuid
+  /// Devolução ao Comprador pelo Faturamento (Q41): volta a rascunho, sem dados da análise.
+  returnedAt         DateTime?      @map("returned_at") @db.Timestamptz(6)
+  returnedBy         String?        @map("returned_by") @db.Uuid
+  returnReason       String?        @map("return_reason")
+  cancelledAt        DateTime?      @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy        String?        @map("cancelled_by") @db.Uuid
+  cancelReason       String?        @map("cancel_reason")
   lastMaterialChangeAt DateTime?    @map("last_material_change_at") @db.Timestamptz(6)
   createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)

@@ -561,8 +561,11 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
 
     // Após o envio: o Comprador acompanha, mas não altera nem volta para rascunho.
     expect(await visible(ctx, o.id)).toBe(1);
-    expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { quantity: '50' } }))).count).toBe(0);
-    expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { status: 'DRAFT', submittedAt: null, submittedBy: null } }))).count).toBe(0);
+    // Solicitação enviada: o trigger só aceita o cancelamento; qualquer outra alteração é recusada.
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { quantity: '50' } }))).rejects.toThrow(/42501|só pode cancelar/);
+    await expect(
+      db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { status: 'DRAFT', submittedAt: null, submittedBy: null } })),
+    ).rejects.toThrow(/42501|só pode cancelar/);
     expect(await visible(buyer(A, 1), o.id)).toBe(0);
 
     // Faturamento define vendedor e fazenda: ainda invisível à Fazenda enquanto aguarda faturamento.
@@ -578,6 +581,47 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
     expect(await visible(ctx, o.id)).toBe(1);
     // Publicada, o Comprador não altera mais nada diretamente no banco.
     expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: o.id }, data: { buyerNotes: 'x' } }))).count).toBe(0);
+  });
+
+  it('Comprador cancela antes da análise; Faturamento devolve e o rascunho volta a ser dele', async () => {
+    const ctx = buyer(A, 0);
+    const submit = (id: string) =>
+      db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id }, data: { status: 'PENDING_BILLING', submittedAt: new Date(), submittedBy: ctx.userId! } }));
+    const cancel = (id: string) =>
+      db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledBy: ctx.userId!, cancelReason: 'Não precisa mais' } }));
+
+    // Enviada e ainda sem fazenda: não altera dados, não cancela sem motivo, cancela com motivo.
+    const a = await buyerDraft(A, ctx);
+    await submit(a.id);
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: a.id }, data: { quantity: '99' } }))).rejects.toThrow();
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: a.id }, data: { status: 'CANCELLED' } }))).rejects.toThrow();
+    expect((await cancel(a.id)).count).toBe(1);
+
+    // Fazenda já definida (análise iniciada): Comprador não cancela mais.
+    const b = await buyerDraft(A, ctx);
+    await submit(b.id);
+    await db.run(matriz(A), (tx) => tx.loadingOrder.update({ where: { id: b.id }, data: { sellerPartnerId: A.sellers[0], farmId: A.farms[0] } }));
+    await expect(cancel(b.id)).rejects.toThrow();
+
+    // Faturamento devolve: rascunho de novo editável por quem criou, sem os dados da análise; devolução é imutável para ele.
+    await db.run(matriz(A), (tx) =>
+      tx.loadingOrder.update({
+        where: { id: b.id },
+        data: { status: 'DRAFT', submittedAt: null, submittedBy: null, sellerPartnerId: null, farmId: null, returnedAt: new Date(), returnedBy: randomUUID(), returnReason: 'Quantidade acima do contrato' },
+      }),
+    );
+    expect((await db.run(ctx, (tx) => tx.loadingOrder.updateMany({ where: { id: b.id }, data: { quantity: '30' } }))).count).toBe(1);
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: b.id }, data: { returnReason: null, returnedAt: null } }))).rejects.toThrow();
+    await expect(db.run(matriz(A), (tx) => tx.loadingOrder.update({ where: { id: b.id }, data: { returnedAt: new Date(), returnReason: null } }))).rejects.toThrow();
+
+    // Cancelada sem publicação: a Fazenda não enxerga, mesmo com fazenda definida.
+    const c = await buyerDraft(A, ctx);
+    await submit(c.id);
+    await db.run(matriz(A), (tx) =>
+      tx.loadingOrder.update({ where: { id: c.id }, data: { sellerPartnerId: A.sellers[0], farmId: A.farms[0], status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Sem saldo' } }),
+    );
+    expect(await visible(farm(A, 0), c.id)).toBe(0);
+    expect(await visible(ctx, c.id)).toBe(1);
   });
 
   it('Comprador numera ordens, mas não outras sequências internas', async () => {

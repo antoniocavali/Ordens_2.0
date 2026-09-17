@@ -67,7 +67,9 @@ export const createBuyerOrder = (data: Record<string, unknown>) => post<OrderDet
 export const updateBuyerOrder = (id: string, expectedUpdatedAt: string, data: Record<string, unknown>) => patch<OrderDetail>(`/orders/buyer/${id}`, { expectedUpdatedAt, data });
 export const submitOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/submit`, { expectedUpdatedAt });
 export const assignFarm = (id: string, body: Record<string, unknown>) => post<OrderDetail>(`/orders/${id}/billing/assign`, body);
-export const billingPublish = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/billing/publish`, { expectedUpdatedAt });
+export const returnToBuyer = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/billing/return`, { expectedUpdatedAt, reason });
+export const cancelBuyerOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/buyer-cancel`, { expectedUpdatedAt, reason });
+export const billingPublish =(id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/billing/publish`, { expectedUpdatedAt });
 
 export const requestPublishOrder =(id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish-request`, { expectedUpdatedAt });
 

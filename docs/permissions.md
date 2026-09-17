@@ -85,8 +85,8 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `order.publish` | — | ● | ● | — | — | — | — | — |
 | `order.cancel` | — | ● | ● | — | — | — | — | — |
 | `order.release` | — | ● | ● | — | — | — | — | — |
-| `order.submit` (portal: criar, editar próprios rascunhos, enviar ao Faturamento) | — | — | — | — | — | — | — | ○ |
-| `order.billing.manage` (definir vendedor/fazenda e publicar solicitações; também papel Faturamento) | — | ● | ● | — | — | — | — | — |
+| `order.submit` (portal: criar, editar próprios rascunhos, enviar ao Faturamento, cancelar antes da análise) | — | — | — | — | — | — | — | ○ |
+| `order.billing.manage` (definir vendedor/fazenda, publicar ou devolver solicitações; também papel Faturamento) | — | ● | ● | — | — | — | — | — |
 | `appointment.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
 | `appointment.manage` | — | ● | ● | ● | — | ○ | ○ | — |
 | `load.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
@@ -111,7 +111,9 @@ Defesa em camadas — nenhuma regra depende só de ocultar botões:
 | Regra | API/domínio | Banco |
 |---|---|---|
 | Comprador cria só para a própria organização | `POST /orders/buyer` (`order.submit`, escopo BUYER); comprador derivado de `organizations.partner_id`; schema estrito | `orders_scope_insert`: `origin = BUYER`, `status = DRAFT`, `created_by = app_user_id()`, `buyer_org_id ∈ org_ids`, sem vendedor/fazenda/contrato |
-| Comprador altera só rascunhos próprios | `assertOwnBuyerDraft` (422 após o envio) | `orders_scope_update` (USING `DRAFT` + criador; CHECK só `DRAFT`/`PENDING_BILLING`) |
+| Comprador altera só rascunhos próprios | `assertOwnBuyerDraft` (422 após o envio) | `orders_scope_update` (USING `DRAFT`/`PENDING_BILLING` + criador) + trigger: solicitação enviada só pode ir para `CANCELLED`, sem mudar dados |
+| Comprador cancela só antes da análise | `cancelBuyerOrder` (422 com fazenda definida) | trigger `loading_orders_buyer_guard` (sem vendedor/fazenda, motivo e autor obrigatórios) |
+| Devolução é da Matriz | `returnToBuyer` (`order.billing.manage`) | trigger impede o Comprador de alterar `returned_*`; constraint exige motivo |
 | Comprador nunca define fazenda, vendedor, contrato, preço, status publicado ou campos internos | schema estrito + endpoints próprios; endpoints administrativos exigem escopo MATRIZ | políticas acima + trigger `loading_orders_buyer_guard` (preço, frete, notas internas/Fazenda, instruções, liberação, totais, versão, publicação, `submitted_by`) |
 | Fazenda só acessa ordens publicadas com a própria fazenda | detalhe/listas sob RLS | `orders_scope_read`: FARM exige status ≠ `DRAFT`/`PENDING_BILLING` e `farm_id` definido |
 | Faturamento trata todas as solicitações do tenant | `order.billing.manage` + escopo MATRIZ | leitura/escrita internas |
