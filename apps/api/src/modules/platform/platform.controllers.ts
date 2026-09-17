@@ -5,6 +5,9 @@ import { Throttle } from '@nestjs/throttler';
 import {
   auditQuerySchema,
   createUserSchema,
+  emailNotificationPrefsSchema,
+  resolveEmailPrefs,
+  type EmailNotificationPrefs,
   inviteUserSchema,
   membershipGrantsSchema,
   savedViewSchema,
@@ -276,6 +279,32 @@ export class MeController {
         update: body,
       }),
     );
+  }
+
+  /** Q44: e-mails dos avisos, por tipo (o aviso no sistema continua sempre ativo). */
+  @Get('notification-preferences')
+  async notificationPreferences() {
+    const { userId } = currentAuth();
+    const pref = await this.db.self(({ tx }) => tx.userPreference.findUnique({ where: { userId }, select: { data: true } }));
+    return resolveEmailPrefs((pref?.data as Record<string, unknown> | null)?.emailNotifications);
+  }
+
+  @Put('notification-preferences')
+  async updateNotificationPreferences(@Body(new ZodPipe(emailNotificationPrefsSchema)) body: EmailNotificationPrefs) {
+    const { userId } = currentAuth();
+    return this.db.self(async ({ tx, audit }) => {
+      const current = await tx.userPreference.findUnique({ where: { userId }, select: { data: true } });
+      const data = (current?.data as Record<string, unknown> | null) ?? {};
+      const before = resolveEmailPrefs(data.emailNotifications);
+      const next = resolveEmailPrefs(body);
+      await tx.userPreference.upsert({
+        where: { userId },
+        create: { userId, data: { emailNotifications: next } },
+        update: { data: { ...data, emailNotifications: next } },
+      });
+      await audit({ entityType: 'user', entityId: userId, action: 'user.notification_preferences_updated', before, after: next });
+      return next;
+    });
   }
 
   @Get('saved-views')

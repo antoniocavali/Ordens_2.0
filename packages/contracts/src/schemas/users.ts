@@ -145,3 +145,50 @@ export interface AuditEventDto {
   requestId: string | null;
   correlationId: string | null;
 }
+
+/**
+ * Avisos que também podem ir por e-mail (Q44). O aviso no sistema continua sempre ativo; o e-mail é
+ * opcional por usuário e por tipo. Chave = tipo do evento de domínio.
+ */
+/** `scopes`: perfis que recebem o aviso (a tela de preferências só mostra os do perfil ativo). */
+export const EMAIL_NOTIFICATION_TYPES = {
+  'order.published': { group: 'Ordens', label: 'Nova ordem publicada para você', default: true, scopes: ['FARM', 'BUYER'] },
+  'order.version_created': { group: 'Ordens', label: 'Ordem alterada (nova versão)', default: false, scopes: ['FARM', 'BUYER'] },
+  'order.release_created': { group: 'Ordens', label: 'Nova liberação de quantidade', default: false, scopes: ['FARM', 'BUYER'] },
+  'order.suspended': { group: 'Ordens', label: 'Ordem suspensa', default: true, scopes: ['FARM', 'BUYER'] },
+  'order.resumed': { group: 'Ordens', label: 'Ordem retomada', default: true, scopes: ['FARM', 'BUYER'] },
+  'order.cancelled': { group: 'Ordens', label: 'Ordem cancelada', default: true, scopes: ['FARM', 'BUYER'] },
+  'order.publish_requested': { group: 'Ordens', label: 'Pedido de publicação para aprovar', default: true, scopes: ['MATRIZ'] },
+  'order.submitted': { group: 'Solicitações do Comprador', label: 'Solicitação enviada ao Faturamento', default: true, scopes: ['MATRIZ'] },
+  'order.returned': { group: 'Solicitações do Comprador', label: 'Solicitação devolvida para ajuste', default: true, scopes: ['BUYER'] },
+  'order.cancelled_by_buyer': { group: 'Solicitações do Comprador', label: 'Solicitação cancelada pelo Comprador', default: true, scopes: ['MATRIZ'] },
+  'occurrence.opened': { group: 'Operação', label: 'Nova ocorrência', default: true, scopes: ['MATRIZ', 'FARM', 'BUYER'] },
+  'invoice.processed': { group: 'Operação', label: 'NF-e rejeitada ou com divergência', default: false, scopes: ['MATRIZ', 'FARM'] },
+} as const satisfies Record<string, { group: string; label: string; default: boolean; scopes: readonly ('MATRIZ' | 'FARM' | 'BUYER')[] }>;
+export type EmailNotificationType = keyof typeof EMAIL_NOTIFICATION_TYPES;
+export const EMAIL_NOTIFICATION_TYPE_KEYS = Object.keys(EMAIL_NOTIFICATION_TYPES) as EmailNotificationType[];
+
+export const emailNotificationPrefsSchema = z.strictObject({
+  enabled: z.boolean(),
+  types: z.partialRecord(z.enum(EMAIL_NOTIFICATION_TYPE_KEYS as [EmailNotificationType, ...EmailNotificationType[]]), z.boolean()),
+});
+export type EmailNotificationPrefs = z.infer<typeof emailNotificationPrefsSchema>;
+
+/** Preferência efetiva: sem registro vale o padrão do tipo; e-mail geral desligado bloqueia todos. */
+export function wantsEmail(raw: unknown, type: string): boolean {
+  if (!(type in EMAIL_NOTIFICATION_TYPES)) return false;
+  const parsed = emailNotificationPrefsSchema.safeParse(raw);
+  const prefs = parsed.success ? parsed.data : null;
+  if (prefs && !prefs.enabled) return false;
+  return prefs?.types[type as EmailNotificationType] ?? EMAIL_NOTIFICATION_TYPES[type as EmailNotificationType].default;
+}
+
+export function resolveEmailPrefs(raw: unknown): { enabled: boolean; types: Record<EmailNotificationType, boolean> } {
+  const parsed = emailNotificationPrefsSchema.safeParse(raw);
+  return {
+    enabled: parsed.success ? parsed.data.enabled : true,
+    types: Object.fromEntries(
+      EMAIL_NOTIFICATION_TYPE_KEYS.map((k) => [k, (parsed.success ? parsed.data.types[k] : undefined) ?? EMAIL_NOTIFICATION_TYPES[k].default]),
+    ) as Record<EmailNotificationType, boolean>,
+  };
+}

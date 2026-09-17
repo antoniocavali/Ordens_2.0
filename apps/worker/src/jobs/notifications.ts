@@ -1,9 +1,9 @@
-import { effectivePermissions, INVOICE_REJECT_LABELS, REALTIME_CHANNEL, type InvoiceRejectCode, type Permission, type RealtimeMessage } from '@ordens/contracts';
+import { effectivePermissions, INVOICE_REJECT_LABELS, notificationHref, REALTIME_CHANNEL, wantsEmail, type InvoiceRejectCode, type Permission, type RealtimeMessage } from '@ordens/contracts';
 import { systemContext, type Tx } from '@ordens/db';
-import type { Job } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { WorkerContext } from '../context.js';
-import type { OutboxJob } from '../queues.js';
+import { DEFAULT_JOB_OPTIONS, type OutboxJob } from '../queues.js';
 
 interface Plan {
   userIds: string[];
@@ -278,15 +278,35 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
   }
 }
 
-/** Cria avisos in-app idempotentes por evento + usuário e sinaliza o stream de tempo real. */
-export function notificationsHandler(ctx: WorkerContext, publisher: Redis) {
+export interface EmailCandidate {
+  id: string;
+  email: string;
+  name: string;
+  preferences: unknown;
+}
+
+/** Q44: destinatários do e-mail = usuários ativos do aviso que mantêm o tipo ligado nas preferências. */
+export function emailRecipients(users: EmailCandidate[], type: string): EmailCandidate[] {
+  return users.filter((u) => wantsEmail((u.preferences as Record<string, unknown> | null)?.emailNotifications, type));
+}
+
+export interface NotificationEmailPayload {
+  email: string;
+  name: string;
+  title: string;
+  body: string | null;
+  url: string | null;
+}
+
+/** Cria avisos in-app idempotentes por evento + usuário, sinaliza o tempo real e enfileira os e-mails opcionais. */
+export function notificationsHandler(ctx: WorkerContext, publisher: Redis, emailQueue: Queue) {
   return async (job: Job<OutboxJob>) => {
     const { tenantId, payload, type, eventId } = job.data;
     if (!tenantId) return;
 
-    const created = await ctx.db.run(systemContext(tenantId), async (tx) => {
+    const { created, emails } = await ctx.db.run(systemContext(tenantId), async (tx) => {
       const plan = await notificationPlan(tx, type, payload);
-      if (!plan?.userIds.length) return [];
+      if (!plan?.userIds.length) return { created: [] as string[], emails: [] as NotificationEmailPayload[] };
       const existing = await tx.notification.findMany({
         where: { userId: { in: plan.userIds }, data: { path: ['eventId'], equals: eventId } },
         select: { userId: true },
@@ -298,8 +318,24 @@ export function notificationsHandler(ctx: WorkerContext, publisher: Redis) {
           data: targets.map((userId) => ({ tenantId, userId, type, title: plan.title, body: plan.body, data: { eventId, ...plan.data } })),
         });
       }
-      return targets;
+      // E-mail vai para todos os destinatários do plano (não só os recém-criados): numa nova tentativa do job,
+      // o id determinístico do job de e-mail evita duplicidade.
+      const users = await tx.user.findMany({
+        where: { id: { in: plan.userIds }, status: 'ACTIVE' },
+        select: { id: true, email: true, name: true, preference: { select: { data: true } } },
+      });
+      const href = notificationHref(plan.data);
+      const emails = emailRecipients(
+        users.map((u) => ({ id: u.id, email: u.email, name: u.name, preferences: u.preference?.data ?? null })),
+        type,
+      ).map((u) => ({ email: u.email, name: u.name, title: plan.title, body: plan.body, url: href ? `${ctx.env.WEB_ORIGIN}${href}` : null }));
+      return { created: targets, emails };
     });
+
+    for (const e of emails) {
+      const job: OutboxJob = { eventId, type: 'notification.email', tenantId, aggregateId: null, correlationId: null, payload: { ...e } };
+      await emailQueue.add('notification.email', job, { ...DEFAULT_JOB_OPTIONS, jobId: `notif-${eventId}-${e.email}` });
+    }
 
     if (created.length) {
       const message: RealtimeMessage = { tenantId, kind: 'notification', keys: [['notifications']], userIds: created };

@@ -17,6 +17,7 @@ async function main() {
   const ctx = createContext(env);
   const connection = ctx.redisConnection;
   const deadLetter = new Queue(QUEUE.DEAD_LETTER, { connection });
+  const emailQueue = new Queue(QUEUE.EMAIL, { connection });
   // Publicador do canal de tempo real (SSE na API). Falhas de publicação fazem o job tentar de novo.
   const publisher = new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 });
 
@@ -25,7 +26,7 @@ async function main() {
     new Worker(QUEUE.FILE_PROCESSING, fileProcessingHandler(ctx), { connection, concurrency: 4 }),
     new Worker(QUEUE.INVOICES, invoiceProcessingHandler(ctx), { connection, concurrency: 4 }),
     new Worker(QUEUE.EMAIL, emailHandler(ctx), { connection, concurrency: 5 }),
-    new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx, publisher), { connection, concurrency: 10 }),
+    new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx, publisher, emailQueue), { connection, concurrency: 10 }),
     new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx, publisher), { connection, concurrency: 1 }),
   ];
 
