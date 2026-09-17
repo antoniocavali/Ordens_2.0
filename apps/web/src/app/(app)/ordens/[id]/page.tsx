@@ -2,7 +2,7 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, PauseCircle, Pencil, PlayCircle, Send, Sprout, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, CheckCircle2, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, PauseCircle, Pencil, PlayCircle, Send, Sprout, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ import {
   billingPublish,
   cancelBuyerOrder,
   cancelOrder,
+  completeOrder,
   resumeOrder,
   returnToBuyer,
   suspendOrder,
@@ -33,6 +34,7 @@ import {
   useViewHistory,
 } from '@/features/orders/orders-api';
 import { CancelReleaseDialog, type CancelReleaseTarget } from '@/features/orders/cancel-release-dialog';
+import { CompleteOrderDialog } from '@/features/orders/complete-order-dialog';
 import { ReleaseDialog } from '@/features/orders/release-dialog';
 import { ReleaseStatusBadge } from '@/features/orders/releases-page';
 import { Timeline } from '@/features/orders/timeline';
@@ -100,8 +102,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [buyerEditing, setBuyerEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [reasonAction, setReasonAction] = useState<ReasonAction | null>(null);
-  const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | 'resume' | null>(null);
-  const act = async (kind: 'submit' | 'publish' | 'reason' | 'resume', fn: () => Promise<OrderDetail>) => {
+  const [completing, setCompleting] = useState(false);
+  const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | 'resume' | 'complete' | null>(null);
+  const act = async (kind: 'submit' | 'publish' | 'reason' | 'resume' | 'complete', fn: () => Promise<OrderDetail>) => {
     setActing(kind);
     try {
       invalidate(await fn());
@@ -255,6 +258,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <PlayCircle /> Retomar ordem
             </Button>
           ) : null}
+          {o.allowedActions.includes('complete') ? (
+            <Button variant="outline" onClick={() => setCompleting(true)}>
+              <CheckCircle2 /> Concluir ordem
+            </Button>
+          ) : null}
           {o.allowedActions.includes('cancel') ? (
             <Button variant="ghost" onClick={() => setReasonAction('order_cancel')}>
               <XCircle /> Cancelar ordem
@@ -363,6 +371,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <Row label="Janela" value={o.loadingStartsOn ? `${formatDate(o.loadingStartsOn)} até ${formatDate(o.loadingEndsOn)}` : null} />
                 <Row label="Transportadora" value={o.preferredCarrier?.name ?? 'A definir'} />
                 <Row label="Frete" value={o.freightMode ? `${o.freightMode}${o.freightEstimate ? ` · ${formatMoney(o.freightEstimate)}` : ''}` : null} />
+                {o.completedAt ? <Row label="Concluída em" value={`${formatDateTime(o.completedAt)}${o.completedBy ? ` · ${o.completedBy}` : ''}`} /> : null}
+                {o.completionReason ? <Row label="Motivo da conclusão" value={o.completionReason} /> : null}
                 <Row label="Recebimento no destino" value={o.requiresReceipt ? 'Exigido' : 'Dispensado'} />
                 <Row label="Destino" value={[o.destinationName, o.destinationCity && `${o.destinationCity}/${o.destinationState ?? ''}`].filter(Boolean).join(' · ') || null} />
               </Group>
@@ -526,6 +536,21 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
       <BuyerOrderDrawer open={buyerEditing} order={o} onClose={() => setBuyerEditing(false)} />
       {o.allowedActions.includes('assign_farm') ? <AssignFarmDrawer open={assigning} order={o} onClose={() => setAssigning(false)} /> : null}
+      {completing ? (
+        <CompleteOrderDialog
+          order={o}
+          loading={acting === 'complete'}
+          onCancel={() => setCompleting(false)}
+          onConfirm={(input) =>
+            void act('complete', async () => {
+              const d = await completeOrder(o.id, o.updatedAt, input);
+              toast.success(`Ordem ${d.number} concluída`, { description: 'Fazenda e Comprador foram avisados.' });
+              setCompleting(false);
+              return d;
+            })
+          }
+        />
+      ) : null}
       {reasonAction ? (
         <ReasonDialog
           open

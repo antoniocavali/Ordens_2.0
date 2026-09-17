@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sprout,
+  Timer,
   Truck,
   UserRound,
   Users,
@@ -102,6 +103,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Gestão',
     items: [
+      { label: 'Gestão do ciclo', href: '/gestao/ciclo', icon: Timer, permission: 'dashboard.matriz' },
       { label: 'Relatórios', href: '/gestao/relatorios', icon: BarChart3, permission: 'report.export' },
       { label: 'Auditoria', href: '/gestao/auditoria', icon: History, permission: 'audit.read' },
       { label: 'Usuários', href: '/gestao/usuarios', icon: Users, permission: 'user.read' },

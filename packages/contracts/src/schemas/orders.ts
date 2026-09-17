@@ -152,6 +152,36 @@ export type OrderReasonActionInput = z.infer<typeof orderReasonActionSchema>;
 
 export const resumeOrderSchema = z.strictObject({ expectedUpdatedAt: z.iso.datetime() });
 
+/**
+ * Conclusão pela Matriz (Q45): motivo obrigatório quando sobra saldo a carregar; `acceptPendingDocuments`
+ * é o aceite explícito quando alguma carga ainda não tem PDF e XML da Fazenda validados.
+ */
+export const completeOrderSchema = z.strictObject({
+  expectedUpdatedAt: z.iso.datetime(),
+  reason: z.string().trim().min(3, 'Informe o motivo').max(1000).nullish(),
+  acceptPendingDocuments: z.boolean().default(false),
+});
+export type CompleteOrderInput = z.infer<typeof completeOrderSchema>;
+
+/** Conferência antes de concluir: o que a Matriz precisa aceitar ou justificar. */
+export interface OrderCompletionCheck {
+  /** Cargas ainda em andamento: impedem a conclusão. */
+  activeLoads: string[];
+  /** Cargas sem PDF e XML da Fazenda validados: exigem aceite explícito. */
+  pendingDocuments: PendingDocumentLoad[];
+  /** Saldo a carregar; maior que zero exige motivo. */
+  balance: string;
+  unit: string;
+  loadsTotal: number;
+}
+
+/** Cargas sem documentação fiscal completa, devolvidas no erro ORDER_DOCUMENTS_PENDING. */
+export interface PendingDocumentLoad {
+  id: string;
+  number: string;
+  issues: string[];
+}
+
 /** Faturamento: completa dados internos e define vendedor/fazenda (a ordem continua aguardando faturamento). */
 export const assignFarmSchema = z.strictObject({
   expectedUpdatedAt: z.iso.datetime(),
@@ -361,6 +391,10 @@ export interface OrderDetail extends OrderListItem {
   /** Cancelamento com motivo (solicitações do portal). */
   cancelledAt: string | null;
   cancelReason: string | null;
+  /** Conclusão (Q45): automática ao encerrar as cargas ou informada pela Matriz. */
+  completedAt: string | null;
+  completedBy: string | null;
+  completionReason: string | null;
   /** Suspensão vigente (status SUSPENDED). */
   suspendedAt: string | null;
   suspendReason: string | null;

@@ -23,6 +23,8 @@ import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
 import { openOccurrence } from '../fiscal/fiscal.util.js';
+import { autoCompleteIfFinished } from '../orders/order-completion.util.js';
+import { fiscalChecklists } from './fiscal-checklist.js';
 import { assertWithinReleased, fleetRefs, orderForLogistics, recalcOrder, resolveFleet } from './logistics.util.js';
 
 type LoadData = z.output<typeof loadInputSchema>;
@@ -32,34 +34,6 @@ const D = Prisma.Decimal;
 /** Frota ainda pode ser trocada: antes da confirmação do carregamento (pesagem). */
 const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING'];
 const FLEET_REQUIRED_FROM: LoadStatus[] = ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
-
-/** Checklist de pesagem e documentos fiscais por carga (uma consulta por tipo, sem N+1). */
-export async function fiscalChecklists(
-  tx: Tx,
-  rows: Pick<LoadRow, 'id' | 'status' | 'grossKg' | 'tareKg'>[],
-  force = false,
-): Promise<Map<string, LoadFiscalChecklist>> {
-  const target = rows.filter((r) => force || LOAD_FISCAL_CHECK_STATUSES.includes(r.status));
-  if (!target.length) return new Map();
-  const ids = target.map((r) => r.id);
-  const [uploads, invoices] = await Promise.all([
-    tx.fileUpload.findMany({
-      where: { entityType: 'load', entityId: { in: ids }, kind: { in: ['PDF', 'NFE_XML'] }, status: { notIn: ['ABORTED', 'EXPIRED'] } },
-      select: { id: true, entityId: true, kind: true, status: true, createdAt: true },
-    }),
-    tx.invoice.findMany({ where: { loadId: { in: ids }, fileUploadId: { not: null } }, select: { loadId: true, fileUploadId: true, status: true } }),
-  ]);
-  return new Map(
-    target.map((r) => [
-      r.id,
-      evaluateFiscalDocuments({
-        weighed: Boolean(r.grossKg && r.tareKg),
-        uploads: uploads.filter((u) => u.entityId === r.id),
-        invoices: invoices.filter((i) => i.loadId === r.id),
-      }),
-    ]),
-  );
-}
 
 /** Trânsito encerrado sem recebimento (ordem dispensa a etapa). */
 const skipsReceipt = (from: LoadStatus, to: LoadStatus) => from === 'IN_TRANSIT' && to === 'AWAITING_MATRIZ_INVOICE';
@@ -299,6 +273,9 @@ export class LoadsService {
         await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.status_changed', before: { status: 'PUBLISHED' }, after: { status: 'IN_PROGRESS', reason: `Carga ${load.number} iniciou o carregamento` } });
       }
       await recalcOrder(tx, load.orderId);
+
+      // Q45: encerrada a última carga, a ordem conclui sozinha quando nada mais está pendente.
+      if (finalStatus === 'COMPLETED' || finalStatus === 'CANCELLED') await autoCompleteIfFinished(scope, load.orderId);
 
       await outbox({ type: 'load.status_changed', aggregateType: 'load', aggregateId: id, payload: { loadId: id, orderId: load.orderId, number: load.number, from: load.status, to: finalStatus } });
       return this.dto(tx, id);

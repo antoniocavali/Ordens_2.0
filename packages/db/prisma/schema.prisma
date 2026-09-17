@@ -982,6 +982,10 @@ model LoadingOrder {
   loadingEndsOn      DateTime?      @map("loading_ends_on") @db.Date
   tolerancePct       Decimal        @default(0) @map("tolerance_pct") @db.Decimal(9, 4)
   requiresReceipt    Boolean        @default(true) @map("requires_receipt")
+  completedAt        DateTime?      @map("completed_at") @db.Timestamptz(6)
+  completedBy        String?        @map("completed_by") @db.Uuid
+  completionReason   String?        @map("completion_reason")
+  completionVia      String?        @map("completion_via")
   destinationName    String?        @map("destination_name")
   destinationAddress String?        @map("destination_address")
   destinationCity    String?        @map("destination_city")

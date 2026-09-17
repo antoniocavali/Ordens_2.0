@@ -70,6 +70,8 @@ export const assignFarm = (id: string, body: Record<string, unknown>) => post<Or
 export const suspendOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/suspend`, { expectedUpdatedAt, reason });
 export const resumeOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/resume`, { expectedUpdatedAt });
 export const cancelOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/cancel`, { expectedUpdatedAt, reason });
+export const completeOrder = (id: string, expectedUpdatedAt: string, input: { reason: string | null; acceptPendingDocuments: boolean }) =>
+  post<OrderDetail>(`/orders/${id}/complete`, { expectedUpdatedAt, ...input });
 export const returnToBuyer =(id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/billing/return`, { expectedUpdatedAt, reason });
 export const cancelBuyerOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/buyer-cancel`, { expectedUpdatedAt, reason });
 export const billingPublish =(id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/billing/publish`, { expectedUpdatedAt });

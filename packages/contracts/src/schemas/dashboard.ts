@@ -74,3 +74,39 @@ export interface BuyerDashboard {
     since: string | null;
   }[];
 }
+
+/**
+ * Painel de Gestão (Q46): tempos do ciclo da ordem, do envio/publicação até a conclusão.
+ * Horas como número (uma casa); nulo quando não há amostra no período.
+ */
+export interface ManagementCycleDto {
+  from: string;
+  to: string;
+  generatedAt: string;
+  completed: number;
+  autoCompleted: number;
+  completedWithBalance: number;
+  averagesHours: {
+    submitToPublish: number | null;
+    publishToFirstLoad: number | null;
+    publishToComplete: number | null;
+    firstLoadToComplete: number | null;
+  };
+  /** Percentil 90 de publicação → conclusão, em horas. */
+  p90PublishToComplete: number | null;
+  /** Distribuição do ciclo publicação → conclusão. */
+  histogram: { key: string; label: string; count: number }[];
+  byCommodity: { id: string; name: string; orders: number; avgHours: number | null }[];
+  /** Ordens concluídas mais demoradas do período. */
+  slowest: { id: string; number: string; commodity: string | null; counterpart: string | null; hours: number; via: string; completedAt: string }[];
+  /** Ordens ainda abertas por tempo desde a publicação. */
+  openAging: { key: string; label: string; count: number }[];
+}
+
+export const MANAGEMENT_CYCLE_BUCKETS = [
+  { key: 'd0_3', label: 'Até 3 dias', maxDays: 3 },
+  { key: 'd4_7', label: '4 a 7 dias', maxDays: 7 },
+  { key: 'd8_15', label: '8 a 15 dias', maxDays: 15 },
+  { key: 'd16_30', label: '16 a 30 dias', maxDays: 30 },
+  { key: 'd31', label: 'Mais de 30 dias', maxDays: null },
+] as const;

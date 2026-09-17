@@ -12,6 +12,8 @@ import {
   type BuyerOrderInput,
   type UpdateBuyerOrderInput,
   cancelReleaseSchema,
+  completeOrderSchema,
+  type CompleteOrderInput,
   createReleaseSchema,
   orderDraftSchema,
   orderListQuerySchema,
@@ -134,6 +136,19 @@ export class OrdersController {
   @RequirePermission('order.cancel')
   resume(@Param('id', uuid) id: string, @Body(new ZodPipe(resumeOrderSchema)) body: z.infer<typeof resumeOrderSchema>) {
     return this.orders.resumeOrder(id, body.expectedUpdatedAt);
+  }
+
+  @Get(':id/completion-check')
+  @RequirePermission('order.cancel')
+  completionCheck(@Param('id', uuid) id: string) {
+    return this.orders.completionCheck(id);
+  }
+
+  /** Q45: conclusão informada pela Matriz (aceite explícito quando faltam PDF/XML da Fazenda). */
+  @Post(':id/complete')
+  @RequirePermission('order.cancel')
+  complete(@Param('id', uuid) id: string, @Body(new ZodPipe(completeOrderSchema)) body: CompleteOrderInput) {
+    return this.orders.completeOrder(id, body);
   }
 
   @Post(':id/cancel')
