@@ -541,6 +541,11 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
     await expect(buyerDraft(A, ctx, { internalNotes: 'interno' })).rejects.toThrow(denied);
     await expect(buyerDraft(A, ctx, { status: 'PUBLISHED' })).rejects.toThrow();
     await expect(buyerDraft(A, ctx, { origin: 'MATRIZ' })).rejects.toThrow(denied);
+    // Recebimento no destino: somente a Matriz decide.
+    await expect(buyerDraft(A, ctx, { requiresReceipt: false })).rejects.toThrow(/Somente a Matriz/);
+    await expect(db.run(ctx, (tx) => tx.loadingOrder.update({ where: { id: own.id }, data: { requiresReceipt: false } }))).rejects.toThrow(/Somente a Matriz/);
+    await db.run(matriz(A), (tx) => tx.loadingOrder.update({ where: { id: own.id }, data: { requiresReceipt: false } }));
+    expect((await db.run(matriz(A), (tx) => tx.loadingOrder.findUniqueOrThrow({ where: { id: own.id } }))).requiresReceipt).toBe(false);
 
     // Rascunho é só de quem criou: outro usuário do mesmo Comprador, outro Comprador e a Fazenda não enxergam.
     expect(await visible(buyer(A, 0), own.id)).toBe(0);

@@ -76,6 +76,7 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     freightMode: row.freight_mode as OrderDetail['freightMode'],
     freightEstimate: scope === 'BUYER' ? null : dec(row.freight_estimate),
     tolerancePct: dec(row.tolerance_pct) ?? '0',
+    requiresReceipt: row.requires_receipt,
     destinationName: row.destination_name,
     destinationAddress: row.destination_address,
     destinationCity: row.destination_city,

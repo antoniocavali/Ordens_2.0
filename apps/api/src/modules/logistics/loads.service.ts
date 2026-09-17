@@ -61,6 +61,9 @@ export async function fiscalChecklists(
   );
 }
 
+/** Trânsito encerrado sem recebimento (ordem dispensa a etapa). */
+const skipsReceipt = (from: LoadStatus, to: LoadStatus) => from === 'IN_TRANSIT' && to === 'AWAITING_MATRIZ_INVOICE';
+
 @Injectable()
 export class LoadsService {
   constructor(private readonly db: TenantDb) {}
@@ -215,7 +218,14 @@ export class LoadsService {
       const { tx, audit, outbox } = scope;
       const load = await this.lock(tx, id, input.expectedUpdatedAt);
       const to = input.to as LoadStatus;
-      if (!canTransitionLoad(load.status, to, scopeName)) {
+      const { requiresReceipt } = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId }, select: { requiresReceipt: true } });
+      if (!canTransitionLoad(load.status, to, scopeName, { requiresReceipt })) {
+        if (load.status === 'IN_TRANSIT' && LOAD_TRANSITIONS.IN_TRANSIT.includes(to)) {
+          throw AppError.domain(
+            ErrorCode.INVALID_TRANSITION,
+            requiresReceipt ? 'Esta ordem exige o recebimento no destino antes do faturamento.' : 'Esta ordem dispensa o recebimento no destino: encerre o transporte e siga para o faturamento.',
+          );
+        }
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, `Não é possível passar de "${LOAD_STATUS_LABELS[load.status]}" para "${LOAD_STATUS_LABELS[to]}" com seu perfil.`);
       }
       if (to === 'CANCELLED' && !input.notes) throw AppError.validation({ fields: { notes: ['Informe o motivo do cancelamento'] } }, 'Informe o motivo do cancelamento.');
@@ -252,6 +262,9 @@ export class LoadsService {
         // Ao carregar, a quantidade prevista desta carga deixa de contar como agendada e passa a contar o peso real.
         assertWithinReleased(fresh, net.dividedBy(factor), load.expectedQty);
         data.loadedAt = new Date();
+      }
+      if (skipsReceipt(load.status, to)) {
+        await audit({ entityType: 'load', entityId: id, action: 'load.receipt_skipped', after: { reason: 'Ordem dispensa recebimento no destino' } });
       }
       if (to === 'RECEIVED') {
         const received = input.receivedQty ?? load.receivedQty?.toString();
@@ -354,8 +367,8 @@ export class LoadsService {
     const refs = await fleetRefs(tx, rows);
     const checklists = await fiscalChecklists(tx, rows);
     const orderIds = [...new Set(rows.map((r) => r.orderId))];
-    const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string | null; factor: Prisma.Decimal | null }[]>(Prisma.sql`
-      select lo.id, lo.number, c.name as commodity, f.name as farm, coalesce(bp.trade_name, bp.legal_name) as buyer, u.code as unit, u.factor_to_kg as factor
+    const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string | null; factor: Prisma.Decimal | null; requires_receipt: boolean }[]>(Prisma.sql`
+      select lo.id, lo.requires_receipt, lo.number, c.name as commodity, f.name as farm, coalesce(bp.trade_name, bp.legal_name) as buyer, u.code as unit, u.factor_to_kg as factor
       from loading_orders lo
       left join commodities c on c.id = lo.commodity_id
       left join farms f on f.id = lo.farm_id
@@ -376,7 +389,7 @@ export class LoadsService {
       return {
         id: r.id,
         number: r.number,
-        order: { id: r.orderId, number: o?.number ?? '', commodity: o?.commodity ?? null, farm: o?.farm ?? null, buyer: o?.buyer ?? null, unit: o?.unit === 'T' ? 't' : (o?.unit?.toLowerCase() ?? '') },
+        order: { id: r.orderId, number: o?.number ?? '', requiresReceipt: o?.requires_receipt ?? true, commodity: o?.commodity ?? null, farm: o?.farm ?? null, buyer: o?.buyer ?? null, unit: o?.unit === 'T' ? 't' : (o?.unit?.toLowerCase() ?? '') },
         appointmentId: r.appointmentId,
         loadingDate: fromDate(r.loadingDate),
         expectedQty: r.expectedQty.toString(),
@@ -389,7 +402,7 @@ export class LoadsService {
         status: r.status,
         notes: r.notes,
         updatedAt: r.updatedAt.toISOString(),
-        allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName)) : [],
+        allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName, { requiresReceipt: o?.requires_receipt ?? true })) : [],
         fiscalChecklist: checklists.get(r.id) ?? null,
         ...refs(r),
       };

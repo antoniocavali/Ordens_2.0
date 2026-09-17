@@ -36,6 +36,7 @@ export const ORDER_MATERIAL_FIELDS = [
   'unitPrice',
   'currency',
   'tolerancePct',
+  'requiresReceipt',
   'freightMode',
   'commercialTerms',
   'loadingInstructions',
@@ -73,6 +74,8 @@ export const orderDraftSchema = z
     loadingStartsOn: dateOnly.nullish(),
     loadingEndsOn: dateOnly.nullish(),
     tolerancePct: percentString.nullish(),
+    /** Recebimento no destino exigido (padrão). Falso: a carga vai do trânsito direto ao faturamento da Matriz. */
+    requiresReceipt: z.boolean().nullish(),
     destinationName: optionalText(160),
     destinationAddress: optionalText(255),
     destinationCity: optionalText(120),
@@ -157,6 +160,7 @@ export const assignFarmSchema = z.strictObject({
   contractId: z.uuid().nullish(),
   unitPrice: priceString.nullish(),
   tolerancePct: percentString.nullish(),
+  requiresReceipt: z.boolean().optional(),
   loadingInstructions: optionalText(4000),
   farmNotes: optionalText(4000),
   internalNotes: optionalText(4000),
@@ -333,6 +337,7 @@ export interface OrderDetail extends OrderListItem {
   freightMode: FreightMode | null;
   freightEstimate: string | null;
   tolerancePct: string;
+  requiresReceipt: boolean;
   destinationName: string | null;
   destinationAddress: string | null;
   destinationCity: string | null;

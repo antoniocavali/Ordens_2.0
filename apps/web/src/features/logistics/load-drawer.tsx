@@ -36,6 +36,10 @@ const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
   LOADED: 'Confirmar carregamento',
   FARM_INVOICED: 'Validar documentação fiscal',
   IN_TRANSIT: 'Liberar para transporte',
+  ARRIVED: 'Registrar chegada',
+  RECEIVED: 'Confirmar recebimento',
+  // Ordem dispensa recebimento no destino.
+  AWAITING_MATRIZ_INVOICE: 'Encerrar transporte',
 };
 
 function DocState({ state }: { state: FiscalDocState }) {
@@ -253,10 +257,12 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 </div>
               </FormSection>
 
-              <FormSection title="Recebimento">
-                <Field label={`Quantidade recebida (${l.order.unit})`} className={span[3]} error={errors.receivedQty?.message} hint="Informe na chegada ao destino">
-                  {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...form.register('receivedQty')} />}
-                </Field>
+              <FormSection title="Recebimento" description={l.order.requiresReceipt ? undefined : 'Esta ordem dispensa o recebimento no destino.'}>
+                {l.order.requiresReceipt ? (
+                  <Field label={`Quantidade recebida (${l.order.unit})`} className={span[3]} error={errors.receivedQty?.message} hint="Informe na chegada ao destino">
+                    {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...form.register('receivedQty')} />}
+                  </Field>
+                ) : null}
                 <Field label="Observações" className={span[6]}>
                   {(a) => <Textarea {...a} rows={2} {...form.register('notes')} />}
                 </Field>

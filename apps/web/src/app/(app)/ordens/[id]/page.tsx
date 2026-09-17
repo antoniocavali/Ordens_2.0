@@ -80,7 +80,10 @@ const FIELD_LABEL: Record<string, string> = {
   buyerNotes: 'Observação para o Comprador',
   loadingInstructions: 'Instruções de carregamento',
   tolerancePct: 'Tolerância',
+  requiresReceipt: 'Recebimento no destino',
 };
+
+const fieldValue = (v: unknown) => (v === true ? 'Sim' : v === false ? 'Não' : String(v ?? '—'));
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -360,6 +363,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <Row label="Janela" value={o.loadingStartsOn ? `${formatDate(o.loadingStartsOn)} até ${formatDate(o.loadingEndsOn)}` : null} />
                 <Row label="Transportadora" value={o.preferredCarrier?.name ?? 'A definir'} />
                 <Row label="Frete" value={o.freightMode ? `${o.freightMode}${o.freightEstimate ? ` · ${formatMoney(o.freightEstimate)}` : ''}` : null} />
+                <Row label="Recebimento no destino" value={o.requiresReceipt ? 'Exigido' : 'Dispensado'} />
                 <Row label="Destino" value={[o.destinationName, o.destinationCity && `${o.destinationCity}/${o.destinationState ?? ''}`].filter(Boolean).join(' · ') || null} />
               </Group>
               <Group title="Controle">
@@ -610,7 +614,7 @@ function VersionsList({ id }: { id: string }) {
               {v.changedFields.map((c) => (
                 <li key={c.field} className="flex flex-wrap items-center gap-2">
                   <span className="text-muted">{FIELD_LABEL[c.field] ?? c.field}:</span>
-                  <span className="text-subtle line-through">{String(c.from ?? '—')}</span>→<span className="font-medium">{String(c.to ?? '—')}</span>
+                  <span className="text-subtle line-through">{fieldValue(c.from)}</span>→<span className="font-medium">{fieldValue(c.to)}</span>
                 </li>
               ))}
             </ul>

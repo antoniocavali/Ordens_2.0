@@ -33,7 +33,8 @@ export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   LOADED: ['AWAITING_FARM_INVOICE'],
   AWAITING_FARM_INVOICE: ['FARM_INVOICED'],
   FARM_INVOICED: ['IN_TRANSIT'],
-  IN_TRANSIT: ['ARRIVED'],
+  // Sem recebimento exigido pela ordem, o trânsito segue direto para o faturamento da Matriz.
+  IN_TRANSIT: ['ARRIVED', 'AWAITING_MATRIZ_INVOICE'],
   ARRIVED: ['RECEIVED'],
   RECEIVED: ['CHECKED'],
   CHECKED: ['AWAITING_MATRIZ_INVOICE'],
@@ -62,8 +63,17 @@ export const LOAD_TRANSITION_SCOPES: Record<LoadStatus, readonly Scope[]> = {
   CANCELLED: ['MATRIZ', 'FARM'],
 };
 
-export function canTransitionLoad(from: LoadStatus, to: LoadStatus, scope: Scope): boolean {
+export interface LoadTransitionContext {
+  /** Ordem exige recebimento no destino (padrão true). */
+  requiresReceipt?: boolean;
+}
+
+export function canTransitionLoad(from: LoadStatus, to: LoadStatus, scope: Scope, ctx: LoadTransitionContext = {}): boolean {
   if (!LOAD_TRANSITIONS[from].includes(to)) return false;
+  if (from === 'IN_TRANSIT') {
+    const requiresReceipt = ctx.requiresReceipt ?? true;
+    if (requiresReceipt ? to === 'AWAITING_MATRIZ_INVOICE' : to === 'ARRIVED') return false;
+  }
   if (!LOAD_TRANSITION_SCOPES[to].includes(scope)) return false;
   // Fazenda só cancela antes do carregamento começar.
   if (to === 'CANCELLED' && scope === 'FARM') {
