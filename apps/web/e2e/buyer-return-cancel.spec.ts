@@ -34,6 +34,11 @@ test.describe('Devolução e cancelamento de solicitações', () => {
 
     // ─── Devolução pelo Faturamento (motivo obrigatório) ───
     const billing = await loginAs(browser, 'faturamento@graoforte.demo');
+    const attention = async (p: Page, key: string) =>
+      ((await apiOk(p, 'GET', '/dashboard')).attention as { key: string; count: number }[]).find((a) => a.key === key)?.count ?? 0;
+    // Painéis refletem o fluxo: fila do Faturamento e acompanhamento do Comprador.
+    expect(await attention(billing.page, 'pending_billing')).toBeGreaterThan(0);
+    expect(await attention(page, 'buyer_pending_billing')).toBeGreaterThan(0);
     expect((await api(billing.page, 'POST', `/orders/${sent.id}/billing/return`, { expectedUpdatedAt: sent.updatedAt, reason: '' })).status).toBeGreaterThanOrEqual(400);
     await billing.page.goto(`/ordens/${sent.id}`);
     await billing.page.getByRole('button', { name: 'Devolver ao Comprador' }).click();
@@ -47,6 +52,7 @@ test.describe('Devolução e cancelamento de solicitações', () => {
 
     // ─── Comprador vê o motivo, ajusta e reenvia pela tela ───
     await notified(page, `${sent.number} devolvida`);
+    expect(await attention(page, 'buyer_returned')).toBeGreaterThan(0);
     await page.goto(`/ordens/${sent.id}`);
     await expect(page.getByRole('status').filter({ hasText: 'Devolvida pelo Faturamento' })).toContainText('Janela de carregamento curta demais');
     const draft = await apiOk(page, 'GET', `/orders/${sent.id}`);

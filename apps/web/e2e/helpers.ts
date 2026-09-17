@@ -15,8 +15,8 @@ export async function submitLogin(page: Page, email: string, secret: string, exp
     const responsePromise = page.waitForResponse((r) => r.url().includes('/api/auth/login') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Entrar' }).click();
     const response = await responsePromise;
-    // 502-504: proxy do Next enquanto a API reinicia (watch em dev, subida no CI).
-    const transient = [502, 503, 504].includes(response.status());
+    // 500 (proxy do Next sem API) e 502-504: API reiniciando (watch em dev, subida no CI).
+    const transient = [500, 502, 503, 504].includes(response.status());
     if ((response.status() === 429 || transient) && attempt < 4) {
       const headers = response.headers();
       const wait = transient ? 3 : Number(headers['retry-after'] ?? headers['retry-after-default'] ?? 30);
