@@ -233,12 +233,12 @@ export class DashboardService {
           ? [
               item('pending_billing', 'Solicitações do Comprador aguardando faturamento', sig?.pending_billing, 'warning', '/ordens?status=PENDING_BILLING'),
               item('farm_view_overdue', 'OCs sem visualização da Fazenda no prazo', sig?.farm_overdue, 'danger', '/ordens?farmSignal=OVERDUE'),
-              item('late_loads', 'Cargas atrasadas', loads?.late, 'danger', '/cargas'),
+              item('late_loads', 'Cargas atrasadas', loads?.late, 'danger', '/cargas?etapa=atrasadas'),
               item('rejected_invoices', 'Cargas com XML rejeitado', inv?.rejected_open, 'danger', '/documentos/nfe'),
               item('over_tolerance', 'OCs carregadas acima da tolerância', sig?.over_tolerance, 'danger', '/ordens'),
               item('occurrences_overdue', 'Ocorrências com prazo vencido', occ?.overdue, 'danger', '/ocorrencias'),
               item('buyer_view_overdue', 'OCs sem visualização do Comprador no prazo', sig?.buyer_overdue, 'warning', '/ordens?buyerSignal=OVERDUE'),
-              item('awaiting_invoice', 'Cargas aguardando documentação fiscal da Fazenda', loads?.awaiting_invoice, 'warning', '/cargas'),
+              item('awaiting_invoice', 'Cargas aguardando documentação fiscal da Fazenda', loads?.awaiting_invoice, 'warning', '/cargas?etapa=documentacao'),
               item('divergent_invoices', 'NF-e com divergência', inv?.divergent, 'warning', '/documentos/nfe'),
               item('occurrences_severe', 'Ocorrências altas ou críticas em aberto', occ?.severe, 'warning', '/ocorrencias'),
               item('appointments_without_carrier', 'Agendamentos sem transportadora', appt?.without_carrier, 'info', '/agendamentos'),
@@ -249,8 +249,8 @@ export class DashboardService {
             ? [
                 item('farm_view_pending', 'OCs novas ou alteradas para visualizar', sig?.farm_pending, 'danger', '/ordens'),
                 item('rejected_invoices', 'Cargas com XML rejeitado', inv?.rejected_open, 'danger', '/documentos/nfe'),
-                item('late_loads', 'Cargas atrasadas', loads?.late, 'danger', '/cargas'),
-                item('awaiting_invoice', 'Cargas aguardando seu PDF e XML da NF-e', loads?.awaiting_invoice, 'danger', '/cargas'),
+                item('late_loads', 'Cargas atrasadas', loads?.late, 'danger', '/cargas?etapa=atrasadas'),
+                item('awaiting_invoice', 'Cargas aguardando seu PDF e XML da NF-e', loads?.awaiting_invoice, 'danger', '/cargas?etapa=documentacao'),
                 item('occurrences_open', 'Ocorrências em aberto', occ?.open, 'warning', '/ocorrencias'),
                 item('appointments_today', 'Agendamentos para hoje', appt?.today, 'info', '/agendamentos'),
               ]
@@ -260,7 +260,7 @@ export class DashboardService {
                 item('buyer_view_pending', 'OCs novas ou alteradas para visualizar', sig?.buyer_pending, 'danger', '/ordens'),
                 item('divergent_invoices', 'NF-e com divergência', inv?.divergent, 'warning', '/documentos/nfe'),
                 item('occurrences_open', 'Ocorrências compartilhadas em aberto', occ?.open, 'warning', '/ocorrencias'),
-                item('in_transit', 'Cargas a caminho', loads?.in_transit, 'info', '/cargas'),
+                item('in_transit', 'Cargas a caminho', loads?.in_transit, 'info', '/cargas?etapa=transit'),
               ];
 
       const ordered = new D((k?.ordered_t ?? 0).toString());
