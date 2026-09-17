@@ -9,8 +9,8 @@ export function AuthShowcase() {
       <div className="relative flex h-full flex-col justify-between p-12 text-white">
         <div className="flex items-center gap-2.5">
           <Logo />
-          <span className="text-[15px] font-semibold tracking-tight">Ordens</span>
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/70">TMS</span>
+          <span className="text-[15px] font-semibold tracking-tight">Cooperfarms</span>
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/70">Ordens</span>
         </div>
 
         <div className="space-y-8">
@@ -69,16 +69,15 @@ export function AuthShowcase() {
 
 export function Logo({ className = 'size-8' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" className={className} fill="none">
-      <rect width="32" height="32" rx="9" fill="url(#lg)" />
-      <path d="M9 20.5 16 9l7 11.5" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M11.5 16.5h9" stroke="white" strokeOpacity=".7" strokeWidth="2.4" strokeLinecap="round" />
-      <defs>
-        <linearGradient id="lg" x1="0" y1="0" x2="32" y2="32">
-          <stop stopColor="#8B5CF6" />
-          <stop offset="1" stopColor="#4F46E5" />
-        </linearGradient>
-      </defs>
-    </svg>
+    <span className={`inline-grid shrink-0 place-items-center overflow-hidden rounded-[28%] bg-primary ${className}`} aria-label="Cooperfarms" role="img">
+      <span
+        aria-hidden
+        className="h-[58%] w-[84%] bg-white"
+        style={{
+          mask: "url('/brand/cooperfarms-mark.png') center / contain no-repeat",
+          WebkitMask: "url('/brand/cooperfarms-mark.png') center / contain no-repeat",
+        }}
+      />
+    </span>
   );
 }

@@ -33,8 +33,8 @@ export function Sidebar({ collapsed, onToggle, onNavigate }: { collapsed: boolea
         <Logo className="size-8 shrink-0" />
         {!collapsed ? (
           <div className="min-w-0 leading-tight">
-            <div className="text-[15px] font-semibold tracking-tight text-white">Ordens</div>
-            <div className="truncate text-[11px] text-nav-muted">{me?.activeMembership?.tenant.name ?? 'TMS'}</div>
+            <div className="text-[15px] font-semibold tracking-tight text-white">Cooperfarms</div>
+            <div className="truncate text-[11px] text-nav-muted">{me?.activeMembership?.tenant.name ?? 'Ordens'}</div>
           </div>
         ) : null}
       </div>

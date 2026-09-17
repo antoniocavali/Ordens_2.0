@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains', display: 'swap' });
 
 export const metadata: Metadata = {
-  title: { default: 'Ordens · TMS', template: '%s · Ordens' },
+  title: { default: 'Cooperfarms · Ordens', template: '%s · Cooperfarms' },
   description: 'Gestão de Ordens de Carregamento para o agronegócio',
 };
 
