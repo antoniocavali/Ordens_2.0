@@ -95,6 +95,19 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       };
     }
 
+    case 'order.completed': {
+      const order = await tx.loadingOrder.findUnique({ where: { id: str(p.orderId) ?? '' }, select: { sellerOrgId: true, buyerOrgId: true } });
+      if (!order) return null;
+      const userIds = await usersOf(tx, [order.sellerOrgId, order.buyerOrgId]);
+      const balance = str(p.balance);
+      return {
+        userIds,
+        title: `Ordem ${str(p.number)} concluída`,
+        body: str(p.reason) ? `Motivo: ${str(p.reason)}.` : balance && balance !== '0' ? `Saldo não carregado: ${balance}.` : 'Carregamento encerrado.',
+        data: { orderId: str(p.orderId) },
+      };
+    }
+
     case 'order.suspended':
     case 'order.resumed':
     case 'order.cancelled': {

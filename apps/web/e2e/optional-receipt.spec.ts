@@ -9,8 +9,9 @@ test.describe('Recebimento no destino opcional', () => {
     await login(page, 'admin@graoforte.demo');
     const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
     expect(loads.length).toBeGreaterThan(0);
-    const load = loads[0];
-    expect(load.order.requiresReceipt).toBe(true);
+    // Alguma carga cuja ordem ainda exige o recebimento (execuções anteriores podem ter dispensado outras).
+    const load = loads.find((l) => l.order.requiresReceipt);
+    expect(load, 'nenhuma carga em trânsito com recebimento exigido').toBeTruthy();
     expect(load.allowedTransitions).toContain('ARRIVED');
     expect(load.allowedTransitions).not.toContain('AWAITING_MATRIZ_INVOICE');
 

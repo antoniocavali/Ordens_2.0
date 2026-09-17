@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Scope } from '../enums.js';
+import type { OrderStatus, Scope } from '../enums.js';
 
 export const DASHBOARD_PERIODS = ['today', '7d', '30d'] as const;
 export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
@@ -74,3 +74,70 @@ export interface BuyerDashboard {
     since: string | null;
   }[];
 }
+
+/**
+ * Painel de Gestão (Q46): tempos do ciclo da ordem, do envio/publicação até a conclusão.
+ * Horas como número (uma casa); nulo quando não há amostra no período.
+ */
+export interface ManagementCycleDto {
+  from: string;
+  to: string;
+  generatedAt: string;
+  completed: number;
+  autoCompleted: number;
+  completedWithBalance: number;
+  averagesHours: {
+    submitToPublish: number | null;
+    publishToFirstLoad: number | null;
+    publishToComplete: number | null;
+    firstLoadToComplete: number | null;
+  };
+  /** Percentil 90 de publicação → conclusão, em horas. */
+  p90PublishToComplete: number | null;
+  /** Distribuição do ciclo publicação → conclusão. */
+  histogram: { key: string; label: string; count: number }[];
+  byCommodity: { id: string; name: string; orders: number; avgHours: number | null }[];
+  /** Ordens concluídas mais demoradas do período. */
+  slowest: { id: string; number: string; commodity: string | null; counterpart: string | null; hours: number; via: string; completedAt: string }[];
+  /** Ordens ainda abertas por tempo desde a publicação. */
+  openAging: { key: string; label: string; count: number }[];
+  /** Tempo de cada ordem (concluídas no período e abertas), da publicação ao fim ou até agora. */
+  orders: ManagementOrderRow[];
+  /** Houve mais ordens do que o limite da listagem. */
+  ordersTruncated: boolean;
+}
+
+/** Uma linha por ordem: marcos e tempos em horas (nulo quando o marco não existe). */
+export interface ManagementOrderRow {
+  id: string;
+  number: string;
+  commodity: string | null;
+  farm: string | null;
+  buyer: string | null;
+  status: OrderStatus;
+  /** Conclusão automática, informada pela Matriz, ou null enquanto a ordem está aberta. */
+  via: 'auto' | 'manual' | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  firstLoadAt: string | null;
+  completedAt: string | null;
+  loads: number;
+  quantityT: string;
+  loadedT: string;
+  hours: {
+    submitToPublish: number | null;
+    publishToFirstLoad: number | null;
+    /** Publicação → conclusão; para ordens abertas, publicação → agora. */
+    publishToEnd: number | null;
+  };
+}
+
+export const MANAGEMENT_ORDERS_LIMIT = 300;
+
+export const MANAGEMENT_CYCLE_BUCKETS = [
+  { key: 'd0_3', label: 'Até 3 dias', maxDays: 3 },
+  { key: 'd4_7', label: '4 a 7 dias', maxDays: 7 },
+  { key: 'd8_15', label: '8 a 15 dias', maxDays: 15 },
+  { key: 'd16_30', label: '16 a 30 dias', maxDays: 30 },
+  { key: 'd31', label: 'Mais de 30 dias', maxDays: null },
+] as const;

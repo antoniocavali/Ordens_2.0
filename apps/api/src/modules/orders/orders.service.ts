@@ -8,6 +8,8 @@ import {
   type AssignFarmInput,
   type BuyerOrderInput,
   type CancelReleaseInput,
+  type CompleteOrderInput,
+  type OrderCompletionCheck,
   type OrderReasonActionInput,
   type UpdateBuyerOrderInput,
   type CreateReleaseInput,
@@ -33,6 +35,7 @@ import { TenantDb } from '../../infra/tenant-db.service.js';
 import { dec, day, toDetail, toListItem } from './orders.mapper.js';
 import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
 import { recalcOrder } from '../logistics/logistics.util.js';
+import { completeOrderRecord, pendingFiscalDocuments } from './order-completion.util.js';
 import { listReleases, releasesSummary } from './releases.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
@@ -58,6 +61,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.submitted': 'Solicitação enviada ao Faturamento',
   'order.returned': 'Solicitação devolvida ao Comprador',
   'order.suspended': 'Ordem suspensa',
+  'order.completed': 'Ordem concluída',
   'order.resumed': 'Ordem retomada',
   'order.cancelled': 'Ordem cancelada',
   'order.cancelled_by_buyer': 'Solicitação cancelada pelo Comprador',
@@ -745,6 +749,75 @@ export class OrdersService {
     });
   }
 
+  /** Conferência prévia da conclusão: cargas ativas, documentação pendente e saldo (Q45). */
+  async completionCheck(id: string): Promise<OrderCompletionCheck> {
+    this.assertInternal();
+    return this.db.read(async (tx) => {
+      const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id } });
+      const unit = order.unitId ? await tx.unit.findUnique({ where: { id: order.unitId }, select: { code: true } }) : null;
+      const [activeLoads, loadsTotal, pendingDocuments] = await Promise.all([
+        tx.load.findMany({ where: { orderId: id, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, select: { number: true }, orderBy: { sequence: 'asc' } }),
+        tx.load.count({ where: { orderId: id, status: { not: 'CANCELLED' } } }),
+        pendingFiscalDocuments(tx, id),
+      ]);
+      const balance = Prisma.Decimal.max(new Prisma.Decimal(order.quantity ?? 0).minus(order.loadedQty).minus(order.cancelledQty), 0);
+      return {
+        activeLoads: activeLoads.map((l) => l.number),
+        pendingDocuments,
+        balance: balance.toString(),
+        unit: unit?.code === 'T' ? 't' : (unit?.code?.toLowerCase() ?? ''),
+        loadsTotal,
+      };
+    });
+  }
+
+  /**
+   * Conclusão informada pela Matriz (Q45). Exige cargas encerradas; cargas sem PDF e XML validados da Fazenda
+   * só passam com aceite explícito, e sobra de saldo exige motivo.
+   */
+  async completeOrder(id: string, input: CompleteOrderInput): Promise<OrderDetail> {
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, null);
+      this.assertExpected(order, input.expectedUpdatedAt);
+      if (order.status !== 'IN_PROGRESS' && order.status !== 'PUBLISHED') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente ordens publicadas ou em execução podem ser concluídas.');
+      }
+      const activeLoads = await tx.load.findMany({ where: { orderId: id, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, select: { number: true } });
+      if (activeLoads.length) {
+        throw AppError.domain(
+          ErrorCode.INVALID_TRANSITION,
+          `Há ${activeLoads.length} carga(s) em andamento (${activeLoads.map((l) => l.number).join(', ')}): encerre antes de concluir a ordem.`,
+          { activeLoads: activeLoads.map((l) => l.number) },
+        );
+      }
+      const pendingDocuments = await pendingFiscalDocuments(tx, id);
+      if (pendingDocuments.length && !input.acceptPendingDocuments) {
+        throw AppError.domain(
+          ErrorCode.ORDER_DOCUMENTS_PENDING,
+          `${pendingDocuments.length} carga(s) sem PDF e XML da Fazenda validados. Confirme a conclusão mesmo assim ou aguarde os documentos.`,
+          { pendingDocuments },
+        );
+      }
+      const fresh = await recalcOrder(tx, id);
+      const balance = Prisma.Decimal.max(new Prisma.Decimal(fresh.quantity ?? 0).minus(fresh.loadedQty).minus(fresh.cancelledQty), 0);
+      const reason = input.reason?.trim() || null;
+      if (balance.greaterThan(0) && !reason) {
+        throw AppError.validation({ fields: { reason: ['Informe o motivo da conclusão com saldo a carregar'] } }, 'Informe o motivo da conclusão com saldo a carregar.');
+      }
+      await completeOrderRecord(scope, id, {
+        reason,
+        acceptedPendingDocuments: pendingDocuments.length > 0,
+        via: 'manual',
+        previousStatus: order.status as 'PUBLISHED' | 'IN_PROGRESS',
+        number: order.number,
+        balance: balance.toString(),
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
   /** Retoma a ordem: em execução se já houve carga (não cancelada), senão publicada. */
   async resumeOrder(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
     const auth = currentAuth();
@@ -1177,6 +1250,7 @@ export class OrdersService {
     ) {
       actions.push('buyer_cancel');
     }
+    if (internal && ['PUBLISHED', 'IN_PROGRESS'].includes(status) && perms.has('order.cancel')) actions.push('complete');
     if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
     if (internal && perms.has('order.cancel')) {
       if (status === 'PUBLISHED' || status === 'IN_PROGRESS') actions.push('suspend');

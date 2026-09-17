@@ -16,6 +16,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'load.documents_validated': 'Documentação fiscal validada',
   'user.notification_preferences_updated': 'Preferências de e-mail alteradas',
   'load.receipt_skipped': 'Transporte encerrado sem recebimento',
+  'order.completed': 'Ordem concluída',
   'order.version_created': 'Nova versão da ordem',
   'order.release_created': 'Liberação criada',
   'order.release_cancelled': 'Liberação cancelada',

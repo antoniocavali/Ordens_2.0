@@ -71,6 +71,9 @@ export interface OrderRow {
   cancel_reason: string | null;
   suspended_at: Date | null;
   suspend_reason: string | null;
+  completed_at: Date | null;
+  completed_by_name: string | null;
+  completion_reason: string | null;
   farm_signal: string;
   farm_viewed_version: number | null;
   farm_viewed_at: Date | null;
@@ -129,12 +132,13 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.published_at, lo.created_at, cu.name as created_by_name, lo.updated_at, uu.name as updated_by_name,
         lo.seller_org_id, lo.buyer_org_id,
         lo.origin::text as origin, lo.created_by, lo.submitted_at, su.name as submitted_by_name,
-        lo.returned_at, ru.name as returned_by_name, lo.return_reason, lo.cancelled_at, lo.cancel_reason, lo.suspended_at, lo.suspend_reason,
+        lo.returned_at, ru.name as returned_by_name, lo.return_reason, lo.cancelled_at, lo.cancel_reason, lo.suspended_at, lo.suspend_reason, lo.completed_at, lo.completion_reason, cpu.name as completed_by_name,
         ${signalSql('FARM', opts.slaHours)} as farm_signal,
         fv.version as farm_viewed_version, fv.last_viewed_at as farm_viewed_at, fvu.name as farm_viewed_by,
         ${signalSql('BUYER', opts.slaHours)} as buyer_signal,
         bv.version as buyer_viewed_version, bv.last_viewed_at as buyer_viewed_at, bvu.name as buyer_viewed_by
       from loading_orders lo
+      left join users cpu on cpu.id = lo.completed_by
       left join contracts ct on ct.id = lo.contract_id
       left join business_partners sp on sp.id = lo.seller_partner_id
       left join business_partners bp on bp.id = lo.buyer_partner_id

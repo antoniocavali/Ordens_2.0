@@ -158,6 +158,7 @@ export const EMAIL_NOTIFICATION_TYPES = {
   'order.suspended': { group: 'Ordens', label: 'Ordem suspensa', default: true, scopes: ['FARM', 'BUYER'] },
   'order.resumed': { group: 'Ordens', label: 'Ordem retomada', default: true, scopes: ['FARM', 'BUYER'] },
   'order.cancelled': { group: 'Ordens', label: 'Ordem cancelada', default: true, scopes: ['FARM', 'BUYER'] },
+  'order.completed': { group: 'Ordens', label: 'Ordem concluída', default: true, scopes: ['FARM', 'BUYER'] },
   'order.publish_requested': { group: 'Ordens', label: 'Pedido de publicação para aprovar', default: true, scopes: ['MATRIZ'] },
   'order.submitted': { group: 'Solicitações do Comprador', label: 'Solicitação enviada ao Faturamento', default: true, scopes: ['MATRIZ'] },
   'order.returned': { group: 'Solicitações do Comprador', label: 'Solicitação devolvida para ajuste', default: true, scopes: ['BUYER'] },

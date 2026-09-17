@@ -99,6 +99,9 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     cancelledAt: iso(row.cancelled_at),
     // Motivos de cancelamento e suspensão de ordem publicada são compartilhados com as partes.
     cancelReason: row.cancel_reason,
+    completedAt: iso(row.completed_at),
+    completedBy: row.completed_by_name,
+    completionReason: row.completion_reason,
     suspendedAt: row.status === 'SUSPENDED' ? iso(row.suspended_at) : null,
     suspendReason: row.status === 'SUSPENDED' ? row.suspend_reason : null,
     releases,
