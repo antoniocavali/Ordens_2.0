@@ -110,7 +110,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   {resolvedTheme === 'dark' ? <Sun /> : <Moon />} Alternar tema
                 </Command.Item>
                 <Command.Item value="segurança conta 2fa senha sessões" onSelect={() => go('/conta/seguranca')} className={itemCls}>
-                  <ShieldCheck /> Segurança da conta
+                  <ShieldCheck /> Preferências e segurança
                 </Command.Item>
               </Command.Group>
 
