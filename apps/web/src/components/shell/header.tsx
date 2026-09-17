@@ -10,7 +10,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { patch, post } from '@/lib/api';
-import { logout, useCan, useMe } from '@/lib/session';
+import type { MeResponse } from '@ordens/contracts';
+import { logout, ME_KEY, useCan, useMe } from '@/lib/session';
 import { NAVIGATION } from './navigation';
 
 const menuContent =
@@ -96,6 +97,7 @@ export function Header({ onOpenMobileNav, onOpenPalette }: { onOpenMobileNav: ()
 
 function ThemeMenu() {
   const { theme, setTheme, resolvedTheme } = useTheme();
+  const qc = useQueryClient();
   const options = [
     { value: 'light', label: 'Claro', icon: Sun },
     { value: 'dark', label: 'Escuro', icon: Moon },
@@ -105,6 +107,8 @@ function ThemeMenu() {
 
   const choose = (value: (typeof options)[number]['value']) => {
     setTheme(value);
+    // mantém o tema salvo em cache alinhado, para nenhum remount reaplicar o valor antigo
+    qc.setQueryData<MeResponse>(ME_KEY, (me) => (me ? { ...me, user: { ...me.user, theme: value } } : me));
     patch('/me/preferences', { theme: value }).catch(() => undefined);
   };
 
