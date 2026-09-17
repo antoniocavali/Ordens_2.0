@@ -198,7 +198,7 @@ function UserMenu() {
           ) : null}
           <Dropdown.Item asChild className={menuItem}>
             <Link href="/conta/seguranca">
-              <ShieldCheck /> Segurança da conta
+              <ShieldCheck /> Preferências e segurança
             </Link>
           </Dropdown.Item>
           <Dropdown.Item className={cn(menuItem, 'text-danger [&_svg]:!text-danger')} onSelect={() => void logout()}>
