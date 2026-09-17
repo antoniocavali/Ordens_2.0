@@ -4,7 +4,7 @@ import type { MeResponse, Permission } from '@ordens/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { ApiRequestError, get, post } from './api';
 
 export const ME_KEY = ['auth', 'me'] as const;
@@ -50,11 +50,15 @@ export function useSessionGuard() {
     else if (me.data?.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
   }, [me.error, me.data, router]);
 
+  // setTheme do next-themes muda de identidade a cada troca de tema; com ele nas dependências o
+  // efeito reaplicava o tema salvo (antigo) logo após o usuário escolher outro. Usa ref.
+  const setThemeRef = useRef(setTheme);
+  setThemeRef.current = setTheme;
   const theme = me.data?.user.theme;
   useEffect(() => {
-    if (theme) setTheme(theme);
+    if (theme) setThemeRef.current(theme);
     // aplica apenas quando o valor salvo muda
-  }, [theme, setTheme]);
+  }, [theme]);
 
   return me;
 }

@@ -16,6 +16,16 @@ test.describe('Ordens de Carregamento', () => {
     // Tema persiste após reload
     await page.getByRole('button', { name: 'Alterar tema' }).click();
     await page.getByRole('menuitem', { name: 'Escuro' }).click();
+    // Aplica na hora, sem recarregar, e não volta ao tema anterior.
+    await expect(page.locator('html')).toHaveClass(/dark/);
+    await page.waitForTimeout(1000);
+    await expect(page.locator('html')).toHaveClass(/dark/);
+    await page.getByRole('button', { name: 'Alterar tema' }).click();
+    await page.getByRole('menuitem', { name: 'Claro' }).click();
+    await expect(page.locator('html')).not.toHaveClass(/dark/);
+    await page.getByRole('button', { name: 'Alterar tema' }).click();
+    await page.getByRole('menuitem', { name: 'Escuro' }).click();
+    await expect(page.locator('html')).toHaveClass(/dark/);
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
     await expect(page.getByRole('button', { name: 'Alterar tema' })).toBeVisible();
