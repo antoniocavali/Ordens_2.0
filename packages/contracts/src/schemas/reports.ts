@@ -1,11 +1,12 @@
 import { z } from 'zod';
 
 /** Relatórios exportáveis (Q38). Recorte de linhas sempre pelo RLS da organização ativa. */
-export const REPORT_KINDS = ['orders', 'loads', 'releases', 'carriers', 'occurrences'] as const;
+export const REPORT_KINDS = ['orders', 'requests', 'loads', 'releases', 'carriers', 'occurrences'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
 export const REPORT_INFO: Record<ReportKind, { label: string; description: string }> = {
   orders: { label: 'Posição das ordens', description: 'Quantidades por etapa, saldo e valor das ordens publicadas no período.' },
+  requests: { label: 'Solicitações do Comprador', description: 'Solicitações enviadas no período: devoluções, cancelamentos e tempo até a publicação (Q41).' },
   loads: { label: 'Cargas', description: 'Cargas do período com transportadora, placas, pesos e recebimento.' },
   releases: { label: 'Liberações', description: 'Liberações criadas no período, com validade e cancelamentos.' },
   carriers: { label: 'Desempenho de transportadoras', description: 'Cargas, volume líquido e divergências de peso por transportadora (Q24).' },

@@ -14,7 +14,7 @@ import {
 } from '@ordens/contracts';
 import { Button, Card, cn, EmptyState, Input, Skeleton } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AlertTriangle, BarChart3, ClipboardList, Download, FileSpreadsheet, FileText, PackageCheck, ShieldOff, Truck, Users } from 'lucide-react';
+import { AlertTriangle, BarChart3, Inbox, ClipboardList, Download, FileSpreadsheet, FileText, PackageCheck, ShieldOff, Truck, Users } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ApiRequestError, get } from '@/lib/api';
@@ -27,6 +27,7 @@ const ICONS: Record<ReportKind, ReactNode> = {
   releases: <PackageCheck className="size-5" />,
   carriers: <Users className="size-5" />,
   occurrences: <AlertTriangle className="size-5" />,
+  requests: <Inbox className="size-5" />,
 };
 
 const localDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
@@ -141,7 +142,7 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" role="radiogroup" aria-label="Relatório">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" role="radiogroup" aria-label="Relatório">
         {REPORT_KINDS.map((k) => (
           <button
             key={k}

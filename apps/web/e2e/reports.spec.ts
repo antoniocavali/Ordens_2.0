@@ -43,6 +43,16 @@ test.describe('Relatórios', () => {
 
     expect((await api(page, 'GET', '/reports/loads/export?format=docx')).status).toBe(422);
 
+    // Solicitações do Comprador: relatório próprio; posição das ordens só com ordens que chegaram à publicação.
+    const from = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+    const requests = await apiOk<{ columns: { label: string }[]; rows: (string | number | null)[][] }>(page, 'GET', `/reports/requests?from=${from}`);
+    expect(requests.columns.map((c) => c.label)).toEqual(expect.arrayContaining(['Enviada em', 'Horas até publicar', 'Motivo da devolução', 'Motivo do cancelamento']));
+    const positions = await apiOk<{ columns: { key: string }[]; rows: (string | number | null)[][] }>(page, 'GET', `/reports/orders?from=${from}`);
+    const statusCol = positions.columns.findIndex((c) => c.key === 'status');
+    expect(positions.rows.some((r) => r[statusCol] === 'Aguardando faturamento')).toBe(false);
+    await page.getByRole('radio', { name: /^Solicitações do Comprador/ }).click();
+    await expect(page.getByRole('table', { name: 'Solicitações do Comprador' }).or(page.getByText('Sem dados no período'))).toBeVisible();
+
     // Período inválido é recusado com mensagem por campo.
     const invalid = await api(page, 'GET', '/reports/orders?from=2025-01-01&to=2026-06-30');
     expect(invalid.status).toBe(422);
