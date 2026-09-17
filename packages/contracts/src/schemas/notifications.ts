@@ -55,3 +55,14 @@ export function isRealtimeDeliverable(
   if (msg.internalOnly) return false;
   return Boolean(msg.orgIds?.some((id) => target.orgIds.includes(id)));
 }
+
+/** Rota da interface a partir dos identificadores gravados no aviso. */
+export function notificationHref(data: unknown): string | null {
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  // Rota explícita gravada pelo worker (ex.: atendimento abre o chat para o cliente e o painel para a equipe).
+  if (typeof d.href === 'string' && d.href.startsWith('/') && !d.href.startsWith('//')) return d.href;
+  if (typeof d.occurrenceId === 'string') return '/ocorrencias';
+  if (typeof d.loadId === 'string') return `/cargas?abrir=${d.loadId}`;
+  if (typeof d.orderId === 'string') return `/ordens/${d.orderId}`;
+  return null;
+}

@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle2, Copy, KeyRound, LaptopMinimal, LogOut, Shi
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
+import { EmailNotificationsCard } from '@/features/account/email-notifications-card';
 import { ApiRequestError, del, get, post } from '@/lib/api';
 import { formatDateTime, formatRelative } from '@/lib/format';
 import { ME_KEY, useMe } from '@/lib/session';
@@ -50,6 +51,7 @@ function SecurityContent() {
       <TwoFactorCard />
       {!required ? (
         <>
+          <EmailNotificationsCard />
           <PasswordCard />
           <SessionsCard />
           <HistoryCard />

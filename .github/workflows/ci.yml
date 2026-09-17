@@ -48,6 +48,10 @@ jobs:
       redis:
         image: redis:7.4-alpine
         ports: ['6379:6379']
+      # E-mails dos avisos (Q44) conferidos pelo E2E na API do Mailpit.
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ['1025:1025', '8025:8025']
     env:
       NODE_ENV: test
       MIGRATION_DATABASE_URL: postgresql://ordens_owner:owner@localhost:5432/ordens

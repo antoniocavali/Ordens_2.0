@@ -2,6 +2,7 @@ import { Controller, Get, HttpCode, Inject, Injectable, Logger, Module, Param, P
 import { ApiTags } from '@nestjs/swagger';
 import {
   isRealtimeDeliverable,
+  notificationHref,
   notificationListQuery,
   REALTIME_CHANNEL,
   type NotificationDto,
@@ -21,17 +22,6 @@ const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
 const HEARTBEAT_MS = 25_000;
 /** Conexões são recicladas: a reconexão passa de novo pela autenticação (revogação, logout-all, troca de organização). */
 const MAX_STREAM_MS = 10 * 60_000;
-
-/** Rota da interface a partir dos identificadores gravados no aviso. */
-export function notificationHref(data: unknown): string | null {
-  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
-  // Rota explícita gravada pelo worker (ex.: atendimento abre o chat para o cliente e o painel para a equipe).
-  if (typeof d.href === 'string' && d.href.startsWith('/') && !d.href.startsWith('//')) return d.href;
-  if (typeof d.occurrenceId === 'string') return '/ocorrencias';
-  if (typeof d.loadId === 'string') return `/cargas?abrir=${d.loadId}`;
-  if (typeof d.orderId === 'string') return `/ordens/${d.orderId}`;
-  return null;
-}
 
 @Injectable()
 export class NotificationsService {

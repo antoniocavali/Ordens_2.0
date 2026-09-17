@@ -152,3 +152,17 @@ describe('rascunho de ordem', () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe('preferências de e-mail', () => {
+  it('usa o padrão do tipo, respeita a escolha e o desligamento geral', async () => {
+    const { wantsEmail, resolveEmailPrefs } = await import('./schemas/users.js');
+    expect(wantsEmail(undefined, 'order.returned')).toBe(true);
+    expect(wantsEmail(undefined, 'order.version_created')).toBe(false);
+    expect(wantsEmail(undefined, 'support.message_created')).toBe(false);
+    expect(wantsEmail({ enabled: true, types: { 'order.returned': false } }, 'order.returned')).toBe(false);
+    expect(wantsEmail({ enabled: true, types: { 'order.version_created': true } }, 'order.version_created')).toBe(true);
+    expect(wantsEmail({ enabled: false, types: { 'order.returned': true } }, 'order.returned')).toBe(false);
+    expect(wantsEmail({ lixo: 1 }, 'order.returned')).toBe(true);
+    expect(resolveEmailPrefs({ enabled: false, types: {} }).types['order.suspended']).toBe(true);
+  });
+});
