@@ -37,8 +37,9 @@ stateDiagram-v2
 | PENDING_BILLING | DRAFT | `order.billing.manage` | motivo obrigatório; limpa envio e descarta a análise (vendedor, fazenda, contrato, preço e campos internos); grava `returned_at/by/return_reason`; aviso a quem criou |
 | DRAFT/PENDING_BILLING (`origin = BUYER`) | CANCELLED | `order.submit` | solicitação do próprio usuário; em `PENDING_BILLING` só antes da análise (sem vendedor/fazenda); motivo obrigatório (`cancelled_at/by/cancel_reason`); aviso ao Faturamento se já enviada |
 | DRAFT (`origin = MATRIZ`) | PUBLISHED | `order.publish` | comprador, vendedor, fazenda, commodity, quantidade > 0, unidade, janela; contrato consistente; dupla checagem (Q40) |
-| PUBLISHED/IN_PROGRESS | SUSPENDED | `order.cancel` | motivo obrigatório |
-| PUBLISHED | CANCELLED | `order.cancel` | nenhuma carga ativa; motivo |
+| PUBLISHED/IN_PROGRESS | SUSPENDED | `order.cancel` | motivo obrigatório (`suspended_at/by/suspend_reason`); bloqueia liberações, agendamentos e cargas novas; cargas em andamento seguem; Fazenda e Comprador avisados com o motivo — `POST /orders/:id/suspend` |
+| SUSPENDED | PUBLISHED / IN_PROGRESS | `order.cancel` | retomada: `IN_PROGRESS` se houver carga não cancelada, senão `PUBLISHED`; partes avisadas — `POST /orders/:id/resume` |
+| DRAFT (interna) / PENDING_BILLING / PUBLISHED / IN_PROGRESS / SUSPENDED | CANCELLED | `order.cancel` | motivo obrigatório; recusado com carga ativa (nem concluída nem cancelada); agendamentos e liberações ativos cancelados junto; `cancelled_qty` = quantidade − carregado; cargas concluídas mantidas; avisa as partes (publicada) ou quem criou a solicitação — `POST /orders/:id/cancel` |
 | IN_PROGRESS | COMPLETED | sistema/`order.update` | todas as cargas `COMPLETED`/`CANCELLED` |
 
 Visibilidade externa: a **Fazenda** só enxerga a partir de `PUBLISHED` e com `farm_id` definido; o **Comprador** enxerga as ordens da própria organização a partir de `PENDING_BILLING` e os próprios rascunhos do portal. Publicação gera versão 1 (ver [versioning.md](versioning.md)).

@@ -95,6 +95,29 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       };
     }
 
+    case 'order.suspended':
+    case 'order.resumed':
+    case 'order.cancelled': {
+      const orderId = str(p.orderId);
+      const order = orderId
+        ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, sellerOrgId: true, buyerOrgId: true, publishedAt: true, origin: true, createdBy: true } })
+        : null;
+      if (!order) return null;
+      // Publicada: Fazenda e Comprador. Nunca publicada: só quem criou a solicitação no portal.
+      const userIds = order.publishedAt
+        ? await usersOf(tx, [order.sellerOrgId, order.buyerOrgId])
+        : order.origin === 'BUYER' && order.createdBy
+          ? [order.createdBy]
+          : [];
+      const verb = type === 'order.suspended' ? 'suspensa' : type === 'order.resumed' ? 'retomada' : 'cancelada';
+      return {
+        userIds,
+        title: `Ordem ${order.number} ${verb} pela Matriz`,
+        body: type === 'order.resumed' ? 'A ordem voltou a aceitar agendamentos e cargas.' : `Motivo: ${str(p.reason) ?? 'não informado'}.`,
+        data: { orderId },
+      };
+    }
+
     case 'order.returned': {
       const orderId = str(p.orderId);
       const buyerUserId = str(p.buyerUserId);

@@ -147,6 +147,8 @@ export const orderReasonActionSchema = z.strictObject({
 });
 export type OrderReasonActionInput = z.infer<typeof orderReasonActionSchema>;
 
+export const resumeOrderSchema = z.strictObject({ expectedUpdatedAt: z.iso.datetime() });
+
 /** Faturamento: completa dados internos e define vendedor/fazenda (a ordem continua aguardando faturamento). */
 export const assignFarmSchema = z.strictObject({
   expectedUpdatedAt: z.iso.datetime(),
@@ -354,6 +356,9 @@ export interface OrderDetail extends OrderListItem {
   /** Cancelamento com motivo (solicitações do portal). */
   cancelledAt: string | null;
   cancelReason: string | null;
+  /** Suspensão vigente (status SUSPENDED). */
+  suspendedAt: string | null;
+  suspendReason: string | null;
   releases: ReleaseDto[];
   allowedActions: string[];
   /** Somente Matriz: fluxo de publicação (Q40). */

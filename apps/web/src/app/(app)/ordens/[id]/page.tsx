@@ -2,7 +2,7 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, Pencil, Send, Sprout, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, PauseCircle, Pencil, PlayCircle, Send, Sprout, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -19,7 +19,10 @@ import { ReasonDialog } from '@/features/logistics/reason-dialog';
 import {
   billingPublish,
   cancelBuyerOrder,
+  cancelOrder,
+  resumeOrder,
   returnToBuyer,
+  suspendOrder,
   registerView,
   requestPublishOrder,
   submitOrder,
@@ -37,6 +40,31 @@ import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ApiRequestError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney, formatQty } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
+
+type ReasonAction = 'return' | 'cancel' | 'suspend' | 'order_cancel';
+
+const REASON_ACTIONS: Record<ReasonAction, { title: string; description: string; done: (n: string) => string }> = {
+  return: {
+    title: 'Devolver ao Comprador',
+    description: 'A solicitação volta a rascunho para o Comprador ajustar e reenviar. Vendedor, fazenda, contrato e dados internos definidos na análise são descartados.',
+    done: (n) => `Solicitação ${n} devolvida ao Comprador`,
+  },
+  cancel: {
+    title: 'Cancelar solicitação',
+    description: 'A solicitação é encerrada e não será analisada pelo Faturamento. Esta ação não pode ser desfeita.',
+    done: (n) => `Solicitação ${n} cancelada`,
+  },
+  suspend: {
+    title: 'Suspender ordem',
+    description: 'Liberações, agendamentos e cargas novas ficam bloqueados até a retomada. Cargas em andamento continuam. Fazenda e Comprador são avisados com o motivo.',
+    done: (n) => `Ordem ${n} suspensa`,
+  },
+  order_cancel: {
+    title: 'Cancelar ordem',
+    description: 'Exige que não haja carga em andamento. Agendamentos e liberações ativos são cancelados e o saldo não carregado fica como cancelado. Esta ação não pode ser desfeita.',
+    done: (n) => `Ordem ${n} cancelada`,
+  },
+};
 
 const FIELD_LABEL: Record<string, string> = {
   quantity: 'Quantidade',
@@ -68,9 +96,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [requesting, setRequesting] = useState(false);
   const [buyerEditing, setBuyerEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const [reasonAction, setReasonAction] = useState<'return' | 'cancel' | null>(null);
-  const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | null>(null);
-  const act = async (kind: 'submit' | 'publish' | 'reason', fn: () => Promise<OrderDetail>) => {
+  const [reasonAction, setReasonAction] = useState<ReasonAction | null>(null);
+  const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | 'resume' | null>(null);
+  const act = async (kind: 'submit' | 'publish' | 'reason' | 'resume', fn: () => Promise<OrderDetail>) => {
     setActing(kind);
     try {
       invalidate(await fn());
@@ -205,6 +233,30 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <Undo2 /> Devolver ao Comprador
             </Button>
           ) : null}
+          {o.allowedActions.includes('suspend') ? (
+            <Button variant="outline" onClick={() => setReasonAction('suspend')}>
+              <PauseCircle /> Suspender
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('resume') ? (
+            <Button
+              loading={acting === 'resume'}
+              onClick={() =>
+                act('resume', async () => {
+                  const d = await resumeOrder(o.id, o.updatedAt);
+                  toast.success(`Ordem ${d.number} retomada`, { description: 'Fazenda e Comprador foram avisados.' });
+                  return d;
+                })
+              }
+            >
+              <PlayCircle /> Retomar ordem
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('cancel') ? (
+            <Button variant="ghost" onClick={() => setReasonAction('order_cancel')}>
+              <XCircle /> Cancelar ordem
+            </Button>
+          ) : null}
           {o.allowedActions.includes('buyer_cancel') ? (
             <Button variant="ghost" onClick={() => setReasonAction('cancel')}>
               <XCircle /> Cancelar solicitação
@@ -235,11 +287,21 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           <span className="text-muted">Motivo: {o.returnReason}</span>
         </div>
       ) : null}
+      {o.status === 'SUSPENDED' && o.suspendReason ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-soft/50 px-4 py-3 text-sm ring-1 ring-warning/20">
+          <PauseCircle className="size-4 text-warning" />
+          <span>
+            <strong>Ordem suspensa</strong>
+            {o.suspendedAt ? ` em ${formatDateTime(o.suspendedAt)}` : ''}: sem novas liberações, agendamentos ou cargas até a retomada.
+          </span>
+          <span className="text-muted">Motivo: {o.suspendReason}</span>
+        </div>
+      ) : null}
       {o.status === 'CANCELLED' && o.cancelReason ? (
         <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-4 py-3 text-sm ring-1 ring-border">
           <XCircle className="size-4 text-muted" />
           <span>
-            <strong>Solicitação cancelada</strong>
+            <strong>{o.publishedAt ? 'Ordem cancelada' : 'Solicitação cancelada'}</strong>
             {o.cancelledAt ? ` em ${formatDateTime(o.cancelledAt)}` : ''}.
           </span>
           <span className="text-muted">Motivo: {o.cancelReason}</span>
@@ -460,27 +522,31 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
       <BuyerOrderDrawer open={buyerEditing} order={o} onClose={() => setBuyerEditing(false)} />
       {o.allowedActions.includes('assign_farm') ? <AssignFarmDrawer open={assigning} order={o} onClose={() => setAssigning(false)} /> : null}
-      <ReasonDialog
-        open={reasonAction !== null}
-        title={reasonAction === 'return' ? 'Devolver ao Comprador' : 'Cancelar solicitação'}
-        description={
-          reasonAction === 'return'
-            ? 'A solicitação volta a rascunho para o Comprador ajustar e reenviar. Vendedor, fazenda, contrato e dados internos definidos na análise são descartados.'
-            : 'A solicitação é encerrada e não será analisada pelo Faturamento. Esta ação não pode ser desfeita.'
-        }
-        confirmLabel={reasonAction === 'return' ? 'Devolver ao Comprador' : 'Cancelar solicitação'}
-        tone={reasonAction === 'return' ? 'primary' : 'danger'}
-        loading={acting === 'reason'}
-        onCancel={() => setReasonAction(null)}
-        onConfirm={(reason) =>
-          void act('reason', async () => {
-            const d = reasonAction === 'return' ? await returnToBuyer(o.id, o.updatedAt, reason) : await cancelBuyerOrder(o.id, o.updatedAt, reason);
-            toast.success(reasonAction === 'return' ? `Solicitação ${d.number} devolvida ao Comprador` : `Solicitação ${d.number} cancelada`);
-            setReasonAction(null);
-            return d;
-          })
-        }
-      />
+      {reasonAction ? (
+        <ReasonDialog
+          open
+          title={REASON_ACTIONS[reasonAction].title}
+          description={REASON_ACTIONS[reasonAction].description}
+          confirmLabel={REASON_ACTIONS[reasonAction].title}
+          tone={reasonAction === 'return' ? 'primary' : 'danger'}
+          loading={acting === 'reason'}
+          onCancel={() => setReasonAction(null)}
+          onConfirm={(reason) =>
+            void act('reason', async () => {
+              const run = {
+                return: returnToBuyer,
+                cancel: cancelBuyerOrder,
+                suspend: suspendOrder,
+                order_cancel: cancelOrder,
+              }[reasonAction];
+              const d = await run(o.id, o.updatedAt, reason);
+              toast.success(REASON_ACTIONS[reasonAction].done(d.number));
+              setReasonAction(null);
+              return d;
+            })
+          }
+        />
+      ) : null}
       <AppointmentDrawer
         appointment={null}
         open={scheduling}

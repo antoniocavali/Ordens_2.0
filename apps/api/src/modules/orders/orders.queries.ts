@@ -68,6 +68,8 @@ export interface OrderRow {
   return_reason: string | null;
   cancelled_at: Date | null;
   cancel_reason: string | null;
+  suspended_at: Date | null;
+  suspend_reason: string | null;
   farm_signal: string;
   farm_viewed_version: number | null;
   farm_viewed_at: Date | null;
@@ -126,7 +128,7 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.published_at, lo.created_at, cu.name as created_by_name, lo.updated_at, uu.name as updated_by_name,
         lo.seller_org_id, lo.buyer_org_id,
         lo.origin::text as origin, lo.created_by, lo.submitted_at, su.name as submitted_by_name,
-        lo.returned_at, ru.name as returned_by_name, lo.return_reason, lo.cancelled_at, lo.cancel_reason,
+        lo.returned_at, ru.name as returned_by_name, lo.return_reason, lo.cancelled_at, lo.cancel_reason, lo.suspended_at, lo.suspend_reason,
         ${signalSql('FARM', opts.slaHours)} as farm_signal,
         fv.version as farm_viewed_version, fv.last_viewed_at as farm_viewed_at, fvu.name as farm_viewed_by,
         ${signalSql('BUYER', opts.slaHours)} as buyer_signal,
