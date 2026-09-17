@@ -13,7 +13,8 @@ stateDiagram-v2
   DRAFT --> CANCELLED: descartar
   PENDING_BILLING --> PENDING_BILLING: Faturamento complementa e define fazenda
   PENDING_BILLING --> PUBLISHED: Faturamento publica para a Fazenda
-  PENDING_BILLING --> CANCELLED: Matriz cancela
+  PENDING_BILLING --> DRAFT: Faturamento devolve ao Comprador (motivo)
+  PENDING_BILLING --> CANCELLED: Comprador cancela antes da análise (motivo)
   PUBLISHED --> IN_PROGRESS: 1ª carga iniciada
   PUBLISHED --> SUSPENDED: suspender
   IN_PROGRESS --> SUSPENDED: suspender
@@ -33,6 +34,8 @@ stateDiagram-v2
 | DRAFT | PENDING_BILLING | `order.submit` | rascunho do próprio usuário; commodity, quantidade, unidade e janela preenchidas; grava `submitted_at/by` |
 | PENDING_BILLING | PENDING_BILLING | `order.billing.manage` (ou `order.update`) | define vendedor/fazenda/contrato e dados internos; comprador não muda |
 | PENDING_BILLING | PUBLISHED | `order.billing.manage` | vendedor, fazenda e demais requisitos de publicação; relações e saldo do contrato; sem dupla checagem (Q40 não se aplica: pedido do Comprador + análise do Faturamento) |
+| PENDING_BILLING | DRAFT | `order.billing.manage` | motivo obrigatório; limpa envio e descarta a análise (vendedor, fazenda, contrato, preço e campos internos); grava `returned_at/by/return_reason`; aviso a quem criou |
+| DRAFT/PENDING_BILLING (`origin = BUYER`) | CANCELLED | `order.submit` | solicitação do próprio usuário; em `PENDING_BILLING` só antes da análise (sem vendedor/fazenda); motivo obrigatório (`cancelled_at/by/cancel_reason`); aviso ao Faturamento se já enviada |
 | DRAFT (`origin = MATRIZ`) | PUBLISHED | `order.publish` | comprador, vendedor, fazenda, commodity, quantidade > 0, unidade, janela; contrato consistente; dupla checagem (Q40) |
 | PUBLISHED/IN_PROGRESS | SUSPENDED | `order.cancel` | motivo obrigatório |
 | PUBLISHED | CANCELLED | `order.cancel` | nenhuma carga ativa; motivo |

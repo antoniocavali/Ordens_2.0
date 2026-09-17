@@ -95,6 +95,31 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       };
     }
 
+    case 'order.returned': {
+      const orderId = str(p.orderId);
+      const buyerUserId = str(p.buyerUserId);
+      const order = orderId ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, status: true } }) : null;
+      if (!order || order.status !== 'DRAFT' || !buyerUserId) return null;
+      return {
+        userIds: [buyerUserId],
+        title: `Solicitação ${order.number} devolvida pelo Faturamento`,
+        body: `Motivo: ${str(p.reason) ?? 'não informado'}. Ajuste e envie novamente.`,
+        data: { orderId },
+      };
+    }
+
+    case 'order.cancelled_by_buyer': {
+      const orderId = str(p.orderId);
+      const order = orderId ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true } }) : null;
+      if (!order) return null;
+      return {
+        userIds: usersWithPermission(await matrizCandidates(tx), 'order.billing.manage', str(p.cancelledBy)),
+        title: `Solicitação ${order.number} cancelada pelo Comprador`,
+        body: `Motivo: ${str(p.reason) ?? 'não informado'}. Não é mais preciso analisá-la.`,
+        data: { orderId },
+      };
+    }
+
     case 'order.publish_requested': {
       const orderId = str(p.orderId);
       const requester = str(p.requestedBy);

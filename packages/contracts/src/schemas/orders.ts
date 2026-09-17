@@ -140,6 +140,13 @@ export const BUYER_SUBMIT_REQUIRED = ['commodityId', 'quantity', 'unitId', 'load
 
 export const submitOrderSchema = z.strictObject({ expectedUpdatedAt: z.iso.datetime() });
 
+/** Devolução ao Comprador (Faturamento) e cancelamento pelo Comprador: motivo obrigatório. */
+export const orderReasonActionSchema = z.strictObject({
+  expectedUpdatedAt: z.iso.datetime(),
+  reason: z.string().trim().min(3, 'Informe o motivo').max(1000),
+});
+export type OrderReasonActionInput = z.infer<typeof orderReasonActionSchema>;
+
 /** Faturamento: completa dados internos e define vendedor/fazenda (a ordem continua aguardando faturamento). */
 export const assignFarmSchema = z.strictObject({
   expectedUpdatedAt: z.iso.datetime(),
@@ -340,6 +347,13 @@ export interface OrderDetail extends OrderListItem {
   /** Envio do Comprador ao Faturamento. */
   submittedAt: string | null;
   submittedBy: string | null;
+  /** Última devolução ao Comprador (visível à Matriz e ao Comprador). */
+  returnedAt: string | null;
+  returnedBy: string | null;
+  returnReason: string | null;
+  /** Cancelamento com motivo (solicitações do portal). */
+  cancelledAt: string | null;
+  cancelReason: string | null;
   releases: ReleaseDto[];
   allowedActions: string[];
   /** Somente Matriz: fluxo de publicação (Q40). */

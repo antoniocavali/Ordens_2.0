@@ -8,6 +8,7 @@ import {
   type AssignFarmInput,
   type BuyerOrderInput,
   type CancelReleaseInput,
+  type OrderReasonActionInput,
   type UpdateBuyerOrderInput,
   type CreateReleaseInput,
   type OrderDetail,
@@ -54,6 +55,8 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.draft_saved': 'Rascunho atualizado',
   'order.published': 'Ordem publicada',
   'order.submitted': 'Solicitação enviada ao Faturamento',
+  'order.returned': 'Solicitação devolvida ao Comprador',
+  'order.cancelled_by_buyer': 'Solicitação cancelada pelo Comprador',
   'order.billing_updated': 'Solicitação complementada pelo Faturamento',
   'order.farm_assigned': 'Fazenda definida pelo Faturamento',
   'order.load_document_attached': 'Documento fiscal anexado à carga',
@@ -77,6 +80,8 @@ const TIMELINE_LABELS: Record<string, string> = {
 // Ocorrências ficam fora da timeline externa: a visibilidade é por ocorrência (ver aba Ocorrências).
 const EXTERNAL_TIMELINE = new Set([
   'order.submitted',
+  'order.returned',
+  'order.cancelled_by_buyer',
   'order.load_document_attached',
   'order.load_documents_validated',
   'order.published',
@@ -89,6 +94,8 @@ const EXTERNAL_TIMELINE = new Set([
   'order.invoice_attached',
   'order.invoice_cancelled',
 ]);
+
+const REASON_VISIBLE_TO_BUYER = new Set(['order.returned', 'order.cancelled_by_buyer']);
 
 /** Serializa valores para comparação/snapshot (decimais normalizados, datas AAAA-MM-DD). */
 function normalize(field: string, value: unknown): unknown {
@@ -673,7 +680,99 @@ export class OrdersService {
     });
   }
 
+  /**
+   * Comprador cancela com motivo o próprio rascunho ou a solicitação enviada antes da análise
+   * (fazenda ainda não definida). Depois disso, só a Matriz decide.
+   */
+  async cancelBuyerOrder(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertBuyer();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const current = await tx.loadingOrder.findUnique({ where: { id } });
+      if (!current) throw AppError.notFound('Ordem não encontrada.');
+      if (current.origin !== 'BUYER' || current.createdBy !== auth.userId) throw AppError.forbidden('Você só cancela as solicitações que criou.');
+      if (current.status === 'PENDING_BILLING' && (current.farmId || current.sellerPartnerId)) {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'O Faturamento já iniciou a análise (fazenda definida): peça o cancelamento à Matriz.');
+      }
+      if (current.status !== 'DRAFT' && current.status !== 'PENDING_BILLING') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Esta solicitação não pode mais ser cancelada pelo Comprador.');
+      }
+      const order = await this.lockForWrite(tx, id, input.expectedUpdatedAt);
+      const now = new Date();
+      await tx.loadingOrder.update({
+        where: { id },
+        data: { status: 'CANCELLED', cancelledAt: now, cancelledBy: auth.userId, cancelReason: input.reason, updatedBy: auth.userId },
+      });
+      await scope.audit({ entityType: 'loading_order', entityId: id, action: 'order.cancelled_by_buyer', before: { status: order.status }, after: { status: 'CANCELLED', reason: input.reason } });
+      if (order.status === 'PENDING_BILLING') {
+        await scope.outbox({
+          type: 'order.cancelled_by_buyer',
+          aggregateType: 'loading_order',
+          aggregateId: id,
+          payload: { orderId: id, number: order.number, cancelledBy: auth.userId, reason: input.reason },
+        });
+      }
+      return this.loadDetail(tx, id);
+    });
+  }
+
   // ───────────────────────────── Faturamento da Matriz (Q41) ─────────────────────────────
+
+  /**
+   * Faturamento devolve a solicitação ao Comprador com motivo: volta a rascunho editável por quem criou e
+   * descarta os dados da análise (vendedor, fazenda, contrato, preço e campos internos).
+   */
+  async returnToBuyer(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, input.expectedUpdatedAt);
+      if (order.status !== 'PENDING_BILLING') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente solicitações aguardando faturamento podem ser devolvidas ao Comprador.');
+      }
+      const now = new Date();
+      await tx.loadingOrder.update({
+        where: { id },
+        data: {
+          status: 'DRAFT',
+          submittedAt: null,
+          submittedBy: null,
+          returnedAt: now,
+          returnedBy: auth.userId,
+          returnReason: input.reason,
+          sellerPartnerId: null,
+          farmId: null,
+          contractId: null,
+          unitPrice: null,
+          freightEstimate: null,
+          internalNotes: null,
+          farmNotes: null,
+          commercialTerms: null,
+          loadingInstructions: null,
+          initialReleaseQty: null,
+          operationType: null,
+          tolerancePct: '0',
+          updatedBy: auth.userId,
+        },
+      });
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.returned',
+        before: { status: 'PENDING_BILLING', sellerPartnerId: order.sellerPartnerId, farmId: order.farmId, contractId: order.contractId },
+        after: { status: 'DRAFT', reason: input.reason },
+      });
+      await scope.outbox({
+        type: 'order.returned',
+        aggregateType: 'loading_order',
+        aggregateId: id,
+        payload: { orderId: id, number: order.number, buyerUserId: order.createdBy, returnedBy: auth.userId, reason: input.reason },
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
 
   /** Faturamento complementa a solicitação e define vendedor/fazenda; a ordem segue aguardando faturamento. */
   async assignFarm(id: string, input: AssignFarmInput): Promise<OrderDetail> {
@@ -871,7 +970,14 @@ export class OrdersService {
           label: TIMELINE_LABELS[e.action] ?? e.action,
           actor: e.actorUserId ? (names.get(e.actorUserId) ?? null) : null,
           organization: null,
-          context: scopeName === 'MATRIZ' ? ((e.after as Record<string, unknown>) ?? null) : pickPublicContext(e.after),
+          context:
+            scopeName === 'MATRIZ'
+              ? ((e.after as Record<string, unknown>) ?? null)
+              : {
+                  ...pickPublicContext(e.after),
+                  // O Comprador precisa saber por que a solicitação voltou ou foi cancelada.
+                  ...(REASON_VISIBLE_TO_BUYER.has(e.action) ? { reason: ((e.after as Record<string, unknown> | null)?.reason as string | undefined) ?? null } : {}),
+                },
         }));
       for (const v of views) {
         items.push({
@@ -946,11 +1052,20 @@ export class OrdersService {
     }
     if (perms.has('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(status)) actions.push('release');
     if (internal && status === 'PENDING_BILLING' && perms.has('order.billing.manage')) {
-      actions.push('assign_farm');
+      actions.push('assign_farm', 'return_to_buyer');
       if (row.farm_id && row.seller_partner_id) actions.push('billing_publish');
     }
     if (auth.membership!.scope === 'BUYER' && row.origin === 'BUYER' && status === 'DRAFT' && row.created_by === auth.userId && perms.has('order.submit')) {
       actions.push('buyer_edit', 'submit');
+    }
+    if (
+      auth.membership!.scope === 'BUYER' &&
+      row.origin === 'BUYER' &&
+      row.created_by === auth.userId &&
+      perms.has('order.submit') &&
+      (status === 'DRAFT' || (status === 'PENDING_BILLING' && !row.farm_id && !row.seller_partner_id))
+    ) {
+      actions.push('buyer_cancel');
     }
     if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
     if (perms.has('order.cancel') && ACTIVE_STATUSES.includes(status)) actions.push('cancel');

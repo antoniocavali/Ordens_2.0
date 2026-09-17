@@ -30,6 +30,9 @@ flowchart TD
 
 - O comprador da ordem é **derivado da organização ativa** (`organizations.partner_id`); o payload do portal é estrito e recusa vendedor, fazenda, contrato, preço e campos internos.
 - Rascunho é visível e editável **só por quem criou**; após o envio, o Comprador apenas acompanha.
+- Transportadora preferencial é **opcional**; exigidos para enviar: commodity, quantidade, unidade e janela.
+- **Devolvida pelo Faturamento**: volta a rascunho com o motivo em destaque (notificação a quem criou); o Comprador ajusta e reenvia.
+- **Cancelar solicitação** (motivo obrigatório): no rascunho ou depois de enviada, **enquanto a fazenda não foi definida**; depois disso, só a Matriz. `POST /orders/:id/buyer-cancel`.
 - Endpoints próprios: `POST /orders/buyer`, `PATCH /orders/buyer/:id`, `POST /orders/:id/submit` (permissão `order.submit`).
 
 ## Faturamento da Matriz
@@ -45,7 +48,8 @@ flowchart TD
   G --> H[Notificações Fazenda e Comprador]
 ```
 
-- Permissão `order.billing.manage` (papel **Faturamento**, Gestor e Administrador): `POST /orders/:id/billing/assign` e `POST /orders/:id/billing/publish`.
+- Permissão `order.billing.manage` (papel **Faturamento**, Gestor e Administrador): `POST /orders/:id/billing/assign`, `POST /orders/:id/billing/publish` e `POST /orders/:id/billing/return` (devolver ao Comprador com motivo; descarta a análise).
+- Publicação pelo Faturamento não passa pela dupla checagem da Q40.
 - Correções adicionais usam o formulário interno (`order.update`); o comprador de uma solicitação do portal não pode ser trocado.
 - A Matriz mantém suspensão, cancelamento, liberações, correções e auditoria.
 

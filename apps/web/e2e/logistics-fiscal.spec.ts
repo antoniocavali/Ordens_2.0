@@ -20,7 +20,8 @@ async function prepareLoad(page: Page): Promise<LoadSetup> {
   const today = new Date().toISOString().slice(0, 10);
   const orders = (await apiOk(page, 'GET', '/orders?status=PUBLISHED&status=IN_PROGRESS&pageSize=100')).items as any[];
   const avail = (o: any) => Number(o.quantities.released) - Number(o.quantities.scheduled ?? 0) - Number(o.quantities.loaded ?? 0);
-  const order = orders.filter((o) => o.farm && o.seller && avail(o) > 20).sort((a, b) => avail(b) - avail(a))[0];
+  // Comprador com usuários no portal (ABC ou Nutri): a checagem de visibilidade final depende disso.
+  const order = orders.filter((o) => o.farm && o.seller && /abc|nutri/i.test(o.buyer?.name ?? '') && avail(o) > 20).sort((a, b) => avail(b) - avail(a))[0];
   expect(order, 'ordem publicada com saldo liberado no seed').toBeTruthy();
 
   const detail = await apiOk(page, 'GET', `/orders/${order.id}`);

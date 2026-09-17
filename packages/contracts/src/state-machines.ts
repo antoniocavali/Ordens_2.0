@@ -8,7 +8,8 @@ type Transitions<S extends string> = Record<S, readonly S[]>;
  */
 export const ORDER_TRANSITIONS: Transitions<OrderStatus> = {
   DRAFT: ['PENDING_BILLING', 'PUBLISHED', 'CANCELLED'],
-  PENDING_BILLING: ['PUBLISHED', 'CANCELLED'],
+  // Faturamento publica ou devolve ao Comprador; Comprador cancela antes da análise.
+  PENDING_BILLING: ['PUBLISHED', 'DRAFT', 'CANCELLED'],
   PUBLISHED: ['IN_PROGRESS', 'SUSPENDED', 'CANCELLED'],
   IN_PROGRESS: ['SUSPENDED', 'COMPLETED', 'CANCELLED'],
   SUSPENDED: ['PUBLISHED', 'IN_PROGRESS'],
