@@ -71,10 +71,48 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       left join farms f on f.id = lo.farm_id
       left join contracts ct on ct.id = lo.contract_id
       left join units u on u.id = lo.unit_id
-      where lo.status <> 'DRAFT'
+      -- Só ordens que chegaram à publicação (fora rascunhos, solicitações em análise e canceladas antes de publicar).
+      where lo.status not in ('DRAFT', 'PENDING_BILLING')
+        and not (lo.status = 'CANCELLED' and lo.origin = 'BUYER' and lo.published_at is null)
         and coalesce(lo.published_at, lo.created_at) >= ${start(p)} and coalesce(lo.published_at, lo.created_at) < ${end(p)}
         ${commodity(p)}
       order by coalesce(lo.published_at, lo.created_at) desc, lo.number desc
+      limit ${p.limit}`,
+  },
+
+  requests: {
+    columns: [
+      { key: 'number', label: 'Solicitação', type: 'text' },
+      { key: 'status', label: 'Status', type: 'text', labels: ORDER_STATUS_LABELS },
+      { key: 'buyer', label: 'Comprador', type: 'text' },
+      { key: 'requested_by', label: 'Criada por', type: 'text' },
+      { key: 'commodity', label: 'Commodity', type: 'text' },
+      { key: 'unit', label: 'Unidade', type: 'text' },
+      { key: 'quantity', label: 'Quantidade', type: 'qty' },
+      { key: 'submitted_at', label: 'Enviada em', type: 'datetime' },
+      { key: 'farm', label: 'Fazenda definida', type: 'text' },
+      { key: 'published_at', label: 'Publicada em', type: 'datetime' },
+      { key: 'hours_to_publish', label: 'Horas até publicar', type: 'number' },
+      { key: 'returned_at', label: 'Última devolução', type: 'datetime' },
+      { key: 'return_reason', label: 'Motivo da devolução', type: 'text' },
+      { key: 'cancelled_at', label: 'Cancelada em', type: 'datetime' },
+      { key: 'cancel_reason', label: 'Motivo do cancelamento', type: 'text' },
+    ],
+    sql: (p) => Prisma.sql`
+      select lo.number, lo.status::text as status, ${partner('bp')} as buyer, cu.name as requested_by, c.name as commodity,
+        ${unit} as unit, lo.quantity, lo.submitted_at, f.name as farm, lo.published_at,
+        case when lo.published_at is not null and lo.submitted_at is not null
+          then round(extract(epoch from (lo.published_at - lo.submitted_at)) / 3600.0, 1) end as hours_to_publish,
+        lo.returned_at, lo.return_reason, lo.cancelled_at, lo.cancel_reason,
+        count(*) over () as total_count
+      from loading_orders lo
+      left join business_partners bp on bp.id = lo.buyer_partner_id
+      left join users cu on cu.id = lo.created_by
+      left join commodities c on c.id = lo.commodity_id
+      left join farms f on f.id = lo.farm_id
+      left join units u on u.id = lo.unit_id
+      where lo.origin = 'BUYER' and lo.created_at >= ${start(p)} and lo.created_at < ${end(p)} ${commodity(p)}
+      order by lo.created_at desc, lo.number desc
       limit ${p.limit}`,
   },
 
