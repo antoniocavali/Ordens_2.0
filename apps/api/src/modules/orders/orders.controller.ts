@@ -4,6 +4,7 @@ import {
   assignFarmSchema,
   buyerOrderSchema,
   orderReasonActionSchema,
+  resumeOrderSchema,
   type OrderReasonActionInput,
   submitOrderSchema,
   updateBuyerOrderSchema,
@@ -119,6 +120,27 @@ export class OrdersController {
   @RequirePermission('order.billing.manage')
   billingPublish(@Param('id', uuid) id: string, @Body(new ZodPipe(submitOrderSchema)) body: z.infer<typeof submitOrderSchema>) {
     return this.orders.billingPublish(id, body.expectedUpdatedAt);
+  }
+
+  @Post(':id/suspend')
+  @HttpCode(200)
+  @RequirePermission('order.cancel')
+  suspend(@Param('id', uuid) id: string, @Body(new ZodPipe(orderReasonActionSchema)) body: OrderReasonActionInput) {
+    return this.orders.suspendOrder(id, body);
+  }
+
+  @Post(':id/resume')
+  @HttpCode(200)
+  @RequirePermission('order.cancel')
+  resume(@Param('id', uuid) id: string, @Body(new ZodPipe(resumeOrderSchema)) body: z.infer<typeof resumeOrderSchema>) {
+    return this.orders.resumeOrder(id, body.expectedUpdatedAt);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @RequirePermission('order.cancel')
+  cancel(@Param('id', uuid) id: string, @Body(new ZodPipe(orderReasonActionSchema)) body: OrderReasonActionInput) {
+    return this.orders.cancelOrder(id, body);
   }
 
   @Post(':id/billing/return')

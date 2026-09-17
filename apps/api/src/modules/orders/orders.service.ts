@@ -32,6 +32,7 @@ import { currentAuth, currentRequest } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { dec, day, toDetail, toListItem } from './orders.mapper.js';
 import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
+import { recalcOrder } from '../logistics/logistics.util.js';
 import { listReleases, releasesSummary } from './releases.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
@@ -56,6 +57,9 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.published': 'Ordem publicada',
   'order.submitted': 'Solicitação enviada ao Faturamento',
   'order.returned': 'Solicitação devolvida ao Comprador',
+  'order.suspended': 'Ordem suspensa',
+  'order.resumed': 'Ordem retomada',
+  'order.cancelled': 'Ordem cancelada',
   'order.cancelled_by_buyer': 'Solicitação cancelada pelo Comprador',
   'order.billing_updated': 'Solicitação complementada pelo Faturamento',
   'order.farm_assigned': 'Fazenda definida pelo Faturamento',
@@ -82,6 +86,9 @@ const EXTERNAL_TIMELINE = new Set([
   'order.submitted',
   'order.returned',
   'order.cancelled_by_buyer',
+  'order.suspended',
+  'order.resumed',
+  'order.cancelled',
   'order.load_document_attached',
   'order.load_documents_validated',
   'order.published',
@@ -95,7 +102,7 @@ const EXTERNAL_TIMELINE = new Set([
   'order.invoice_cancelled',
 ]);
 
-const REASON_VISIBLE_TO_BUYER = new Set(['order.returned', 'order.cancelled_by_buyer']);
+const REASON_VISIBLE_TO_BUYER = new Set(['order.returned', 'order.cancelled_by_buyer', 'order.suspended', 'order.cancelled']);
 
 /** Serializa valores para comparação/snapshot (decimais normalizados, datas AAAA-MM-DD). */
 function normalize(field: string, value: unknown): unknown {
@@ -717,6 +724,107 @@ export class OrdersService {
     });
   }
 
+  // ───────────────────────────── Suspensão e cancelamento (Matriz) ─────────────────────────────
+
+  /** Suspende ordem publicada ou em execução: bloqueia liberações, agendamentos e cargas novas até a retomada. */
+  async suspendOrder(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, null);
+      this.assertExpected(order, input.expectedUpdatedAt);
+      if (order.status !== 'PUBLISHED' && order.status !== 'IN_PROGRESS') {
+        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente ordens publicadas ou em execução podem ser suspensas.');
+      }
+      const now = new Date();
+      await tx.loadingOrder.update({ where: { id }, data: { status: 'SUSPENDED', suspendedAt: now, suspendedBy: auth.userId, suspendReason: input.reason, updatedBy: auth.userId } });
+      await scope.audit({ entityType: 'loading_order', entityId: id, action: 'order.suspended', before: { status: order.status }, after: { status: 'SUSPENDED', reason: input.reason } });
+      await scope.outbox({ type: 'order.suspended', aggregateType: 'loading_order', aggregateId: id, payload: { orderId: id, number: order.number, reason: input.reason } });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  /** Retoma a ordem: em execução se já houve carga (não cancelada), senão publicada. */
+  async resumeOrder(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, null);
+      this.assertExpected(order, expectedUpdatedAt);
+      if (order.status !== 'SUSPENDED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente ordens suspensas podem ser retomadas.');
+      const loads = await tx.load.count({ where: { orderId: id, status: { not: 'CANCELLED' } } });
+      const to = loads ? 'IN_PROGRESS' : 'PUBLISHED';
+      await tx.loadingOrder.update({ where: { id }, data: { status: to, suspendedAt: null, suspendedBy: null, suspendReason: null, updatedBy: auth.userId } });
+      await scope.audit({ entityType: 'loading_order', entityId: id, action: 'order.resumed', before: { status: 'SUSPENDED', reason: order.suspendReason }, after: { status: to } });
+      await scope.outbox({ type: 'order.resumed', aggregateType: 'loading_order', aggregateId: id, payload: { orderId: id, number: order.number, status: to } });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  /**
+   * Cancela a ordem (rascunho interno, aguardando faturamento, publicada, em execução ou suspensa). Exige que não haja
+   * carga ativa; agendamentos e liberações ativos são cancelados junto e o saldo não carregado vira "cancelado".
+   * Cargas concluídas são mantidas.
+   */
+  async cancelOrder(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
+    const auth = currentAuth();
+    this.assertInternal();
+    return this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, null);
+      this.assertExpected(order, input.expectedUpdatedAt);
+      const cancellable = ['PENDING_BILLING', 'PUBLISHED', 'IN_PROGRESS', 'SUSPENDED'].includes(order.status) || (order.status === 'DRAFT' && order.origin === 'MATRIZ');
+      if (!cancellable) throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Esta ordem não pode ser cancelada.');
+      const activeLoads = await tx.load.findMany({ where: { orderId: id, status: { notIn: ['COMPLETED', 'CANCELLED'] } }, select: { number: true } });
+      if (activeLoads.length) {
+        throw AppError.domain(
+          ErrorCode.INVALID_TRANSITION,
+          `Há ${activeLoads.length} carga(s) em andamento (${activeLoads.map((l) => l.number).join(', ')}): conclua ou cancele antes de cancelar a ordem.`,
+          { activeLoads: activeLoads.map((l) => l.number) },
+        );
+      }
+      const now = new Date();
+      const note = `Ordem cancelada: ${input.reason}`;
+      const appointments = await tx.appointment.updateMany({
+        where: { orderId: id, status: { in: ['REQUESTED', 'CONFIRMED', 'CHECKED_IN'] } },
+        data: { status: 'CANCELLED', cancelReason: note },
+      });
+      const releases = await tx.loadingOrderRelease.updateMany({
+        where: { orderId: id, status: 'ACTIVE' },
+        data: { status: 'CANCELLED', cancelledAt: now, cancelledBy: auth.userId, cancelReason: note },
+      });
+      await recalcOrder(tx, id);
+      const fresh = await tx.loadingOrder.findUniqueOrThrow({ where: { id }, select: { quantity: true, loadedQty: true } });
+      const cancelledQty = Prisma.Decimal.max(new Prisma.Decimal(fresh.quantity ?? 0).minus(fresh.loadedQty), 0);
+      await tx.loadingOrder.update({
+        where: { id },
+        data: { status: 'CANCELLED', cancelledAt: now, cancelledBy: auth.userId, cancelReason: input.reason, cancelledQty, suspendedAt: null, suspendedBy: null, suspendReason: null, updatedBy: auth.userId },
+      });
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.cancelled',
+        before: { status: order.status },
+        after: { status: 'CANCELLED', reason: input.reason, cancelledQty: cancelledQty.toString(), appointmentsCancelled: appointments.count, releasesCancelled: releases.count },
+      });
+      await scope.outbox({
+        type: 'order.cancelled',
+        aggregateType: 'loading_order',
+        aggregateId: id,
+        payload: { orderId: id, number: order.number, reason: input.reason, previousStatus: order.status, createdBy: order.createdBy, origin: order.origin },
+      });
+      return this.loadDetail(tx, id);
+    });
+  }
+
+  private assertExpected(order: OrderRecord, expectedUpdatedAt: string) {
+    if (new Date(expectedUpdatedAt).getTime() !== order.updatedAt.getTime()) {
+      throw AppError.conflict('Esta ordem foi alterada por outra pessoa. Recarregue para continuar.', ErrorCode.ORDER_STALE);
+    }
+  }
+
   // ───────────────────────────── Faturamento da Matriz (Q41) ─────────────────────────────
 
   /**
@@ -1068,7 +1176,11 @@ export class OrdersService {
       actions.push('buyer_cancel');
     }
     if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
-    if (perms.has('order.cancel') && ACTIVE_STATUSES.includes(status)) actions.push('cancel');
+    if (internal && perms.has('order.cancel')) {
+      if (status === 'PUBLISHED' || status === 'IN_PROGRESS') actions.push('suspend');
+      if (status === 'SUSPENDED') actions.push('resume');
+      if (ACTIVE_STATUSES.includes(status) || status === 'PENDING_BILLING' || (status === 'DRAFT' && row.origin !== 'BUYER')) actions.push('cancel');
+    }
 
     return { ...toDetail(row, releaseDtos, auth.membership!.scope, actions), workflow };
   }

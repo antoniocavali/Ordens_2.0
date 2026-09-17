@@ -1004,6 +1004,9 @@ model LoadingOrder {
   cancelledAt        DateTime?      @map("cancelled_at") @db.Timestamptz(6)
   cancelledBy        String?        @map("cancelled_by") @db.Uuid
   cancelReason       String?        @map("cancel_reason")
+  suspendedAt        DateTime?      @map("suspended_at") @db.Timestamptz(6)
+  suspendedBy        String?        @map("suspended_by") @db.Uuid
+  suspendReason      String?        @map("suspend_reason")
   lastMaterialChangeAt DateTime?    @map("last_material_change_at") @db.Timestamptz(6)
   createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)

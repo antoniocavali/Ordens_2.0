@@ -96,7 +96,10 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     returnedBy: scope === 'FARM' ? null : row.returned_by_name,
     returnReason: scope === 'FARM' ? null : row.return_reason,
     cancelledAt: iso(row.cancelled_at),
-    cancelReason: scope === 'FARM' ? null : row.cancel_reason,
+    // Motivos de cancelamento e suspensão de ordem publicada são compartilhados com as partes.
+    cancelReason: row.cancel_reason,
+    suspendedAt: row.status === 'SUSPENDED' ? iso(row.suspended_at) : null,
+    suspendReason: row.status === 'SUSPENDED' ? row.suspend_reason : null,
     releases,
     allowedActions,
   } as OrderDetail;

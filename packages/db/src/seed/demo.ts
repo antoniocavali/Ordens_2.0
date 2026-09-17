@@ -410,6 +410,10 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         origin: pending ? 'BUYER' : 'MATRIZ',
         submittedAt: pending ? addDays(createdAt, 1) : null,
         submittedBy: pending ? buyerUser.userId : null,
+        // Suspensão sempre registra quando e por quê (constraint loading_orders_suspended_consistent).
+        suspendedAt: status === 'SUSPENDED' ? addDays(createdAt, 3) : null,
+        suspendedBy: status === 'SUSPENDED' ? gestor.userId : null,
+        suspendReason: status === 'SUSPENDED' ? 'Aguardando confirmação de qualidade do lote' : null,
       },
     });
 
