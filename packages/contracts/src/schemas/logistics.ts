@@ -237,7 +237,7 @@ export interface AppointmentDto extends FleetRefs {
 export interface LoadDto extends FleetRefs {
   id: string;
   number: string;
-  order: { id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string };
+  order: { id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string; requiresReceipt: boolean };
   appointmentId: string | null;
   loadingDate: string | null;
   expectedQty: string;

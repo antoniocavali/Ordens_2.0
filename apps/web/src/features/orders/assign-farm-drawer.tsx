@@ -17,6 +17,7 @@ interface Values {
   farm: ComboOption | null;
   unitPrice: string;
   tolerancePct: string;
+  requiresReceipt: boolean;
   loadingInstructions: string;
   farmNotes: string;
   internalNotes: string;
@@ -40,6 +41,7 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
       farm: order.farm ? { id: order.farm.id, label: order.farm.name } : null,
       unitPrice: toDecimalInput(order.unitPrice),
       tolerancePct: order.tolerancePct && order.tolerancePct !== '0' ? toDecimalInput(order.tolerancePct) : '',
+      requiresReceipt: order.requiresReceipt,
       loadingInstructions: order.loadingInstructions ?? '',
       farmNotes: order.farmNotes ?? '',
       internalNotes: order.internalNotes ?? '',
@@ -63,6 +65,7 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
           contractId: v.contract?.id ?? null,
           unitPrice: v.unitPrice ? parseDecimalInput(v.unitPrice) : null,
           tolerancePct: v.tolerancePct ? parseDecimalInput(v.tolerancePct) : null,
+          requiresReceipt: v.requiresReceipt,
           loadingInstructions: v.loadingInstructions.trim() || null,
           farmNotes: v.farmNotes.trim() || null,
           internalNotes: v.internalNotes.trim() || null,
@@ -177,6 +180,13 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
           <Field label="Tolerância (%)" className={span[3]} error={errors.tolerancePct?.message}>
             {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...form.register('tolerancePct')} placeholder="0" />}
           </Field>
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 ring-1 ring-border hover:bg-surface-2 sm:col-span-6">
+            <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-primary)]" {...form.register('requiresReceipt')} />
+            <span className="min-w-0 text-sm">
+              <span className="block font-medium">Exigir recebimento no destino</span>
+              <span className="block text-xs text-muted">Desmarcado, a carga segue do trânsito direto para o faturamento da Matriz.</span>
+            </span>
+          </label>
           <Field label="Instruções de carregamento (Fazenda)" className={span[6]}>
             {(a) => <Textarea {...a} rows={2} {...form.register('loadingInstructions')} />}
           </Field>

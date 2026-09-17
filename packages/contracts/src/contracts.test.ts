@@ -123,6 +123,12 @@ describe('máquinas de estado', () => {
     expect(canTransitionLoad('ARRIVED', 'RECEIVED', 'MATRIZ')).toBe(true);
     expect(canTransitionLoad('LOADING', 'CANCELLED', 'FARM')).toBe(false);
     expect(canTransitionLoad('CONFIRMED', 'CANCELLED', 'FARM')).toBe(true);
+    // Recebimento no destino opcional por ordem.
+    expect(canTransitionLoad('IN_TRANSIT', 'ARRIVED', 'MATRIZ')).toBe(true);
+    expect(canTransitionLoad('IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ')).toBe(false);
+    expect(canTransitionLoad('IN_TRANSIT', 'ARRIVED', 'MATRIZ', { requiresReceipt: false })).toBe(false);
+    expect(canTransitionLoad('IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ', { requiresReceipt: false })).toBe(true);
+    expect(canTransitionLoad('IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'FARM', { requiresReceipt: false })).toBe(false);
   });
 });
 

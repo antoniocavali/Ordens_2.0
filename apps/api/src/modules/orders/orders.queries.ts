@@ -43,6 +43,7 @@ export interface OrderRow {
   loading_starts_on: Date | null;
   loading_ends_on: Date | null;
   tolerance_pct: Prisma.Decimal;
+  requires_receipt: boolean;
   destination_name: string | null;
   destination_address: string | null;
   destination_city: string | null;
@@ -122,7 +123,7 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.released_qty, lo.scheduled_qty, lo.loaded_qty, lo.in_transit_qty, lo.received_qty, lo.cancelled_qty,
         lo.initial_release_qty, lo.unit_price, lo.currency, lo.freight_mode::text as freight_mode, lo.freight_estimate,
         lo.preferred_carrier_id, coalesce(cr.trade_name, cr.legal_name) as carrier_name,
-        lo.loading_starts_on, lo.loading_ends_on, lo.tolerance_pct,
+        lo.loading_starts_on, lo.loading_ends_on, lo.tolerance_pct, lo.requires_receipt,
         lo.destination_name, lo.destination_address, lo.destination_city, lo.destination_state,
         lo.commercial_terms, lo.loading_instructions, lo.internal_notes, lo.farm_notes, lo.buyer_notes,
         lo.published_at, lo.created_at, cu.name as created_by_name, lo.updated_at, uu.name as updated_by_name,

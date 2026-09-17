@@ -116,7 +116,7 @@ function normalize(field: string, value: unknown): unknown {
 }
 
 /** Colunas NOT NULL com default: "limpar" no formulário significa voltar ao padrão. */
-const NON_NULLABLE_DEFAULTS: Record<string, unknown> = { tolerancePct: '0', currency: 'BRL', priority: 'NORMAL' };
+const NON_NULLABLE_DEFAULTS: Record<string, unknown> = { tolerancePct: '0', requiresReceipt: true, currency: 'BRL', priority: 'NORMAL' };
 
 function toPrismaData(input: OrderDraftInput): Prisma.LoadingOrderUncheckedUpdateInput {
   const data: Record<string, unknown> = {};
@@ -862,6 +862,7 @@ export class OrdersService {
           initialReleaseQty: null,
           operationType: null,
           tolerancePct: '0',
+          requiresReceipt: true,
           updatedBy: auth.userId,
         },
       });
@@ -897,6 +898,7 @@ export class OrdersService {
         if (input[key] !== undefined) data[key] = input[key];
       }
       if (input.tolerancePct !== undefined) data.tolerancePct = input.tolerancePct ?? '0';
+      if (input.requiresReceipt !== undefined) data.requiresReceipt = input.requiresReceipt;
       const merged = { ...order, ...data } as unknown as OrderDraftInput;
       await this.validateRelations(tx, merged);
       await tx.loadingOrder.update({ where: { id }, data: { ...(data as Prisma.LoadingOrderUncheckedUpdateInput), updatedBy: auth.userId } });

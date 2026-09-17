@@ -65,7 +65,8 @@ stateDiagram-v2
   LOADED --> AWAITING_FARM_INVOICE: automático
   AWAITING_FARM_INVOICE --> FARM_INVOICED: PDF + XML válidos
   FARM_INVOICED --> IN_TRANSIT: liberar para transporte (reconfere documentos)
-  IN_TRANSIT --> ARRIVED
+  IN_TRANSIT --> ARRIVED: ordem exige recebimento (padrão)
+  IN_TRANSIT --> AWAITING_MATRIZ_INVOICE: encerrar transporte (ordem dispensa recebimento)
   ARRIVED --> RECEIVED
   RECEIVED --> CHECKED
   CHECKED --> AWAITING_MATRIZ_INVOICE
@@ -89,7 +90,7 @@ stateDiagram-v2
 | AWAITING_FARM_INVOICE | Aguardando documentação fiscal | automático após LOADED | — |
 | FARM_INVOICED | Documentação fiscal validada | FARM, MATRIZ (checklist fiscal) | — |
 | IN_TRANSIT | Em trânsito | MATRIZ, FARM (checklist fiscal reconferido) | +in_transit |
-| ARRIVED | Chegada ao destino | MATRIZ | — |
+| ARRIVED | Chegada ao destino (só se a ordem exige recebimento) | MATRIZ | — |
 | RECEIVED | Recebida | MATRIZ | −in_transit, +received |
 | CHECKED | Conferida | MATRIZ | divergência gera ocorrência |
 | AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | MATRIZ | — |
