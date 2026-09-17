@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { LOAD_STAGES, type AttentionItem, type AttentionTone, type DashboardDto, type DashboardQuery } from '@ordens/contracts';
-import { Prisma } from '@ordens/db';
+import { LOAD_STAGES, type AttentionItem, type BuyerDashboard, type AttentionTone, type DashboardDto, type DashboardQuery } from '@ordens/contracts';
+import { Prisma, type Tx } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
@@ -227,6 +227,8 @@ export class DashboardService {
           `)
         : [];
 
+      const buyer = scope === 'BUYER' ? await this.buyerSection(tx, periodStart, q.commodityId) : null;
+
       // ─── Montagem por perfil ───
       const attention: AttentionItem[] =
         scope === 'MATRIZ'
@@ -310,8 +312,65 @@ export class DashboardService {
           orderedT: tons(r.ordered_t),
           loadedT: tons(r.loaded_t),
         })),
+        buyer,
         carriers: carriers.map((r) => ({ id: r.id, name: r.name, loads: int(r.loads), loadedT: tons(r.loaded_t), divergentLoads: int(r.divergent) })),
       };
     });
+  }
+
+  /** Portal do Comprador: funil das próprias solicitações e cargas a caminho (linhas já recortadas pelo RLS). */
+  private async buyerSection(tx: Tx, periodStart: Prisma.Sql, commodityId?: string): Promise<BuyerDashboard> {
+    const commodity = commodityId ? Prisma.sql`and lo.commodity_id = ${commodityId}::uuid` : Prisma.empty;
+    const [req] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
+      select
+        count(*) filter (where lo.status = 'DRAFT' and lo.returned_at is null) as draft,
+        count(*) filter (where lo.status = 'DRAFT' and lo.returned_at is not null) as returned,
+        count(*) filter (where lo.status = 'PENDING_BILLING') as pending_billing,
+        count(*) filter (where lo.published_at >= ${periodStart}) as published,
+        count(*) filter (where lo.status = 'CANCELLED' and lo.cancelled_at >= ${periodStart}) as cancelled,
+        avg(extract(epoch from lo.published_at - lo.submitted_at) / 3600.0) filter (where lo.published_at >= ${periodStart} and lo.submitted_at is not null) as avg_hours
+      from loading_orders lo
+      where lo.origin = 'BUYER' ${commodity}
+    `);
+    const inbound = await tx.$queryRaw<
+      { id: string; number: string; order_id: string; order_number: string; commodity: string | null; farm: string | null; carrier: string | null; plates: string[]; qty_t: Dec; status: 'IN_TRANSIT' | 'ARRIVED'; since: Date | null }[]
+    >(Prisma.sql`
+      select l.id, l.number, lo.id as order_id, lo.number as order_number, c.name as commodity, f.name as farm,
+        coalesce(cp.trade_name, cp.legal_name) as carrier, l.plates, l.status::text as status,
+        coalesce(l.net_kg / 1000.0, l.expected_qty * coalesce(u.factor_to_kg, 1000) / 1000.0) as qty_t,
+        (select max(h.occurred_at) from load_status_history h where h.load_id = l.id and h.to_status = l.status) as since
+      from loads l
+      join loading_orders lo on lo.id = l.order_id
+      left join commodities c on c.id = lo.commodity_id
+      left join farms f on f.id = lo.farm_id
+      left join business_partners cp on cp.id = l.carrier_partner_id
+      left join units u on u.id = lo.unit_id
+      where l.status in ('IN_TRANSIT', 'ARRIVED') ${commodity}
+      order by since asc nulls last
+      limit 8
+    `);
+    return {
+      requests: {
+        draft: int(req?.draft),
+        returned: int(req?.returned),
+        pendingBilling: int(req?.pending_billing),
+        publishedInPeriod: int(req?.published),
+        cancelledInPeriod: int(req?.cancelled),
+      },
+      avgHoursToPublish: req?.avg_hours === null || req?.avg_hours === undefined ? null : Math.round(Number(req.avg_hours) * 10) / 10,
+      inbound: inbound.map((l) => ({
+        id: l.id,
+        number: l.number,
+        orderId: l.order_id,
+        orderNumber: l.order_number,
+        commodity: l.commodity,
+        farm: l.farm,
+        carrier: l.carrier,
+        plates: l.plates ?? [],
+        quantityT: tons(l.qty_t),
+        status: l.status,
+        since: l.since?.toISOString() ?? null,
+      })),
+    };
   }
 }

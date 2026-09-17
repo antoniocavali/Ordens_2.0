@@ -49,6 +49,28 @@ export interface DashboardDto {
   loadsToday: { total: number; stages: { key: string; label: string; count: number }[] };
   byCommodity: { id: string; name: string; orderedT: string; loadedT: string }[];
   activeOrders: { id: string; number: string; commodity: string | null; counterpart: string | null; orderedT: string; loadedT: string }[];
+  /** Somente Comprador: solicitações do portal (Q41) e cargas a caminho. */
+  buyer: BuyerDashboard | null;
   /** Somente Matriz (Q24). */
   carriers: { id: string; name: string; loads: number; loadedT: string; divergentLoads: number }[];
+}
+
+export interface BuyerDashboard {
+  /** Rascunhos e devoluções são só do próprio usuário (RLS); as demais contam a organização. */
+  requests: { draft: number; returned: number; pendingBilling: number; publishedInPeriod: number; cancelledInPeriod: number };
+  /** Horas médias entre o envio ao Faturamento e a publicação, para solicitações publicadas no período. */
+  avgHoursToPublish: number | null;
+  inbound: {
+    id: string;
+    number: string;
+    orderId: string;
+    orderNumber: string;
+    commodity: string | null;
+    farm: string | null;
+    carrier: string | null;
+    plates: string[];
+    quantityT: string;
+    status: 'IN_TRANSIT' | 'ARRIVED';
+    since: string | null;
+  }[];
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { DASHBOARD_PERIOD_LABELS, DASHBOARD_PERIODS, type AttentionItem, type DashboardDto, type DashboardPeriod } from '@ordens/contracts';
+import { DASHBOARD_PERIOD_LABELS, DASHBOARD_PERIODS, type AttentionItem, type BuyerDashboard, type DashboardDto, type DashboardPeriod } from '@ordens/contracts';
 import { AsyncCombobox, Button, Card, cn, Skeleton, type ComboOption } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
@@ -12,11 +12,13 @@ import {
   FileClock,
   FileWarning,
   FileX,
+  Inbox,
   PackageCheck,
   Scale,
   ShieldAlert,
   TrendingUp,
   Truck,
+  Undo2,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -48,6 +50,9 @@ const ATTENTION_ICON: Record<string, LucideIcon> = {
   documents_blocked: FileX,
   drafts: FileClock,
   in_transit: Truck,
+  pending_billing: Inbox,
+  buyer_pending_billing: Inbox,
+  buyer_returned: Undo2,
 };
 
 const TONE: Record<AttentionItem['tone'], string> = {
@@ -56,6 +61,75 @@ const TONE: Record<AttentionItem['tone'], string> = {
   info: 'bg-info-soft text-info',
   primary: 'bg-primary-soft text-primary',
 };
+
+function formatHours(h: number) {
+  if (h < 1) return 'menos de 1 h';
+  if (h < 48) return `${h.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`;
+  return `${(h / 24).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dias`;
+}
+
+/** Portal do Comprador: onde estão as próprias solicitações (Q41). */
+function BuyerRequests({ data, periodLabel }: { data: BuyerDashboard; periodLabel: string }) {
+  const r = data.requests;
+  const rows: { label: string; count: number; href: string; tone: string; icon: LucideIcon }[] = [
+    { label: 'Rascunhos', count: r.draft, href: '/ordens?status=DRAFT', tone: 'bg-surface-3 text-muted', icon: FileClock },
+    { label: 'Devolvidas para ajuste', count: r.returned, href: '/ordens?status=DRAFT', tone: 'bg-danger-soft text-danger', icon: Undo2 },
+    { label: 'Aguardando faturamento', count: r.pendingBilling, href: '/ordens?status=PENDING_BILLING', tone: 'bg-warning-soft text-warning', icon: Inbox },
+    { label: `Publicadas ${periodLabel}`, count: r.publishedInPeriod, href: '/ordens', tone: 'bg-success-soft text-success', icon: CheckCircle2 },
+    { label: `Canceladas ${periodLabel}`, count: r.cancelledInPeriod, href: '/ordens?status=CANCELLED', tone: 'bg-surface-3 text-subtle', icon: FileX },
+  ];
+  return (
+    <div className="space-y-4">
+      <ul className="space-y-1">
+        {rows.map((row) => (
+          <li key={row.label}>
+            <Link href={row.href} className="group flex items-center gap-3 rounded-md px-2 py-2 text-sm transition hover:bg-surface-2">
+              <span className={cn('grid size-7 place-items-center rounded-md [&_svg]:size-4', row.tone)}>
+                <row.icon />
+              </span>
+              <span className="flex-1 text-muted group-hover:text-text">{row.label}</span>
+              <span className="font-semibold tabular">{row.count}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center justify-between rounded-md bg-primary-soft/60 px-3 py-2.5 text-sm">
+        <span className="text-muted">Tempo médio até a publicação</span>
+        <span className="font-semibold text-primary">{data.avgHoursToPublish === null ? '—' : formatHours(data.avgHoursToPublish)}</span>
+      </div>
+    </div>
+  );
+}
+
+function Inbound({ items }: { items: BuyerDashboard['inbound'] }) {
+  if (!items.length) return <p className="py-6 text-center text-sm text-subtle">Nenhuma carga a caminho.</p>;
+  return (
+    <ul className="divide-y divide-border/60">
+      {items.map((l) => (
+        <li key={l.id}>
+          <Link href={`/cargas?abrir=${l.id}`} className="flex items-center gap-3 py-2.5 text-sm transition hover:bg-surface-2/60">
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-info-soft text-info">
+              <Truck className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">
+                <span className="font-mono">{l.plates[0] ?? l.number}</span>
+                <span className="text-muted"> · {l.carrier ?? 'Transportadora não informada'}</span>
+              </span>
+              <span className="block truncate text-xs text-subtle">
+                OC {l.orderNumber} · {[l.commodity, l.farm].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+            <span className="text-right">
+              <span className="block font-semibold tabular">{formatQtyCompact(l.quantityT, 't')}</span>
+              <span className="block text-xs text-subtle">{l.status === 'ARRIVED' ? 'No destino' : l.since ? `saiu ${formatRelative(l.since)}` : 'Em trânsito'}</span>
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function greeting() {
   const h = new Date().getHours();
@@ -211,6 +285,11 @@ export function DashboardPage() {
             <Panel title="Funil de volume" className="lg:col-span-3" action={<span className="text-xs text-subtle">toneladas · ordens ativas</span>}>
               <FunnelChart steps={d.funnel} />
             </Panel>
+            {d.buyer ? (
+              <Panel title="Minhas solicitações" className="lg:col-span-2" action={<Link href="/ordens" className="text-xs text-primary hover:underline">Ver todas</Link>}>
+                <BuyerRequests data={d.buyer} periodLabel={periodLabel} />
+              </Panel>
+            ) : (
             <Panel title="Cargas de hoje" className="lg:col-span-2" action={<span className="text-xs tabular text-subtle">{d.loadsToday.total} no dia</span>}>
               {d.loadsToday.total === 0 ? (
                 <p className="py-8 text-center text-sm text-subtle">Nenhuma carga com carregamento previsto para hoje.</p>
@@ -228,6 +307,7 @@ export function DashboardPage() {
                 </ul>
               )}
             </Panel>
+            )}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-5">
@@ -272,6 +352,10 @@ export function DashboardPage() {
                     </tbody>
                   </table>
                 )}
+              </Panel>
+            ) : d.buyer ? (
+              <Panel title="A caminho" action={<span className="text-xs tabular text-subtle">{d.buyer.inbound.length} cargas</span>}>
+                <Inbound items={d.buyer.inbound} />
               </Panel>
             ) : (
               <Panel title="Volumes">
