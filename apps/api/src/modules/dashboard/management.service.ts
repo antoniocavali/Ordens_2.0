@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MANAGEMENT_CYCLE_BUCKETS, type ManagementCycleDto, type ReportQuery } from '@ordens/contracts';
+import { MANAGEMENT_CYCLE_BUCKETS, MANAGEMENT_ORDERS_LIMIT, type ManagementCycleDto, type ManagementOrderRow, type OrderStatus, type ReportQuery } from '@ordens/contracts';
 import { Prisma } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
@@ -9,6 +9,7 @@ const TZ = 'America/Sao_Paulo';
 type Dec = Prisma.Decimal | number | bigint | string | null | undefined;
 const hours = (v: Dec) => (v === null || v === undefined ? null : Math.round(Number(v) * 10) / 10);
 const int = (v: Dec) => Number(v ?? 0);
+const tons = (v: Dec) => (v === null || v === undefined ? '0' : new Prisma.Decimal(v.toString()).toDecimalPlaces(3).toString());
 
 /**
  * Painel de Gestão (Q46): tempo de ciclo das ordens concluídas no período e idade das ordens abertas.
@@ -62,6 +63,54 @@ export class ManagementService {
         ) fl on true
         where lo.status = 'COMPLETED' and lo.completed_at >= ${start} and lo.completed_at < ${end} ${commodity}
         order by publish_to_complete desc nulls last
+      `);
+
+      const orderRows = await tx.$queryRaw<
+        {
+          id: string;
+          number: string;
+          commodity: string | null;
+          farm: string | null;
+          buyer: string | null;
+          status: OrderStatus;
+          via: string | null;
+          submitted_at: Date | null;
+          published_at: Date | null;
+          first_load_at: Date | null;
+          completed_at: Date | null;
+          loads: Dec;
+          quantity_t: Dec;
+          loaded_t: Dec;
+          submit_to_publish: Dec;
+          publish_to_first_load: Dec;
+          publish_to_end: Dec;
+        }[]
+      >(Prisma.sql`
+        select lo.id, lo.number, c.name as commodity, f.name as farm,
+          coalesce(bp.trade_name, bp.legal_name) as buyer, lo.status::text as status,
+          case when lo.status = 'COMPLETED' then coalesce(lo.completion_via, 'auto') end as via,
+          lo.submitted_at, lo.published_at, fl.first_load as first_load_at, lo.completed_at,
+          fl.loads,
+          lo.quantity * coalesce(u.factor_to_kg, 1000) / 1000.0 as quantity_t,
+          lo.loaded_qty * coalesce(u.factor_to_kg, 1000) / 1000.0 as loaded_t,
+          extract(epoch from lo.published_at - lo.submitted_at) / 3600.0 as submit_to_publish,
+          extract(epoch from fl.first_load - lo.published_at) / 3600.0 as publish_to_first_load,
+          extract(epoch from coalesce(lo.completed_at, now()) - lo.published_at) / 3600.0 as publish_to_end
+        from loading_orders lo
+        left join commodities c on c.id = lo.commodity_id
+        left join farms f on f.id = lo.farm_id
+        left join business_partners bp on bp.id = lo.buyer_partner_id
+        left join units u on u.id = lo.unit_id
+        left join lateral (
+          select min(l.created_at) as first_load, count(*) as loads
+          from loads l where l.order_id = lo.id and l.status <> 'CANCELLED'
+        ) fl on true
+        where (
+          (lo.status = 'COMPLETED' and lo.completed_at >= ${start} and lo.completed_at < ${end})
+          or lo.status in ('PUBLISHED', 'IN_PROGRESS')
+        ) ${commodity}
+        order by publish_to_end desc nulls last
+        limit ${MANAGEMENT_ORDERS_LIMIT + 1}
       `);
 
       const aging = await tx.$queryRaw<{ days: Dec; n: Dec }[]>(Prisma.sql`
@@ -132,6 +181,30 @@ export class ManagementService {
             completedAt: r.completed_at.toISOString(),
           })),
         openAging,
+        orders: orderRows.slice(0, MANAGEMENT_ORDERS_LIMIT).map(
+          (o): ManagementOrderRow => ({
+            id: o.id,
+            number: o.number,
+            commodity: o.commodity,
+            farm: o.farm,
+            buyer: o.buyer,
+            status: o.status,
+            via: o.via === 'manual' ? 'manual' : o.via === 'auto' ? 'auto' : null,
+            submittedAt: o.submitted_at?.toISOString() ?? null,
+            publishedAt: o.published_at?.toISOString() ?? null,
+            firstLoadAt: o.first_load_at?.toISOString() ?? null,
+            completedAt: o.completed_at?.toISOString() ?? null,
+            loads: int(o.loads),
+            quantityT: tons(o.quantity_t),
+            loadedT: tons(o.loaded_t),
+            hours: {
+              submitToPublish: hours(o.submit_to_publish),
+              publishToFirstLoad: hours(o.publish_to_first_load),
+              publishToEnd: hours(o.publish_to_end),
+            },
+          }),
+        ),
+        ordersTruncated: orderRows.length > MANAGEMENT_ORDERS_LIMIT,
       };
     });
   }

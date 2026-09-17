@@ -1,16 +1,16 @@
 'use client';
 
-import type { ManagementCycleDto } from '@ordens/contracts';
-import { AsyncCombobox, Card, cn, Skeleton, type ComboOption } from '@ordens/ui';
+import { ORDER_STATUS_LABELS, type ManagementCycleDto, type ManagementOrderRow } from '@ordens/contracts';
+import { AsyncCombobox, Badge, Card, cn, Input, Skeleton, type ComboOption } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, Hourglass, Timer, TrendingDown } from 'lucide-react';
+import { CheckCircle2, Clock, Hourglass, Search, Timer, TrendingDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { KpiCard } from '@/features/orders/kpi';
 import { lookups } from '@/features/orders/orders-api';
 import { get } from '@/lib/api';
-import { formatDateTime, formatRelative } from '@/lib/format';
+import { formatDate, formatDateTime, formatQty, formatRelative } from '@/lib/format';
 
 const PERIODS = [
   { key: '30', label: '30 dias' },
@@ -57,20 +57,103 @@ function Bars({ rows, empty }: { rows: { key: string; label: string; count: numb
   );
 }
 
+/** Uma linha por ordem: marcos e tempo decorrido (ordens abertas contam até agora). */
+function OrdersTable({ rows, truncated, search, onSearch }: { rows: ManagementOrderRow[]; truncated: boolean; search: string; onSearch: (v: string) => void }) {
+  const term = search.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter((o) => [o.number, o.commodity, o.farm, o.buyer].some((v) => v?.toLowerCase().includes(term)))
+    : rows;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="relative w-full sm:w-80">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+          <Input className="pl-8" placeholder="Filtrar por ordem, commodity, fazenda ou comprador" aria-label="Filtrar ordens" value={search} onChange={(e) => onSearch(e.target.value)} />
+        </label>
+        <span className="text-xs text-subtle">
+          {filtered.length} de {rows.length} ordem(ns){truncated ? ' · listagem limitada às 300 mais demoradas' : ''}
+        </span>
+      </div>
+      {filtered.length === 0 ? (
+        <p className="py-8 text-center text-sm text-subtle">Nenhuma ordem no período com esse filtro.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[56rem] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted">
+                <th className="pb-2 pr-3">Ordem</th>
+                <th className="pb-2 pr-3">Situação</th>
+                <th className="pb-2 pr-3">Publicada</th>
+                <th className="pb-2 pr-3">1ª carga</th>
+                <th className="pb-2 pr-3">Concluída</th>
+                <th className="pb-2 pr-3 text-right">Até a 1ª carga</th>
+                <th className="pb-2 pr-3 text-right">Ciclo</th>
+                <th className="pb-2 text-right">Carregado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((o) => (
+                <tr key={o.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/50">
+                  <td className="py-2.5 pr-3">
+                    <Link href={`/ordens/${o.id}`} className="font-mono text-primary hover:underline">
+                      {o.number}
+                    </Link>
+                    <span className="block truncate text-xs text-subtle">{[o.commodity, o.buyer].filter(Boolean).join(' · ')}</span>
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <Badge tone={o.status === 'COMPLETED' ? 'success' : o.status === 'IN_PROGRESS' ? 'info' : 'neutral'} size="sm">
+                      {ORDER_STATUS_LABELS[o.status]}
+                    </Badge>
+                    {o.via ? <span className="ml-1 text-xs text-subtle">{o.via === 'auto' ? 'automática' : 'informada'}</span> : null}
+                  </td>
+                  <td className="py-2.5 pr-3 text-muted">{o.publishedAt ? formatDate(o.publishedAt) : '—'}</td>
+                  <td className="py-2.5 pr-3 text-muted">{o.firstLoadAt ? formatDate(o.firstLoadAt) : '—'}</td>
+                  <td className="py-2.5 pr-3 text-muted">{o.completedAt ? formatDateTime(o.completedAt) : '—'}</td>
+                  <td className="py-2.5 pr-3 text-right tabular">{formatHours(o.hours.publishToFirstLoad)}</td>
+                  <td className={cn('py-2.5 pr-3 text-right font-medium tabular', !o.completedAt && 'text-warning')}>
+                    {formatHours(o.hours.publishToEnd)}
+                    {!o.completedAt ? <span className="block text-xs font-normal text-subtle">em aberto</span> : null}
+                  </td>
+                  <td className="py-2.5 text-right tabular">
+                    {formatQty(o.loadedT, 't')}
+                    <span className="block text-xs text-subtle">de {formatQty(o.quantityT, 't')}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
 /** Painel de Gestão (Q46): quanto tempo a ordem leva do início até a conclusão. */
 export function ManagementCyclePage() {
-  const [days, setDays] = useState<(typeof PERIODS)[number]['key']>('90');
+  const [days, setDays] = useState<(typeof PERIODS)[number]['key'] | null>('90');
+  const [range, setRange] = useState({ from: iso(new Date(Date.now() - 89 * 86_400_000)), to: iso(new Date()) });
   const [commodity, setCommodity] = useState<ComboOption | null>(null);
+  const [search, setSearch] = useState('');
+  // Atalho define o intervalo; digitar datas passa o período para o modo manual.
+  const period = days ? { from: iso(new Date(Date.now() - (Number(days) - 1) * 86_400_000)), to: iso(new Date()) } : range;
+  const invalidRange = period.from > period.to;
   const query = useQuery({
-    queryKey: ['management', 'cycle', days, commodity?.id ?? null],
-    queryFn: ({ signal }) => {
-      const to = new Date();
-      const from = new Date(to.getTime() - (Number(days) - 1) * 86_400_000);
-      return get<ManagementCycleDto>('/management/cycle', { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), commodityId: commodity?.id }, signal);
-    },
+    queryKey: ['management', 'cycle', period.from, period.to, commodity?.id ?? null],
+    queryFn: ({ signal }) => get<ManagementCycleDto>('/management/cycle', { from: period.from, to: period.to, commodityId: commodity?.id }, signal),
     placeholderData: keepPreviousData,
+    enabled: !invalidRange,
   });
   const d = query.data;
+  const setPreset = (key: (typeof PERIODS)[number]['key']) => {
+    setDays(key);
+    setRange({ from: iso(new Date(Date.now() - (Number(key) - 1) * 86_400_000)), to: iso(new Date()) });
+  };
+  const setDate = (field: 'from' | 'to', value: string) => {
+    setDays(null);
+    setRange((r) => ({ ...r, [field]: value }));
+  };
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -86,7 +169,7 @@ export function ManagementCyclePage() {
                 key={p.key}
                 role="radio"
                 aria-checked={days === p.key}
-                onClick={() => setDays(p.key)}
+                onClick={() => setPreset(p.key)}
                 className={cn('relative h-8 rounded-md px-3 text-[13px] font-medium', days === p.key ? 'text-primary' : 'text-muted hover:text-text')}
               >
                 {days === p.key ? <motion.span layoutId="cycle-period" className="absolute inset-0 rounded-md bg-primary-soft" /> : null}
@@ -94,13 +177,22 @@ export function ManagementCyclePage() {
               </button>
             ))}
           </div>
+          <div className="flex items-center gap-1.5">
+            <Input type="date" aria-label="Data inicial" className="w-[9.5rem]" value={range.from} max={range.to} onChange={(e) => setDate('from', e.target.value)} />
+            <span className="text-sm text-subtle">até</span>
+            <Input type="date" aria-label="Data final" className="w-[9.5rem]" value={range.to} min={range.from} onChange={(e) => setDate('to', e.target.value)} />
+          </div>
           <div className="w-full sm:w-60">
             <AsyncCombobox value={commodity} onChange={setCommodity} queryKey={['lookup', 'commodities']} fetchPage={lookups.commodities()} placeholder="Todas as commodities" aria-label="Commodity" />
           </div>
         </div>
       </div>
 
-      {!d ? (
+      {invalidRange ? (
+        <Card className="p-6 text-sm text-danger" role="alert">
+          A data inicial deve ser anterior à final.
+        </Card>
+      ) : !d ? (
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -193,6 +285,17 @@ export function ManagementCyclePage() {
               )}
             </Panel>
           </div>
+
+          <Panel
+            title="Tempo por ordem"
+            action={
+              <span className="text-xs text-subtle">
+                concluídas no período e abertas · {formatDate(d.from)} a {formatDate(d.to)}
+              </span>
+            }
+          >
+            <OrdersTable rows={d.orders} truncated={d.ordersTruncated} search={search} onSearch={setSearch} />
+          </Panel>
         </div>
       )}
     </div>

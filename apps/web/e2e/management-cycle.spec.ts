@@ -20,6 +20,26 @@ test.describe('Painel de Gestão do ciclo', () => {
     await page.getByRole('radio', { name: '30 dias' }).click();
     await expect.poll(async () => (await apiOk(page, 'GET', '/management/cycle')).completed).toBeGreaterThanOrEqual(0);
     await expect(page.getByRole('link', { name: 'Gestão do ciclo' })).toBeVisible();
+    // Tempo por ordem e filtro por datas.
+    await expect(page.getByRole('heading', { name: 'Tempo por ordem' })).toBeVisible();
+    const table = page.getByRole('table');
+    await expect(table.getByRole('columnheader', { name: 'Ciclo' })).toBeVisible();
+    const first = table.locator('tbody tr').first();
+    const number = (await first.locator('td').first().innerText()).split('\n')[0]!.trim();
+    await page.getByLabel('Filtrar ordens').fill(number);
+    await expect(table.locator('tbody tr')).toHaveCount(1);
+    await page.getByLabel('Filtrar ordens').fill('zzz-inexistente');
+    await expect(page.getByText('Nenhuma ordem no período com esse filtro.')).toBeVisible();
+    await page.getByLabel('Filtrar ordens').fill('');
+
+    // Datas: período manual recarrega os números do painel.
+    const hoje = new Date().toISOString().slice(0, 10);
+    const ontem = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const response = page.waitForResponse((r) => r.url().includes('/management/cycle') && r.url().includes(`from=${ontem}`));
+    await page.getByLabel('Data inicial').fill(ontem);
+    await page.getByLabel('Data final').fill(hoje);
+    await response;
+    await expect(page.getByText(/de \d+ ordem\(ns\)/)).toBeVisible();
     await page.screenshot({ path: 'test-results/management-cycle.png', fullPage: true });
 
     // Fora da Matriz: sem acesso e sem item de menu.
