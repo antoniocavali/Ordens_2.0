@@ -104,7 +104,7 @@ test.describe('Logística e fiscal', () => {
     expect((await api(page, 'POST', `/loads/${setup.loadId}/transition`, { to: 'IN_TRANSIT', expectedUpdatedAt: load.updatedAt })).status).toBe(422);
 
     // PDF disponível + XML rejeitado ainda bloqueia.
-    const fileInput = drawer.locator('input[type="file"]');
+    const fileInput = drawer.locator('input[type="file"]').first();
     await fileInput.setInputFiles({ name: 'danfe.pdf', mimeType: 'application/pdf', buffer: PDF });
     await fileInput.setInputFiles({ name: 'pedido.xml', mimeType: 'application/xml', buffer: Buffer.from('<?xml version="1.0"?><pedido><id>1</id></pedido>') });
     await expect(drawer.getByText('Rejeitada').first()).toBeVisible({ timeout: 45_000 });

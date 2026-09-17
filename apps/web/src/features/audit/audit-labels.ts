@@ -14,6 +14,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'order.load_document_attached': 'Documento fiscal anexado à carga',
   'order.load_documents_validated': 'Documentação fiscal da carga validada',
   'load.documents_validated': 'Documentação fiscal validada',
+  'load.matriz_invoice_validated': 'Nota da Matriz validada',
+  'order.load_matriz_invoiced': 'Carga faturada pela Matriz',
   'user.notification_preferences_updated': 'Preferências de e-mail alteradas',
   'load.receipt_skipped': 'Transporte encerrado sem recebimento',
   'order.completed': 'Ordem concluída',

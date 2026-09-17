@@ -41,6 +41,9 @@ export const LOAD_LOADED: readonly LoadStatus[] = [
 /** Status em que a documentação fiscal da Fazenda é conferida (checklist da carga). */
 export const LOAD_FISCAL_CHECK_STATUSES: readonly LoadStatus[] = ['LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
 
+/** Q47: etapas em que a nota da Matriz para o Comprador é exigida. */
+export const LOAD_MATRIZ_CHECK_STATUSES: readonly LoadStatus[] = ['CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED'];
+
 /** Situação de cada documento exigido para liberar a carga para transporte (Q41). */
 export type FiscalDocState = 'MISSING' | 'PENDING' | 'PROCESSING' | 'OK' | 'REJECTED' | 'INFECTED';
 
@@ -63,6 +66,8 @@ export interface LoadFiscalChecklist {
 
 export interface FiscalDocumentsInput {
   weighed: boolean;
+  /** Rótulo da parte que emite (a Matriz não repete a pesagem). */
+  party?: 'FARM' | 'MATRIZ';
   uploads: { id: string; kind: string; status: string; createdAt: Date | string }[];
   invoices: { fileUploadId: string | null; status: string }[];
 }
@@ -93,8 +98,10 @@ export function evaluateFiscalDocuments(input: FiscalDocumentsInput): LoadFiscal
 
   const pdf = docState('PDF');
   const xml = docState('NFE_XML');
+  const matriz = input.party === 'MATRIZ';
+  const weighed = matriz ? true : input.weighed;
   const issues: string[] = [];
-  if (!input.weighed) issues.push('Informe peso bruto e tara.');
+  if (!weighed) issues.push('Informe peso bruto e tara.');
   const describe: Record<Exclude<FiscalDocState, 'OK'>, (doc: string) => string> = {
     MISSING: (doc) => `Anexe o ${doc}.`,
     PENDING: (doc) => `Aguarde a conclusão do envio do ${doc}.`,
@@ -102,9 +109,11 @@ export function evaluateFiscalDocuments(input: FiscalDocumentsInput): LoadFiscal
     REJECTED: (doc) => `O ${doc} mais recente foi rejeitado: envie um novo arquivo.`,
     INFECTED: (doc) => `O ${doc} mais recente foi bloqueado pelo antivírus: envie um novo arquivo.`,
   };
-  if (pdf !== 'OK') issues.push(describe[pdf]('PDF da nota fiscal'));
-  if (xml !== 'OK') issues.push(describe[xml]('XML da NF-e'));
-  return { weighed: input.weighed, pdf, xml, ready: input.weighed && pdf === 'OK' && xml === 'OK', issues };
+  const pdfLabel = matriz ? 'PDF da nota da Matriz' : 'PDF da nota fiscal';
+  const xmlLabel = matriz ? 'XML da NF-e da Matriz' : 'XML da NF-e';
+  if (pdf !== 'OK') issues.push(describe[pdf](pdfLabel));
+  if (xml !== 'OK') issues.push(describe[xml](xmlLabel));
+  return { weighed, pdf, xml, ready: weighed && pdf === 'OK' && xml === 'OK', issues };
 }
 export const LOAD_IN_TRANSIT: readonly LoadStatus[] = ['IN_TRANSIT', 'ARRIVED'];
 export const LOAD_RECEIVED: readonly LoadStatus[] = ['RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'];
@@ -253,6 +262,8 @@ export interface LoadDto extends FleetRefs {
   allowedTransitions: LoadStatus[];
   /** Checklist de pesagem e documentos (somente de "Carregada" até "Documentação fiscal validada"). */
   fiscalChecklist: LoadFiscalChecklist | null;
+  /** Q47: nota da Matriz para o Comprador, exigida no faturamento da carga. */
+  matrizChecklist: LoadFiscalChecklist | null;
 }
 
 export interface LoadHistoryItem {
