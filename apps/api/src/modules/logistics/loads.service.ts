@@ -220,8 +220,13 @@ export class LoadsService {
       let matrizChecklist: LoadFiscalChecklist | null = null;
       if (to === 'MATRIZ_INVOICED' || to === 'COMPLETED') {
         matrizChecklist = (await matrizChecklists(tx, [load], true)).get(id)!;
-        if (!matrizChecklist.ready) {
-          throw AppError.domain(ErrorCode.FISCAL_DOCUMENTS_REQUIRED, `Nota da Matriz pendente. ${matrizChecklist.issues.join(' ')}`, { checklist: matrizChecklist });
+        // Q47: documentos da Matriz são o padrão; sem eles, só com confirmação explícita (auditada abaixo).
+        if (!matrizChecklist.ready && !input.acceptMissingMatrizInvoice) {
+          throw AppError.domain(
+            ErrorCode.MATRIZ_INVOICE_MISSING,
+            `Nota da Matriz pendente. ${matrizChecklist.issues.join(' ')} Confirme para seguir sem os documentos.`,
+            { checklist: matrizChecklist },
+          );
         }
       }
 
@@ -268,7 +273,15 @@ export class LoadsService {
         await audit({ entityType: 'loading_order', entityId: load.orderId, action: 'order.load_status', after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS[step], plates: load.plates } });
         from = step;
       }
-      if (to === 'MATRIZ_INVOICED' && matrizChecklist) {
+      if (matrizChecklist && !matrizChecklist.ready) {
+        await audit({
+          entityType: 'load',
+          entityId: id,
+          action: 'load.matriz_invoice_waived',
+          after: { to, pdf: matrizChecklist.pdf, xml: matrizChecklist.xml, reason: 'Confirmado sem a nota da Matriz' },
+        });
+      }
+      if (to === 'MATRIZ_INVOICED' && matrizChecklist?.ready) {
         await audit({ entityType: 'load', entityId: id, action: 'load.matriz_invoice_validated', after: { pdf: matrizChecklist.pdf, xml: matrizChecklist.xml } });
         await audit({
           entityType: 'loading_order',

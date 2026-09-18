@@ -4,6 +4,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   auditQuerySchema,
+  CRITICAL_2FA_ROLES,
   createUserSchema,
   emailNotificationPrefsSchema,
   resolveEmailPrefs,
@@ -367,7 +368,8 @@ export class TenantsController {
     const auth = currentAuth();
     const tenantId = randomUUID();
     return this.db.run({ tenantId, userId: auth.userId, membershipId: null, scope: 'PLATFORM', orgIds: [] }, async (tx) => {
-      const tenant = await tx.tenant.create({ data: { id: tenantId, name: body.name, slug: body.slug } });
+      // 2FA obrigatória para quem publica ordens ou gerencia usuários (aprovada em 18/09/2026).
+      const tenant = await tx.tenant.create({ data: { id: tenantId, name: body.name, slug: body.slug, require2faRoles: [...CRITICAL_2FA_ROLES] } });
       await tx.organization.create({ data: { tenantId, kind: 'MATRIZ', name: body.matrizName } });
       await tx.unit.createMany({
         data: [

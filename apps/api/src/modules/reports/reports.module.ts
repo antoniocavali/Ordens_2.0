@@ -18,6 +18,7 @@ import { Prisma, type Tx } from '@ordens/db';
 import type { Response } from 'express';
 import { RequirePermission } from '../../common/decorators.js';
 import { AppError } from '../../common/errors.js';
+import { currentAuth } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { toCsv } from './csv.js';
@@ -60,6 +61,12 @@ export class ReportsService {
 
   private async run(tx: Tx, kind: ReportKind, q: ReportQuery, limit: number): Promise<ReportResult> {
     const def = REPORTS[kind];
+    // Q38: exportar é permissão por grupo em qualquer perfil; cada relatório existe só nos perfis previstos.
+    const scope = currentAuth().membership?.scope ?? '';
+    if (!(REPORT_INFO[kind].scopes as readonly string[]).includes(scope)) {
+      throw AppError.forbidden('Este relatório não está disponível para o seu perfil.');
+    }
+    const columns = def.columns.filter((c) => !(c.hiddenFor as readonly string[] | undefined)?.includes(scope));
     const { from, to } = this.period(q);
     const raw = await tx.$queryRaw<Record<string, unknown>[]>(def.sql({ from, to, commodityId: q.commodityId, limit }));
     const total = raw.length ? Number(raw[0]!.total_count) : 0;
@@ -68,9 +75,9 @@ export class ReportsService {
       label: REPORT_INFO[kind].label,
       from,
       to,
-      columns: def.columns.map(({ key, label, type }) => ({ key, label, type })),
+      columns: columns.map(({ key, label, type }) => ({ key, label, type })),
       rows: raw.map((r) =>
-        def.columns.map((c) => {
+        columns.map((c) => {
           const value = normalize(r[c.key], c.type);
           return c.labels && typeof value === 'string' ? (c.labels[value] ?? value) : value;
         }),

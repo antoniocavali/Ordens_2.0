@@ -10,6 +10,7 @@ import { FormSection, span } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { createBuyerOrder, lookups, submitOrder, updateBuyerOrder, useInvalidateOrders, useUnits } from './orders-api';
+import { useNoDestinationConfirm } from '@/features/orders/destination-guard';
 
 interface Values {
   commodity: ComboOption | null;
@@ -71,6 +72,7 @@ const toPayload = (v: Values) => ({
 /** Formulário do Comprador: cria/edita o próprio rascunho e envia ao Faturamento da Matriz. */
 export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; order: OrderDetail | null; onClose: () => void }) {
   const form = useForm<Values>({ defaultValues: fromDetail(order) });
+  const [confirmDestination, destinationDialog] = useNoDestinationConfirm('Enviar sem destino');
   const units = useUnits();
   const invalidate = useInvalidateOrders();
   const [busy, setBusy] = useState<'save' | 'submit' | null>(null);
@@ -105,6 +107,8 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
     })();
 
   return (
+    <>
+      {destinationDialog}
     <Drawer
       open={open}
       onRequestClose={onClose}
@@ -118,7 +122,7 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
           <Button variant="outline" onClick={() => void run(false)} loading={busy === 'save'} disabled={busy !== null}>
             <Check /> Salvar rascunho
           </Button>
-          <Button onClick={() => void run(true)} loading={busy === 'submit'} disabled={busy !== null}>
+          <Button onClick={() => confirmDestination(Boolean(form.getValues('destinationName')?.trim()), () => void run(true))} loading={busy === 'submit'} disabled={busy !== null}>
             <Send /> Enviar ao Faturamento
           </Button>
         </div>
@@ -192,5 +196,6 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
         </FormSection>
       </form>
     </Drawer>
+    </>
   );
 }

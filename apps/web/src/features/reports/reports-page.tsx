@@ -5,7 +5,7 @@ import {
   REPORT_FORMAT_LABELS,
   REPORT_FORMATS,
   REPORT_INFO,
-  REPORT_KINDS,
+  reportKindsForScope,
   REPORT_PDF_LIMIT,
   type ReportColumn,
   type ReportFormat,
@@ -89,6 +89,8 @@ export function ReportsPage() {
   const can = useCan();
   const { data: me } = useMe();
   const allowed = can('report.export');
+  // Q38: cada perfil vê só os relatórios previstos para ele.
+  const kinds = reportKindsForScope(me?.activeMembership?.scope);
   const [kind, setKind] = useState<ReportKind>('orders');
   const [from, setFrom] = useState(() => daysAgo(29));
   const [to, setTo] = useState(() => localDay(new Date()));
@@ -142,8 +144,8 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" role="radiogroup" aria-label="Relatório">
-        {REPORT_KINDS.map((k) => (
+      <div className={cn('grid gap-3 sm:grid-cols-2', kinds.length > 4 ? 'xl:grid-cols-6' : 'xl:grid-cols-4')} role="radiogroup" aria-label="Relatório">
+        {kinds.map((k) => (
           <button
             key={k}
             role="radio"

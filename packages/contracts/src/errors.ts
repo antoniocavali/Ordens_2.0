@@ -27,6 +27,8 @@ export const ErrorCode = {
   FISCAL_DOCUMENTS_REQUIRED: 'FISCAL_DOCUMENTS_REQUIRED',
   /** Conclusão pedida com cargas sem PDF/XML da Fazenda: exige aceite explícito da Matriz (Q45). */
   ORDER_DOCUMENTS_PENDING: 'ORDER_DOCUMENTS_PENDING',
+  /** Faturamento/conclusão da carga sem a nota da Matriz: exige confirmação explícita (Q47). */
+  MATRIZ_INVOICE_MISSING: 'MATRIZ_INVOICE_MISSING',
   UPLOAD_REJECTED: 'UPLOAD_REJECTED',
   INVOICE_REQUIRED: 'INVOICE_REQUIRED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',

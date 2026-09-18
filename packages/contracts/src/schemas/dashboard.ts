@@ -96,7 +96,8 @@ export interface ManagementCycleDto {
   p90PublishToComplete: number | null;
   /** Distribuição do ciclo publicação → conclusão. */
   histogram: { key: string; label: string; count: number }[];
-  byCommodity: { id: string; name: string; orders: number; avgHours: number | null }[];
+  /** Q46: ciclo médio agrupado por commodity, fazenda ou comprador (a tela escolhe qual mostrar). */
+  groups: Record<ManagementCycleGroup, { id: string; name: string; orders: number; avgHours: number | null }[]>;
   /** Ordens concluídas mais demoradas do período. */
   slowest: { id: string; number: string; commodity: string | null; counterpart: string | null; hours: number; via: string; completedAt: string }[];
   /** Ordens ainda abertas por tempo desde a publicação. */
@@ -147,6 +148,13 @@ export const managementOrdersQuery = z.object({
   pageSize: z.coerce.number().int().min(5).max(100).default(10),
 });
 export type ManagementOrdersQuery = z.infer<typeof managementOrdersQuery>;
+
+export const MANAGEMENT_CYCLE_GROUPS = [
+  { key: 'commodity', label: 'Commodity' },
+  { key: 'farm', label: 'Fazenda' },
+  { key: 'buyer', label: 'Comprador' },
+] as const;
+export type ManagementCycleGroup = (typeof MANAGEMENT_CYCLE_GROUPS)[number]['key'];
 
 export const MANAGEMENT_CYCLE_BUCKETS = [
   { key: 'd0_3', label: 'Até 3 dias', maxDays: 3 },

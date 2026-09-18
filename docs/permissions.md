@@ -24,7 +24,7 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 | `MATRIZ_OPERATOR` | Operador Matriz | MATRIZ |
 | `MATRIZ_VIEWER` | Somente leitura Matriz | MATRIZ |
 | `MATRIZ_SUPPORT_AGENT` | Atendente (leitura Matriz + atendimento nas filas definidas na equipe) | MATRIZ |
-| `MATRIZ_BILLING` | Faturamento (leitura Matriz + `order.update` + `order.billing.manage` + atendimento) | MATRIZ |
+| `MATRIZ_BILLING` | Faturamento (leitura Matriz + `order.create`, `order.update` e `order.publish` (Q40) + `order.billing.manage` + atendimento) | MATRIZ |
 | `FARM_ADMIN` | Administrador Fazenda | FARM |
 | `FARM_OPERATOR` | Operador Fazenda | FARM |
 | `BUYER_USER` | Comprador | BUYER |
@@ -99,7 +99,7 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `dashboard.matriz` | — | ● | ● | ● | ● | — | — | — |
 | `dashboard.farm` | — | — | — | — | — | ● | ● | — |
 | `dashboard.buyer` | — | — | — | — | — | — | — | ● |
-| `report.export` | — | ● | ● | — | — | — | — | — |
+| `report.export` (Q38: fora dos papéis do sistema, pode ser incluída em papéis personalizados de Fazenda e Comprador — dados e colunas restritos ao perfil) | — | ● | ● | — | — | — | — | — |
 | `settings.manage` | — | ● | — | — | — | — | — | — |
 
 Transições de carga possuem permissão por transição (ver [state-machines.md](state-machines.md)); "Documentação fiscal validada" e "Em trânsito" só por FARM ou MATRIZ e com o checklist fiscal completo.

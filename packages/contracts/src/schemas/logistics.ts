@@ -201,6 +201,11 @@ export const loadTransitionSchema = z.object({
   grossKg: optQty,
   tareKg: optQty,
   receivedQty: optQty,
+  /**
+   * Q47: faturar ou concluir sem PDF/XML da nota da Matriz (há vendas sem essa nota). Os dois documentos
+   * continuam sendo o padrão; sem eles, a Matriz confirma e o aceite fica na auditoria.
+   */
+  acceptMissingMatrizInvoice: z.boolean().optional(),
 });
 export type LoadTransitionInput = z.input<typeof loadTransitionSchema>;
 

@@ -10,6 +10,7 @@ import { FormSection, span } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { assignFarm, billingPublish, lookups, useInvalidateOrders } from './orders-api';
+import { useNoDestinationConfirm } from '@/features/orders/destination-guard';
 
 interface Values {
   contract: ComboOption | null;
@@ -49,6 +50,7 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, order.id, order.updatedAt]);
 
+  const [confirmDestination, destinationDialog] = useNoDestinationConfirm('Publicar sem destino');
   const run = (publish: boolean) =>
     form.handleSubmit(async (v) => {
       if (!v.seller || !v.farm) {
@@ -87,6 +89,8 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
     })();
 
   return (
+    <>
+      {destinationDialog}
     <Drawer
       open={open}
       onRequestClose={onClose}
@@ -100,7 +104,7 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
           <Button variant="outline" onClick={() => void run(false)} loading={busy === 'save'} disabled={busy !== null}>
             <Check /> Salvar
           </Button>
-          <Button onClick={() => void run(true)} loading={busy === 'publish'} disabled={busy !== null}>
+          <Button onClick={() => confirmDestination(Boolean(order.destinationName?.trim()), () => void run(true))} loading={busy === 'publish'} disabled={busy !== null}>
             <Send /> Salvar e publicar para a Fazenda
           </Button>
         </div>
@@ -205,5 +209,6 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
         ) : null}
       </form>
     </Drawer>
+    </>
   );
 }

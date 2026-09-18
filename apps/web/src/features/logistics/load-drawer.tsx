@@ -18,6 +18,7 @@ import { useLoad, useLoadMutations } from './logistics-api';
 import { InvoiceList } from '@/features/fiscal/invoices-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { UploadDropzone } from '@/features/uploads/upload-dropzone';
+import { ConfirmDialog } from '@/features/orders/confirm-dialog';
 import { ReasonDialog } from './reason-dialog';
 
 interface Values extends FleetValues {
@@ -101,6 +102,8 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const load = useLoad(id);
   const { update, transition } = useLoadMutations();
   const [cancelOpen, setCancelOpen] = useState(false);
+  /** Q47: transição que aguarda confirmação por faltar a nota da Matriz. */
+  const [withoutMatrizInvoice, setWithoutMatrizInvoice] = useState<LoadStatus | null>(null);
   const form = useForm<Values>();
   const errors = form.formState.errors;
   const l = load.data;
@@ -143,9 +146,13 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
     }
   });
 
-  const move = async (to: LoadStatus, notes?: string) => {
+  const move = async (to: LoadStatus, notes?: string, acceptMissingMatrizInvoice = false) => {
     if (!l) return;
     if (to === 'CANCELLED' && !notes) return setCancelOpen(true);
+    // Q47: sem PDF e XML da nota da Matriz, faturar ou concluir pede confirmação.
+    if ((to === 'MATRIZ_INVOICED' || to === 'COMPLETED') && l.matrizChecklist && !l.matrizChecklist.ready && !acceptMissingMatrizInvoice) {
+      return setWithoutMatrizInvoice(to);
+    }
     const v = form.getValues();
     try {
       // Salva frota/pesagem pendentes antes de avançar.
@@ -159,12 +166,13 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         grossKg: v.grossKg ? parseDecimalInput(v.grossKg) : null,
         tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : null,
         receivedQty: v.receivedQty ? parseDecimalInput(v.receivedQty) : null,
+        ...(acceptMissingMatrizInvoice ? { acceptMissingMatrizInvoice: true } : {}),
       });
       toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
       setCancelOpen(false);
     } catch (err) {
       if (err instanceof ApiRequestError) {
-        if (err.code === 'FISCAL_DOCUMENTS_REQUIRED') toast.error(err.message);
+        if (err.code === 'FISCAL_DOCUMENTS_REQUIRED' || err.code === 'MATRIZ_INVOICE_MISSING') toast.error(err.message);
         handleSaveError(err, (name, e) => form.setError((FLEET_API_TO_FORM[String(name)] ?? name) as keyof Values, e));
       } else toast.error('Não foi possível atualizar a carga.');
     }
@@ -355,6 +363,20 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
           </form>
         )}
       </Drawer>
+      <ConfirmDialog
+        open={withoutMatrizInvoice !== null}
+        title="Seguir sem a nota da Matriz?"
+        description="Esta carga não tem o PDF e o XML validados da nota que a Matriz emite para o Comprador. Confirme apenas se esta venda não tem essa nota. A confirmação fica registrada na auditoria."
+        confirmLabel={withoutMatrizInvoice === 'COMPLETED' ? 'Concluir sem a nota' : 'Faturar sem a nota'}
+        cancelLabel="Voltar e anexar"
+        tone="primary"
+        onCancel={() => setWithoutMatrizInvoice(null)}
+        onConfirm={() => {
+          const to = withoutMatrizInvoice;
+          setWithoutMatrizInvoice(null);
+          if (to) void move(to, undefined, true);
+        }}
+      />
       <ReasonDialog
         open={cancelOpen}
         title="Cancelar carga"

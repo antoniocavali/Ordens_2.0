@@ -66,7 +66,7 @@ export function useLoadMutations() {
       onSuccess: invalidate,
     }),
     transition: useMutation({
-      mutationFn: ({ id, ...body }: { id: string; to: LoadStatus; expectedUpdatedAt: string; notes?: string | null; grossKg?: string | null; tareKg?: string | null; receivedQty?: string | null }) =>
+      mutationFn: ({ id, ...body }: { id: string; to: LoadStatus; expectedUpdatedAt: string; notes?: string | null; grossKg?: string | null; tareKg?: string | null; receivedQty?: string | null; acceptMissingMatrizInvoice?: boolean }) =>
         post<LoadDto>(`/loads/${id}/transition`, body),
       onSuccess: invalidate,
     }),
