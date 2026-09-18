@@ -21,7 +21,7 @@
     "@nestjs/throttler": "6.5.0",
     "@ordens/contracts": "workspace:*",
     "@ordens/db": "workspace:*",
-    "bullmq": "^6.3.4",
+    "bullmq": "^6.3.6",
     "cookie-parser": "^1.4.7",
     "decimal.js": "^10.6.0",
     "exceljs": "^4.4.0",
