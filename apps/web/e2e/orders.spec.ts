@@ -65,6 +65,8 @@ test.describe('Ordens de Carregamento', () => {
     const number = (await drawer.getByText(/2026\/\d{5}/).first().textContent())!.trim();
 
     await drawer.getByRole('button', { name: 'Salvar e publicar' }).click();
+    // Q39: destino é opcional, mas publicar sem ele pede confirmação.
+    await page.getByRole('dialog', { name: 'Ordem sem destino' }).getByRole('button', { name: 'Publicar sem destino' }).click();
     await expect(page.getByText(`Ordem ${number} publicada`)).toBeVisible();
 
     // Fazenda abre o detalhe → farol verde para a Matriz

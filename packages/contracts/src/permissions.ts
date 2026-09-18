@@ -140,8 +140,11 @@ export const ROLES = {
   MATRIZ_OPERATOR: { name: 'Operador Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_OPERATE },
   MATRIZ_VIEWER: { name: 'Somente leitura Matriz', scope: Scope.MATRIZ, permissions: MATRIZ_READ },
   MATRIZ_SUPPORT_AGENT: { name: 'Atendente', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'support.attend'] },
-  /** Setor de Faturamento (Q41): trata solicitações do Comprador, define fazenda e publica; atende a fila de faturamento. */
-  MATRIZ_BILLING: { name: 'Faturamento', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'order.update', 'order.billing.manage', 'support.attend'] },
+  /**
+   * Setor de Faturamento (Q41): trata solicitações do Comprador, define fazenda e publica; atende a fila de
+   * faturamento. Q40: também lança e publica ordens da Matriz quando necessário.
+   */
+  MATRIZ_BILLING: { name: 'Faturamento', scope: Scope.MATRIZ, permissions: [...MATRIZ_READ, 'order.create', 'order.update', 'order.publish', 'order.billing.manage', 'support.attend'] },
   FARM_ADMIN: {
     name: 'Administrador Fazenda',
     scope: Scope.FARM,
@@ -236,6 +239,14 @@ export function effectivePermissions(roles: readonly string[], extra: Iterable<s
   return set;
 }
 
+/**
+ * Papéis do sistema recomendados para 2FA obrigatória: os que publicam ordens ou gerenciam usuários
+ * (decisão aprovada em 18/09/2026). Empresas novas já nascem com a exigência para eles.
+ */
+export const CRITICAL_2FA_ROLES = (Object.entries(ROLES) as [string, RoleDefinition][])
+  .filter(([, def]) => def.scope !== Scope.PLATFORM && (def.permissions.includes('order.publish') || def.permissions.includes('user.manage')))
+  .map(([code]) => code);
+
 /** Permissões que podem ser concedidas individualmente, fora de papéis (Q34). */
 export const GRANTABLE_PERMISSIONS = ['user.password.manage'] as const satisfies readonly Permission[];
 export type GrantablePermission = (typeof GRANTABLE_PERMISSIONS)[number];
@@ -247,8 +258,15 @@ export type CustomRoleScope = (typeof CUSTOM_ROLE_SCOPES)[number];
  * Permissões permitidas em um papel personalizado do escopo: as que algum papel do sistema
  * do mesmo escopo já possui (Q35). Impede, por exemplo, papel de Fazenda com poderes da Matriz.
  */
+/** Permissões liberadas para papéis personalizados além das que os papéis do sistema do escopo têm. */
+const EXTRA_CUSTOM_ROLE_PERMISSIONS: Partial<Record<string, Permission[]>> = {
+  // Q38: exportar relatórios é decidido por grupo; os dados continuam recortados pelo perfil.
+  FARM: ['report.export'],
+  BUYER: ['report.export'],
+};
+
 export function permissionsAllowedForScope(scope: string): Permission[] {
-  const allowed = new Set<Permission>();
+  const allowed = new Set<Permission>(EXTRA_CUSTOM_ROLE_PERMISSIONS[scope] ?? []);
   for (const def of Object.values(ROLES) as RoleDefinition[]) if (def.scope === scope) def.permissions.forEach((p) => allowed.add(p));
   return PERMISSION_CODES.filter((p) => allowed.has(p));
 }

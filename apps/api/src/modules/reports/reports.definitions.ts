@@ -20,8 +20,11 @@ export interface ReportParams {
 }
 
 export interface ReportDefinition {
-  /** Chave da coluna = alias no SELECT. `labels` traduz códigos de enum. */
-  columns: (ReportColumn & { labels?: Record<string, string> })[];
+  /**
+   * Chave da coluna = alias no SELECT. `labels` traduz códigos de enum. `hiddenFor`: perfis que não
+   * recebem a coluna (mesmas regras de visibilidade da tela da ordem — ex.: Comprador não vê preço).
+   */
+  columns: (ReportColumn & { labels?: Record<string, string>; hiddenFor?: readonly ('FARM' | 'BUYER')[] })[];
   sql: (p: ReportParams) => Prisma.Sql;
 }
 
@@ -52,9 +55,9 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       { key: 'received', label: 'Recebido', type: 'qty' },
       { key: 'cancelled', label: 'Cancelado', type: 'qty' },
       { key: 'balance', label: 'Saldo a carregar', type: 'qty' },
-      { key: 'unit_price', label: 'Preço unitário', type: 'money' },
-      { key: 'total_value', label: 'Valor estimado', type: 'money' },
-      { key: 'currency', label: 'Moeda', type: 'text' },
+      { key: 'unit_price', label: 'Preço unitário', type: 'money', hiddenFor: ['BUYER'] },
+      { key: 'total_value', label: 'Valor estimado', type: 'money', hiddenFor: ['BUYER'] },
+      { key: 'currency', label: 'Moeda', type: 'text', hiddenFor: ['BUYER'] },
     ],
     sql: (p) => Prisma.sql`
       select lo.number, lo.status::text as status, lo.published_at, c.name as commodity,
@@ -161,9 +164,9 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       { key: 'quantity', label: 'Quantidade', type: 'qty' },
       { key: 'valid_until', label: 'Validade', type: 'date' },
       { key: 'created_at', label: 'Criada em', type: 'datetime' },
-      { key: 'created_by', label: 'Criada por', type: 'text' },
+      { key: 'created_by', label: 'Criada por', type: 'text', hiddenFor: ['FARM', 'BUYER'] },
       { key: 'cancelled_at', label: 'Cancelada em', type: 'datetime' },
-      { key: 'cancelled_by', label: 'Cancelada por', type: 'text' },
+      { key: 'cancelled_by', label: 'Cancelada por', type: 'text', hiddenFor: ['FARM', 'BUYER'] },
       { key: 'cancel_reason', label: 'Motivo do cancelamento', type: 'text' },
       { key: 'notes', label: 'Observação', type: 'text' },
     ],

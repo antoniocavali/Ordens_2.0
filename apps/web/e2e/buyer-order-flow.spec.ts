@@ -90,8 +90,9 @@ test.describe('Solicitação do Comprador', () => {
     expect(review.allowedActions).toContain('assign_farm');
     expect(review.allowedActions).not.toContain('billing_publish');
     expect((await api(billing.page, 'POST', `/orders/${draft.id}/billing/publish`, { expectedUpdatedAt: review.updatedAt })).status).toBe(422);
-    // Publicação comum não serve para solicitações do Comprador.
-    expect((await api(billing.page, 'POST', `/orders/${draft.id}/publish`, { expectedUpdatedAt: review.updatedAt })).status).toBe(403);
+    // Publicação comum não serve para solicitações do Comprador: o Faturamento publica pela análise (Q40 revisada:
+    // o papel pode publicar ordens da Matriz, então a recusa é de regra, não de permissão).
+    expect((await api(billing.page, 'POST', `/orders/${draft.id}/publish`, { expectedUpdatedAt: review.updatedAt })).status).toBe(422);
 
     const sellers = (await apiOk(billing.page, 'GET', '/lookups/partners?role=SELLER&limit=20')).items as any[];
     const seller = sellers.find((s) => /jo[aã]o/i.test(s.label)) ?? sellers.find((s) => Number(s.meta?.farms ?? 0) > 0);

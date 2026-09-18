@@ -1,6 +1,15 @@
 'use client';
 
-import { MANAGEMENT_ORDER_FILTERS, ORDER_STATUS_LABELS, type ManagementCycleDto, type ManagementOrderFilter, type ManagementOrderRow, type Page } from '@ordens/contracts';
+import {
+  MANAGEMENT_CYCLE_GROUPS,
+  MANAGEMENT_ORDER_FILTERS,
+  ORDER_STATUS_LABELS,
+  type ManagementCycleDto,
+  type ManagementCycleGroup,
+  type ManagementOrderFilter,
+  type ManagementOrderRow,
+  type Page,
+} from '@ordens/contracts';
 import { AsyncCombobox, Badge, Button, Card, cn, Input, Select, Skeleton, type ComboOption } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Hourglass, Search, Timer, TrendingDown } from 'lucide-react';
@@ -208,6 +217,8 @@ export function ManagementCyclePage() {
   const [days, setDays] = useState<(typeof PERIODS)[number]['key'] | null>('90');
   const [range, setRange] = useState({ from: iso(new Date(Date.now() - 89 * 86_400_000)), to: iso(new Date()) });
   const [commodity, setCommodity] = useState<ComboOption | null>(null);
+  // Q46: agrupamento do ciclo médio escolhido pelo usuário.
+  const [groupBy, setGroupBy] = useState<ManagementCycleGroup>('commodity');
   // Atalho define o intervalo; digitar datas passa o período para o modo manual.
   const period = days ? { from: iso(new Date(Date.now() - (Number(days) - 1) * 86_400_000)), to: iso(new Date()) } : range;
   const invalidRange = period.from > period.to;
@@ -312,12 +323,30 @@ export function ManagementCyclePage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title="Ciclo por commodity" action={<span className="text-xs text-subtle">média · ordens</span>}>
-              {d.byCommodity.length === 0 ? (
+            <Panel
+              title={`Ciclo por ${MANAGEMENT_CYCLE_GROUPS.find((g) => g.key === groupBy)!.label.toLowerCase()}`}
+              action={
+                <div className="flex items-center rounded-lg bg-surface p-0.5 ring-1 ring-border" role="radiogroup" aria-label="Agrupar por">
+                  {MANAGEMENT_CYCLE_GROUPS.map((g) => (
+                    <button
+                      key={g.key}
+                      type="button"
+                      role="radio"
+                      aria-checked={groupBy === g.key}
+                      onClick={() => setGroupBy(g.key)}
+                      className={cn('h-7 rounded-md px-2.5 text-xs font-medium', groupBy === g.key ? 'bg-primary-soft text-primary' : 'text-muted hover:text-text')}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              }
+            >
+              {d.groups[groupBy].length === 0 ? (
                 <p className="py-6 text-center text-sm text-subtle">Sem conclusões no período.</p>
               ) : (
                 <ul className="divide-y divide-border/60 text-sm">
-                  {d.byCommodity.map((c) => (
+                  {d.groups[groupBy].map((c) => (
                     <li key={c.id} className="flex items-center justify-between gap-3 py-2.5">
                       <span className="min-w-0 truncate">{c.name}</span>
                       <span className="shrink-0 text-right">

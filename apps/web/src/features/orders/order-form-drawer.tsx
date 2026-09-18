@@ -1,6 +1,5 @@
 'use client';
 
-import * as AlertDialog from '@radix-ui/react-dialog';
 import { FREIGHT_MODES, OPERATION_TYPES, type OrderDetail, type OrderDraftInput } from '@ordens/contracts';
 import { AsyncCombobox, Button, cn, Drawer, Field, Input, inputBase, Kbd, Textarea, type ComboOption } from '@ordens/ui';
 import { AlertCircle, CheckCircle2, CloudOff, Info, Loader2, Send, Sparkles } from 'lucide-react';
@@ -15,6 +14,8 @@ import { formatMoney, formatTime, parseDecimalInput, toDecimalInput } from '@/li
 import { StatusBadge } from './indicators';
 import { useCan } from '@/lib/session';
 import { createOrder, lookups, publishOrder, requestPublishOrder, updateOrder, useInvalidateOrders, useUnits } from './orders-api';
+import { ConfirmDialog } from './confirm-dialog';
+import { useNoDestinationConfirm } from './destination-guard';
 
 // ───────────────────────────── Modelo do formulário ─────────────────────────────
 
@@ -293,6 +294,12 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
     }
   }, [persist, invalidate, onPublished, onClose, applyServerErrors]);
 
+  // Q39: destino é opcional, mas publicar sem ele pede confirmação.
+  const [confirmDestination, destinationDialog] = useNoDestinationConfirm('Publicar sem destino');
+  const publishWithDestinationCheck = useCallback(() => {
+    confirmDestination(Boolean(form.getValues('destinationName')?.trim()), () => void publish());
+  }, [confirmDestination, form, publish]);
+
   const saveChanges = useCallback(async () => {
     try {
       const saved = (await persist('manual')) as OrderDetail | null;
@@ -329,12 +336,12 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
         void saveChanges();
       } else if (e.key === 'Enter' && isDraft) {
         e.preventDefault();
-        void publish();
+        publishWithDestinationCheck();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, saveChanges, publish, isDraft]);
+  }, [open, saveChanges, publishWithDestinationCheck, isDraft]);
 
   // Scrollspy das seções.
   useEffect(() => {
@@ -414,7 +421,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
                 {isDraft ? 'Salvar rascunho' : 'Salvar alterações'}
               </Button>
               {isDraft ? (
-                <Button onClick={() => void publish()} loading={publishing}>
+                <Button onClick={publishWithDestinationCheck} loading={publishing}>
                   {!publishing ? <Send /> : null} {requestOnly ? 'Salvar e solicitar publicação' : 'Salvar e publicar'}
                 </Button>
               ) : null}
@@ -446,6 +453,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
         </div>
       </Drawer>
 
+      {destinationDialog}
       <ConfirmDialog
         open={confirmClose}
         title="Descartar alterações?"
@@ -859,39 +867,3 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
 }
 
 // ───────────────────────────── Confirmação ─────────────────────────────
-
-export function ConfirmDialog({
-  open,
-  title,
-  description,
-  confirmLabel,
-  onCancel,
-  onConfirm,
-}: {
-  open: boolean;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <AlertDialog.Root open={open} onOpenChange={(o) => !o && onCancel()}>
-      <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-[70] bg-[var(--overlay)] data-[state=open]:animate-in data-[state=open]:fade-in" />
-        <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[71] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-surface p-6 shadow-lg ring-1 ring-border data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95">
-          <AlertDialog.Title className="text-base font-semibold">{title}</AlertDialog.Title>
-          <AlertDialog.Description className="mt-2 text-sm text-muted">{description}</AlertDialog.Description>
-          <div className="mt-6 flex justify-end gap-2">
-            <Button variant="ghost" onClick={onCancel}>
-              Continuar editando
-            </Button>
-            <Button variant="danger" onClick={onConfirm}>
-              {confirmLabel}
-            </Button>
-          </div>
-        </AlertDialog.Content>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
-  );
-}

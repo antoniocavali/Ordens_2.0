@@ -1,6 +1,6 @@
 'use client';
 
-import { ROLES, type SecurityPolicyDto, type UpdateSecurityPolicyInput } from '@ordens/contracts';
+import { CRITICAL_2FA_ROLES, ROLES, type SecurityPolicyDto, type UpdateSecurityPolicyInput } from '@ordens/contracts';
 import { Button, Card, cn, EmptyState, Input, Skeleton } from '@ordens/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlarmClock, KeyRound, ShieldCheck, ShieldOff, TriangleAlert } from 'lucide-react';
@@ -143,8 +143,23 @@ export function SecurityPolicyPage() {
             </div>
 
             <div className={cn('p-5', draft.require2fa && 'pointer-events-none opacity-50')} aria-disabled={draft.require2fa}>
-              <h3 className="text-sm font-semibold">Ou exigir apenas de alguns papéis</h3>
-              <p className="mb-3 text-xs text-muted">{draft.require2fa ? 'Já exigido de todos.' : 'Marque os papéis que devem usar 2FA.'}</p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Ou exigir apenas de alguns papéis</h3>
+                  <p className="mb-3 text-xs text-muted">{draft.require2fa ? 'Já exigido de todos.' : 'Marque os papéis que devem usar 2FA.'}</p>
+                </div>
+                {!draft.require2fa ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={CRITICAL_2FA_ROLES.every((r) => draft.require2faRoles.includes(r))}
+                    onClick={() => setDraft({ ...draft, require2faRoles: [...new Set([...draft.require2faRoles, ...CRITICAL_2FA_ROLES])] })}
+                    title="Papéis que publicam ordens ou gerenciam usuários"
+                  >
+                    Aplicar recomendação
+                  </Button>
+                ) : null}
+              </div>
               <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
                 {TENANT_ROLES.map(([code, r]) => {
                   const cov = coverageOf(code);

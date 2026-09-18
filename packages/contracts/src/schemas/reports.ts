@@ -4,13 +4,17 @@ import { z } from 'zod';
 export const REPORT_KINDS = ['orders', 'requests', 'loads', 'releases', 'carriers', 'occurrences'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
-export const REPORT_INFO: Record<ReportKind, { label: string; description: string }> = {
-  orders: { label: 'Posição das ordens', description: 'Quantidades por etapa, saldo e valor das ordens publicadas no período.' },
-  requests: { label: 'Solicitações do Comprador', description: 'Solicitações enviadas no período: devoluções, cancelamentos e tempo até a publicação (Q41).' },
-  loads: { label: 'Cargas', description: 'Cargas do período com transportadora, placas, pesos e recebimento.' },
-  releases: { label: 'Liberações', description: 'Liberações criadas no período, com validade e cancelamentos.' },
-  carriers: { label: 'Desempenho de transportadoras', description: 'Cargas, volume líquido e divergências de peso por transportadora (Q24).' },
-  occurrences: { label: 'Ocorrências', description: 'Ocorrências abertas no período, com responsável, prazo e resolução.' },
+/**
+ * Q38: exportar é a permissão `report.export`, atribuída por papel (grupo) em qualquer perfil.
+ * `scopes`: perfis em que o relatório existe; as linhas continuam recortadas pelo RLS.
+ */
+export const REPORT_INFO: Record<ReportKind, { label: string; description: string; scopes: readonly ('MATRIZ' | 'FARM' | 'BUYER')[] }> = {
+  orders: { label: 'Posição das ordens', description: 'Quantidades por etapa, saldo e valor das ordens publicadas no período.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
+  requests: { label: 'Solicitações do Comprador', description: 'Solicitações enviadas no período: devoluções, cancelamentos e tempo até a publicação (Q41).', scopes: ['MATRIZ', 'BUYER'] },
+  loads: { label: 'Cargas', description: 'Cargas do período com transportadora, placas, pesos e recebimento.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
+  releases: { label: 'Liberações', description: 'Liberações criadas no período, com validade e cancelamentos.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
+  carriers: { label: 'Desempenho de transportadoras', description: 'Cargas, volume líquido e divergências de peso por transportadora (Q24).', scopes: ['MATRIZ'] },
+  occurrences: { label: 'Ocorrências', description: 'Ocorrências abertas no período, com responsável, prazo e resolução.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
 };
 
 export type ReportColumnType = 'text' | 'number' | 'qty' | 'money' | 'percent' | 'date' | 'datetime';
@@ -19,6 +23,11 @@ export interface ReportColumn {
   key: string;
   label: string;
   type: ReportColumnType;
+}
+
+/** Relatórios que o perfil ativo pode abrir. */
+export function reportKindsForScope(scope: string | null | undefined): ReportKind[] {
+  return REPORT_KINDS.filter((k) => (REPORT_INFO[k].scopes as readonly string[]).includes(scope ?? ''));
 }
 
 export const REPORT_PREVIEW_LIMIT = 200;

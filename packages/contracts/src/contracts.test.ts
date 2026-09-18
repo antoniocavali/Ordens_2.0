@@ -20,8 +20,8 @@ describe('permissões', () => {
   it('somente papéis MATRIZ podem criar ordens', () => {
     for (const [code, role] of Object.entries(ROLES)) {
       const canCreate = (role.permissions as readonly string[]).includes('order.create');
-      // Faturamento complementa e publica solicitações, mas não cria ordens internas.
-      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_SUPPORT_AGENT', 'MATRIZ_BILLING'].includes(code);
+      // Q40 (revisada): o Faturamento também lança ordens da Matriz.
+      const readOnlyMatriz = ['MATRIZ_VIEWER', 'MATRIZ_SUPPORT_AGENT'].includes(code);
       expect(canCreate, code).toBe(role.scope === 'MATRIZ' && !readOnlyMatriz);
     }
   });
@@ -164,5 +164,21 @@ describe('preferências de e-mail', () => {
     expect(wantsEmail({ enabled: false, types: { 'order.returned': true } }, 'order.returned')).toBe(false);
     expect(wantsEmail({ lixo: 1 }, 'order.returned')).toBe(true);
     expect(resolveEmailPrefs({ enabled: false, types: {} }).types['order.suspended']).toBe(true);
+  });
+});
+
+describe('decisões revisadas (18/09/2026)', () => {
+  it('Q38/Q40/2FA: exportação por grupo, Faturamento publica e papéis críticos exigem 2FA', async () => {
+    const { permissionsAllowedForScope, ROLES, CRITICAL_2FA_ROLES } = await import('./permissions.js');
+    const { reportKindsForScope } = await import('./schemas/reports.js');
+    expect(permissionsAllowedForScope('FARM')).toContain('report.export');
+    expect(permissionsAllowedForScope('BUYER')).toContain('report.export');
+    expect(permissionsAllowedForScope('FARM')).not.toContain('order.publish');
+    expect(ROLES.MATRIZ_BILLING.permissions).toEqual(expect.arrayContaining(['order.create', 'order.publish']));
+    expect(CRITICAL_2FA_ROLES).toEqual(expect.arrayContaining(['MATRIZ_ADMIN', 'MATRIZ_MANAGER', 'MATRIZ_BILLING', 'FARM_ADMIN']));
+    expect(CRITICAL_2FA_ROLES).not.toContain('MATRIZ_OPERATOR');
+    expect(reportKindsForScope('MATRIZ')).toContain('carriers');
+    expect(reportKindsForScope('BUYER')).not.toContain('carriers');
+    expect(reportKindsForScope('FARM')).not.toContain('requests');
   });
 });

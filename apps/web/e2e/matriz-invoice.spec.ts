@@ -36,7 +36,7 @@ test.describe('Faturamento da Matriz na carga', () => {
     // Sem a nota da Matriz: faturar e concluir são recusados.
     const refused = await move('MATRIZ_INVOICED');
     expect(refused.status).toBe(422);
-    expect(refused.json.error.code).toBe('FISCAL_DOCUMENTS_REQUIRED');
+    expect(refused.json.error.code).toBe('MATRIZ_INVOICE_MISSING');
     expect(JSON.stringify(refused.json)).toContain('Nota da Matriz');
 
     // Documentos da Matriz anexados pela tela da carga.

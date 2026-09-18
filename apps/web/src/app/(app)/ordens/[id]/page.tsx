@@ -35,6 +35,7 @@ import {
 } from '@/features/orders/orders-api';
 import { CancelReleaseDialog, type CancelReleaseTarget } from '@/features/orders/cancel-release-dialog';
 import { CompleteOrderDialog } from '@/features/orders/complete-order-dialog';
+import { useNoDestinationConfirm } from '@/features/orders/destination-guard';
 import { ReleaseDialog } from '@/features/orders/release-dialog';
 import { ReleaseStatusBadge } from '@/features/orders/releases-page';
 import { Timeline } from '@/features/orders/timeline';
@@ -103,6 +104,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [assigning, setAssigning] = useState(false);
   const [reasonAction, setReasonAction] = useState<ReasonAction | null>(null);
   const [completing, setCompleting] = useState(false);
+  const [confirmDestination, destinationDialog] = useNoDestinationConfirm('Continuar sem destino');
   const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | 'resume' | 'complete' | null>(null);
   const act = async (kind: 'submit' | 'publish' | 'reason' | 'resume' | 'complete', fn: () => Promise<OrderDetail>) => {
     setActing(kind);
@@ -205,11 +207,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <Button
               loading={acting === 'submit'}
               onClick={() =>
-                act('submit', async () => {
+                confirmDestination(Boolean(o.destinationName?.trim()), () => void act('submit', async () => {
                   const d = await submitOrder(o.id, o.updatedAt);
                   toast.success(`Solicitação ${d.number} enviada ao Faturamento`, { description: 'A Matriz vai definir a fazenda e publicar a ordem.' });
                   return d;
-                })
+                }))
               }
             >
               <Send /> Enviar ao Faturamento
@@ -224,11 +226,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <Button
               loading={acting === 'publish'}
               onClick={() =>
-                act('publish', async () => {
+                confirmDestination(Boolean(o.destinationName?.trim()), () => void act('publish', async () => {
                   const d = await billingPublish(o.id, o.updatedAt);
                   toast.success(`Ordem ${d.number} publicada para a Fazenda`, { description: `${d.farm?.name ?? 'Fazenda'} foi notificada.` });
                   return d;
-                })
+                }))
               }
             >
               <Send /> Publicar para a Fazenda
@@ -536,6 +538,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
       <BuyerOrderDrawer open={buyerEditing} order={o} onClose={() => setBuyerEditing(false)} />
       {o.allowedActions.includes('assign_farm') ? <AssignFarmDrawer open={assigning} order={o} onClose={() => setAssigning(false)} /> : null}
+      {destinationDialog}
       {completing ? (
         <CompleteOrderDialog
           order={o}

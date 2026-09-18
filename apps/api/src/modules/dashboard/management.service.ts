@@ -44,6 +44,9 @@ export class ManagementService {
           number: string;
           commodity_id: string | null;
           commodity: string | null;
+          farm_id: string | null;
+          farm: string | null;
+          buyer_id: string | null;
           counterpart: string | null;
           completed_at: Date;
           completion_reason: string | null;
@@ -55,8 +58,8 @@ export class ManagementService {
           balance: Dec;
         }[]
       >(Prisma.sql`
-        select lo.id, lo.number, lo.commodity_id, c.name as commodity,
-          coalesce(bp.trade_name, bp.legal_name) as counterpart,
+        select lo.id, lo.number, lo.commodity_id, c.name as commodity, lo.farm_id, f.name as farm,
+          lo.buyer_partner_id as buyer_id, coalesce(bp.trade_name, bp.legal_name) as counterpart,
           lo.completed_at, lo.completion_reason, coalesce(lo.completion_via, 'auto') as via,
           extract(epoch from lo.published_at - lo.submitted_at) / 3600.0 as submit_to_publish,
           extract(epoch from fl.first_load - lo.published_at) / 3600.0 as publish_to_first_load,
@@ -65,6 +68,7 @@ export class ManagementService {
           greatest(coalesce(lo.quantity, 0) - lo.loaded_qty - lo.cancelled_qty, 0) as balance
         from loading_orders lo
         left join commodities c on c.id = lo.commodity_id
+        left join farms f on f.id = lo.farm_id
         left join business_partners bp on bp.id = lo.buyer_partner_id
         left join lateral (
           select min(l.created_at) as first_load from loads l where l.order_id = lo.id and l.status <> 'CANCELLED'
@@ -100,14 +104,22 @@ export class ManagementService {
         count: aging.filter((a) => bucketOf(Number(a.days ?? 0)).key === b.key).reduce((acc, a) => acc + int(a.n), 0),
       }));
 
-      const byCommodityMap = new Map<string, { id: string; name: string; values: number[] }>();
-      for (const r of rows) {
-        if (!r.commodity_id) continue;
-        const entry = byCommodityMap.get(r.commodity_id) ?? { id: r.commodity_id, name: r.commodity ?? '—', values: [] };
-        const v = Number(r.publish_to_complete);
-        if (Number.isFinite(v)) entry.values.push(v);
-        byCommodityMap.set(r.commodity_id, entry);
-      }
+      /** Ciclo médio por grupo (maiores primeiro, até 8). */
+      const groupBy = (key: (r: (typeof rows)[number]) => [string | null, string | null]) => {
+        const map = new Map<string, { id: string; name: string; values: number[] }>();
+        for (const r of rows) {
+          const [id, name] = key(r);
+          if (!id) continue;
+          const entry = map.get(id) ?? { id, name: name ?? '—', values: [] };
+          const v = Number(r.publish_to_complete);
+          if (Number.isFinite(v)) entry.values.push(v);
+          map.set(id, entry);
+        }
+        return [...map.values()]
+          .map((e) => ({ id: e.id, name: e.name, orders: e.values.length, avgHours: e.values.length ? hours(e.values.reduce((a, b) => a + b, 0) / e.values.length) : null }))
+          .sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0))
+          .slice(0, 8);
+      };
 
       return {
         from: q.from,
@@ -124,10 +136,11 @@ export class ManagementService {
         },
         p90PublishToComplete: p90,
         histogram,
-        byCommodity: [...byCommodityMap.values()]
-          .map((e) => ({ id: e.id, name: e.name, orders: e.values.length, avgHours: e.values.length ? hours(e.values.reduce((a, b) => a + b, 0) / e.values.length) : null }))
-          .sort((a, b) => (b.avgHours ?? 0) - (a.avgHours ?? 0))
-          .slice(0, 8),
+        groups: {
+          commodity: groupBy((r) => [r.commodity_id, r.commodity]),
+          farm: groupBy((r) => [r.farm_id, r.farm]),
+          buyer: groupBy((r) => [r.buyer_id, r.counterpart]),
+        },
         slowest: rows
           .filter((r) => Number.isFinite(Number(r.publish_to_complete)))
           .slice(0, 8)
