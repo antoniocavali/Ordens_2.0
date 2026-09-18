@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { twoFactorConfirmSchema, twoFactorDisableSchema, twoFactorVerifySchema } from '@ordens/contracts';
 import type { Response } from 'express';
 import type { z } from 'zod';
-import { AllowStages } from '../../common/decorators.js';
+import { AllowStages, SelfService } from '../../common/decorators.js';
 import { currentAuth } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { AuthService } from './auth.service.js';
@@ -12,6 +12,7 @@ import { SessionService } from './session.service.js';
 import { TwoFactorService } from './two-factor.service.js';
 
 @ApiTags('auth')
+@SelfService()
 @Controller('auth/2fa')
 export class TwoFactorController {
   constructor(

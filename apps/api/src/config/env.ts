@@ -37,6 +37,14 @@ export const envSchema = z
     SESSION_IDLE_HOURS: z.coerce.number().int().min(1).max(168).default(12),
     SESSION_ABSOLUTE_DAYS: z.coerce.number().int().min(1).max(90).default(7),
     COOKIE_SECURE: bool,
+    /**
+     * Proxies confiáveis para X-Forwarded-For (revisão de segurança 3.7). Número = saltos fixos
+     * (produção atrás do ingress: 1); texto = sub-redes aceitas pelo Express.
+     */
+    TRUST_PROXY: z
+      .string()
+      .default('loopback, linklocal, uniquelocal')
+      .transform((v) => (/^\d+$/.test(v.trim()) ? Number(v) : v)),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {

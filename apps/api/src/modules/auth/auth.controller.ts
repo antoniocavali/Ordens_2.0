@@ -14,7 +14,7 @@ import {
 } from '@ordens/contracts';
 import type { Response } from 'express';
 import type { z } from 'zod';
-import { AllowStages, Public } from '../../common/decorators.js';
+import { AllowStages, Public, SelfService } from '../../common/decorators.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { AuthService } from './auth.service.js';
 import { clearSessionCookies, setSessionCookies } from './cookies.js';
@@ -23,6 +23,7 @@ import { SessionService } from './session.service.js';
 const ANY_STAGE = ['ACTIVE', 'PENDING_2FA', 'PENDING_2FA_SETUP', 'PENDING_PASSWORD_CHANGE'] as const;
 
 @ApiTags('auth')
+@SelfService()
 @Controller('auth')
 export class AuthController {
   constructor(

@@ -28,7 +28,7 @@ import {
 } from '@ordens/contracts';
 import { Database, Prisma, writeAudit } from '@ordens/db';
 import { z } from 'zod';
-import { AllowStages, PlatformOnly, RequirePermission } from '../../common/decorators.js';
+import { AllowStages, PlatformOnly, RequirePermission, SelfService } from '../../common/decorators.js';
 import { AppError } from '../../common/errors.js';
 import { actorMeta, currentAuth } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
@@ -263,6 +263,7 @@ export class AuditController {
 }
 
 @ApiTags('me')
+@SelfService()
 @Controller('me')
 export class MeController {
   constructor(private readonly db: TenantDb) {}

@@ -12,6 +12,7 @@ import {
 } from '@ordens/contracts';
 import type { Request, Response } from 'express';
 import { Redis } from 'ioredis';
+import { SelfService } from '../../common/decorators.js';
 import { ENV, type Env } from '../../config/env.js';
 import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
@@ -104,6 +105,7 @@ export class RealtimeHub implements OnModuleInit, OnModuleDestroy {
 }
 
 @ApiTags('notificações')
+@SelfService()
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
@@ -131,6 +133,7 @@ export class NotificationsController {
  * Só trafegam chaves de consulta; os dados continuam vindo da API com RLS.
  */
 @ApiTags('tempo real')
+@SelfService()
 @Controller('realtime')
 export class RealtimeController {
   constructor(private readonly hub: RealtimeHub) {}
