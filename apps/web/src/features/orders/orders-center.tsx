@@ -5,12 +5,19 @@ import type { OrderListItem, OrderStatus, ViewSignal } from '@ordens/contracts';
 import { Badge, Button, Card, cn, EmptyState, Input, Skeleton, Tooltip } from '@ordens/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  columnOrderingFeature,
+  columnResizingFeature,
+  columnSizingFeature,
+  columnVisibilityFeature,
   flexRender,
-  getCoreRowModel,
-  useReactTable,
+  rowSelectionFeature,
+  rowSortingFeature,
+  tableFeatures,
+  useTable,
   type ColumnDef,
+  type ColumnVisibilityState,
+  type RowSelectionState,
   type SortingState,
-  type VisibilityState,
 } from '@tanstack/react-table';
 import {
   ArrowDown,
@@ -97,6 +104,17 @@ function useUrlFilters(): [Filters, (patch: Partial<Filters>) => void] {
   return [filters, set];
 }
 
+/** Recursos da grade de ordens (react-table v9): só o que a tela usa. */
+const gridFeatures = tableFeatures({
+  rowSortingFeature,
+  columnVisibilityFeature,
+  rowSelectionFeature,
+  columnOrderingFeature,
+  columnSizingFeature,
+  columnResizingFeature,
+});
+type GridColumn = ColumnDef<typeof gridFeatures, OrderListItem>;
+
 function useLocalState<T>(key: string, initial: T): [T, (v: T) => void] {
   const [value, setValue] = useState<T>(initial);
   useEffect(() => {
@@ -159,8 +177,8 @@ export function OrdersCenter() {
 
   const [search, setSearch] = useState(filters.q);
   const [density, setDensity] = useLocalState<'comfortable' | 'compact'>('orders:density', 'comfortable');
-  const [columnVisibility, setColumnVisibility] = useLocalState<VisibilityState>('orders:columns', { contract: false, carrier: false, value: true });
-  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const [columnVisibility, setColumnVisibility] = useLocalState<ColumnVisibilityState>('orders:columns', { contract: false, carrier: false, value: true });
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [quickId, setQuickId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [releaseId, setReleaseId] = useState<string | null>(null);
@@ -223,7 +241,7 @@ export function OrdersCenter() {
     return [{ id: id!, desc: dir === 'desc' }];
   }, [filters.sort]);
 
-  const columns = useMemo<ColumnDef<OrderListItem>[]>(
+  const columns = useMemo<GridColumn[]>(
     () => [
       {
         id: 'select',
@@ -254,6 +272,8 @@ export function OrdersCenter() {
         header: 'OC',
         size: 138,
         enableSorting: true,
+        // Ordenação é do servidor; o acessor só habilita o cabeçalho ordenável.
+        accessorFn: (o) => o.number,
         cell: ({ row: { original: o } }) => (
           <div className="flex items-center gap-2">
             <PriorityDot priority={o.priority} />
@@ -299,6 +319,8 @@ export function OrdersCenter() {
         header: 'Quantidade · Execução',
         size: 230,
         enableSorting: true,
+        // Ordenação é do servidor; o acessor só habilita o cabeçalho ordenável.
+        accessorFn: (o) => o.quantities.total,
         cell: ({ row: { original: o } }) => (
           <div className="min-w-0 space-y-1.5">
             <div className="flex items-baseline justify-between gap-2 tabular">
@@ -329,7 +351,7 @@ export function OrdersCenter() {
               header: 'Fazenda',
               size: 104,
               cell: ({ row: { original: o } }) => (o.status === 'DRAFT' ? <span className="text-xs text-subtle">—</span> : <Farol side="Fazenda" info={o.farmView} version={o.version} compact />),
-            } satisfies ColumnDef<OrderListItem>,
+            } satisfies GridColumn,
           ]
         : []),
       ...(scope !== 'FARM'
@@ -339,7 +361,7 @@ export function OrdersCenter() {
               header: 'Comprador',
               size: 104,
               cell: ({ row: { original: o } }) => (o.status === 'DRAFT' ? <span className="text-xs text-subtle">—</span> : <Farol side="Comprador" info={o.buyerView} version={o.version} compact />),
-            } satisfies ColumnDef<OrderListItem>,
+            } satisfies GridColumn,
           ]
         : []),
       {
@@ -347,6 +369,8 @@ export function OrdersCenter() {
         header: 'Janela',
         size: 120,
         enableSorting: true,
+        // Ordenação é do servidor; o acessor só habilita o cabeçalho ordenável.
+        accessorFn: (o) => o.loadingStartsOn ?? '',
         cell: ({ row: { original: o } }) => {
           const late = o.loadingEndsOn && o.loadingEndsOn < new Date().toISOString().slice(0, 10) && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status);
           return (
@@ -363,6 +387,8 @@ export function OrdersCenter() {
         header: 'Atualização',
         size: 130,
         enableSorting: true,
+        // Ordenação é do servidor; o acessor só habilita o cabeçalho ordenável.
+        accessorFn: (o) => o.updatedAt,
         cell: ({ row: { original: o } }) => (
           <div className="min-w-0">
             <div className="text-[13px]">{formatRelative(o.updatedAt)}</div>
@@ -397,13 +423,12 @@ export function OrdersCenter() {
     [scope, can, router],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features: gridFeatures,
     data: orders.data?.items ?? [],
     columns,
     getRowId: (r) => r.id,
-    getCoreRowModel: getCoreRowModel(),
     manualSorting: true,
-    manualPagination: true,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
     // Ordem prioriza o que o operador precisa ver sem rolar: execução e faróis antes de valores.
