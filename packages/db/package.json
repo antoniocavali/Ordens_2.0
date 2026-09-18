@@ -23,7 +23,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
-    "@node-rs/argon2": "^2.2.0",
+    "@node-rs/argon2": "^2.2.1",
     "@ordens/contracts": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
