@@ -38,9 +38,17 @@ const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
   IN_TRANSIT: 'Liberar para transporte',
   ARRIVED: 'Registrar chegada',
   RECEIVED: 'Confirmar recebimento',
-  // Ordem dispensa recebimento no destino.
-  AWAITING_MATRIZ_INVOICE: 'Encerrar transporte',
+  CHECKED: 'Confirmar conferência',
+  AWAITING_MATRIZ_INVOICE: 'Enviar para faturamento da Matriz',
+  MATRIZ_INVOICED: 'Registrar faturamento da Matriz',
+  COMPLETED: 'Concluir carga',
 };
+
+/** Vindo do trânsito, a mesma transição encerra o transporte (ordem dispensa recebimento). */
+function actionLabel(from: LoadStatus, to: LoadStatus) {
+  if (from === 'IN_TRANSIT' && to === 'AWAITING_MATRIZ_INVOICE') return 'Encerrar transporte';
+  return ACTION_LABELS[to] ?? LOAD_STATUS_LABELS[to];
+}
 
 function DocState({ state }: { state: FiscalDocState }) {
   const cfg =
@@ -59,11 +67,12 @@ function DocState({ state }: { state: FiscalDocState }) {
   );
 }
 
-/** Checklist para liberar a carga: pesagem, PDF da nota e XML da NF-e validado (Q41). */
-function FiscalChecklist({ c }: { c: LoadFiscalChecklist }) {
+/** Checklist da documentação: pesagem (só da Fazenda), PDF da nota e XML da NF-e validado (Q41/Q47). */
+function FiscalChecklist({ c, party = 'FARM' }: { c: LoadFiscalChecklist; party?: 'FARM' | 'MATRIZ' }) {
+  const matriz = party === 'MATRIZ';
   const rows: { label: string; state: FiscalDocState }[] = [
-    { label: 'Peso bruto e tara', state: c.weighed ? 'OK' : 'MISSING' },
-    { label: 'PDF da nota fiscal', state: c.pdf },
+    ...(matriz ? [] : [{ label: 'Peso bruto e tara', state: (c.weighed ? 'OK' : 'MISSING') as FiscalDocState }]),
+    { label: matriz ? 'PDF da nota da Matriz' : 'PDF da nota fiscal', state: c.pdf },
     { label: 'XML da NF-e (processado e válido)', state: c.xml },
   ];
   return (
@@ -77,7 +86,11 @@ function FiscalChecklist({ c }: { c: LoadFiscalChecklist }) {
         ))}
       </ul>
       <p className={cn('text-xs', c.ready ? 'text-success' : 'text-muted')}>
-        {c.ready ? 'Documentação completa: a carga pode ser liberada para transporte.' : c.issues.join(' ')}
+        {c.ready
+          ? matriz
+            ? 'Nota da Matriz validada: a carga pode ser faturada e concluída.'
+            : 'Documentação completa: a carga pode ser liberada para transporte.'
+          : c.issues.join(' ')}
       </p>
     </div>
   );
@@ -194,7 +207,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 ) : null}
                 {forward.map((to) => (
                   <Button key={to} onClick={() => void move(to)} loading={transition.isPending && transition.variables?.to === to}>
-                    {ACTION_LABELS[to] ?? LOAD_STATUS_LABELS[to]} <ArrowRight />
+                    {actionLabel(l.status, to)} <ArrowRight />
                   </Button>
                 ))}
               </div>
@@ -286,6 +299,24 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 ) : null}
                 <InvoiceList loadId={l.id} />
               </div>
+            </FormSection>
+
+            <FormSection
+              title="Nota da Matriz para o Comprador"
+              description="Depois da conferência, anexe o PDF e o XML da NF-e emitida pela Matriz. A carga só é faturada e concluída com os dois documentos e o XML validado."
+            >
+              {l.matrizChecklist ? <FiscalChecklist c={l.matrizChecklist} party="MATRIZ" /> : null}
+              {can('invoice.upload') && l.status !== 'CANCELLED' ? (
+                <div className="sm:col-span-6">
+                  <UploadDropzone
+                    entityType="load"
+                    entityId={l.id}
+                    accept=".xml,.pdf"
+                    title="Arraste o PDF e o XML da nota da Matriz"
+                    hint="Anexos enviados a partir da conferência contam como documentos da Matriz"
+                  />
+                </div>
+              ) : null}
             </FormSection>
 
             {can('occurrence.read') ? (

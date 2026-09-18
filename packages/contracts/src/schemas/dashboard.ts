@@ -101,10 +101,6 @@ export interface ManagementCycleDto {
   slowest: { id: string; number: string; commodity: string | null; counterpart: string | null; hours: number; via: string; completedAt: string }[];
   /** Ordens ainda abertas por tempo desde a publicação. */
   openAging: { key: string; label: string; count: number }[];
-  /** Tempo de cada ordem (concluídas no período e abertas), da publicação ao fim ou até agora. */
-  orders: ManagementOrderRow[];
-  /** Houve mais ordens do que o limite da listagem. */
-  ordersTruncated: boolean;
 }
 
 /** Uma linha por ordem: marcos e tempos em horas (nulo quando o marco não existe). */
@@ -132,7 +128,25 @@ export interface ManagementOrderRow {
   };
 }
 
-export const MANAGEMENT_ORDERS_LIMIT = 300;
+/** Listagem paginada do "Tempo por ordem" (server-side: período, commodity, situação e busca). */
+export const MANAGEMENT_ORDER_FILTERS = [
+  { key: 'all', label: 'Todas' },
+  { key: 'completed', label: 'Concluídas' },
+  { key: 'open', label: 'Em aberto' },
+] as const;
+export type ManagementOrderFilter = (typeof MANAGEMENT_ORDER_FILTERS)[number]['key'];
+
+export const managementOrdersQuery = z.object({
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  commodityId: z.uuid().optional(),
+  q: z.string().trim().max(120).optional(),
+  situation: z.enum(['all', 'completed', 'open']).default('all'),
+  sort: z.enum(['cycle:desc', 'cycle:asc', 'completedAt:desc', 'number:asc']).default('cycle:desc'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(5).max(100).default(10),
+});
+export type ManagementOrdersQuery = z.infer<typeof managementOrdersQuery>;
 
 export const MANAGEMENT_CYCLE_BUCKETS = [
   { key: 'd0_3', label: 'Até 3 dias', maxDays: 3 },

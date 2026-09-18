@@ -1,6 +1,13 @@
 import { Controller, Get, Module, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { dashboardQuery, reportQuerySchema, type DashboardQuery, type ReportQuery } from '@ordens/contracts';
+import {
+  dashboardQuery,
+  managementOrdersQuery,
+  reportQuerySchema,
+  type DashboardQuery,
+  type ManagementOrdersQuery,
+  type ReportQuery,
+} from '@ordens/contracts';
 import { RequireAnyPermission, RequirePermission } from '../../common/decorators.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { DashboardService } from './dashboard.service.js';
@@ -19,7 +26,16 @@ export class DashboardController {
   }
 }
 
-/** Painel de Gestão (Q46): tempos do ciclo da ordem. Período padrão: últimos 90 dias. */
+/** Período padrão do painel: últimos 90 dias. */
+function period(q: { from?: string; to?: string }) {
+  const today = new Date();
+  return {
+    from: q.from ?? new Date(today.getTime() - 89 * 86_400_000).toISOString().slice(0, 10),
+    to: q.to ?? today.toISOString().slice(0, 10),
+  };
+}
+
+/** Painel de Gestão (Q46): tempos do ciclo da ordem. */
 @ApiTags('painéis')
 @RequirePermission('dashboard.matriz')
 @Controller('management')
@@ -28,10 +44,13 @@ export class ManagementController {
 
   @Get('cycle')
   cycle(@Query(new ZodPipe(reportQuerySchema)) q: ReportQuery) {
-    const today = new Date();
-    const to = q.to ?? today.toISOString().slice(0, 10);
-    const from = q.from ?? new Date(today.getTime() - 89 * 86_400_000).toISOString().slice(0, 10);
-    return this.management.cycle({ ...q, from, to });
+    return this.management.cycle({ ...q, ...period(q) });
+  }
+
+  /** Tempo por ordem, paginado. */
+  @Get('cycle/orders')
+  orders(@Query(new ZodPipe(managementOrdersQuery)) q: ManagementOrdersQuery) {
+    return this.management.orders({ ...q, ...period(q) });
   }
 }
 

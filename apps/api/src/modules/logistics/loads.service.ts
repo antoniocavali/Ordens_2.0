@@ -22,7 +22,7 @@ import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
 import { openOccurrence } from '../fiscal/fiscal.util.js';
 import { autoCompleteIfFinished } from '../orders/order-completion.util.js';
-import { fiscalChecklists } from './fiscal-checklist.js';
+import { fiscalChecklists, matrizChecklists } from './fiscal-checklist.js';
 import { assertWithinReleased, fleetRefs, orderForLogistics, recalcOrder, resolveFleet } from './logistics.util.js';
 
 type LoadData = z.output<typeof loadInputSchema>;
@@ -216,6 +216,15 @@ export class LoadsService {
         }
       }
 
+      // Q47: faturamento da Matriz exige PDF e XML da nota emitida para o Comprador.
+      let matrizChecklist: LoadFiscalChecklist | null = null;
+      if (to === 'MATRIZ_INVOICED' || to === 'COMPLETED') {
+        matrizChecklist = (await matrizChecklists(tx, [load], true)).get(id)!;
+        if (!matrizChecklist.ready) {
+          throw AppError.domain(ErrorCode.FISCAL_DOCUMENTS_REQUIRED, `Nota da Matriz pendente. ${matrizChecklist.issues.join(' ')}`, { checklist: matrizChecklist });
+        }
+      }
+
       const gross = input.grossKg ?? load.grossKg?.toString() ?? null;
       const tare = input.tareKg ?? load.tareKg?.toString() ?? null;
       const weights = this.weights(gross, tare);
@@ -258,6 +267,15 @@ export class LoadsService {
         await audit({ entityType: 'load', entityId: id, action: 'load.status_changed', before: { status: from }, after: { status: step, notes, ...(step === 'LOADED' ? weights : {}) } });
         await audit({ entityType: 'loading_order', entityId: load.orderId, action: 'order.load_status', after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS[step], plates: load.plates } });
         from = step;
+      }
+      if (to === 'MATRIZ_INVOICED' && matrizChecklist) {
+        await audit({ entityType: 'load', entityId: id, action: 'load.matriz_invoice_validated', after: { pdf: matrizChecklist.pdf, xml: matrizChecklist.xml } });
+        await audit({
+          entityType: 'loading_order',
+          entityId: load.orderId,
+          action: 'order.load_matriz_invoiced',
+          after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS.MATRIZ_INVOICED },
+        });
       }
       if (to === 'FARM_INVOICED' && checklist) {
         await audit({ entityType: 'load', entityId: id, action: 'load.documents_validated', after: { pdf: checklist.pdf, xml: checklist.xml } });
@@ -341,6 +359,7 @@ export class LoadsService {
     if (!rows.length) return [];
     const refs = await fleetRefs(tx, rows);
     const checklists = await fiscalChecklists(tx, rows);
+    const matriz = await matrizChecklists(tx, rows);
     const orderIds = [...new Set(rows.map((r) => r.orderId))];
     const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string | null; factor: Prisma.Decimal | null; requires_receipt: boolean }[]>(Prisma.sql`
       select lo.id, lo.requires_receipt, lo.number, c.name as commodity, f.name as farm, coalesce(bp.trade_name, bp.legal_name) as buyer, u.code as unit, u.factor_to_kg as factor
@@ -379,6 +398,7 @@ export class LoadsService {
         updatedAt: r.updatedAt.toISOString(),
         allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName, { requiresReceipt: o?.requires_receipt ?? true })) : [],
         fiscalChecklist: checklists.get(r.id) ?? null,
+        matrizChecklist: matriz.get(r.id) ?? null,
         ...refs(r),
       };
     });

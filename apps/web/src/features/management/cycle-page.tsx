@@ -1,12 +1,12 @@
 'use client';
 
-import { ORDER_STATUS_LABELS, type ManagementCycleDto, type ManagementOrderRow } from '@ordens/contracts';
-import { AsyncCombobox, Badge, Card, cn, Input, Skeleton, type ComboOption } from '@ordens/ui';
+import { MANAGEMENT_ORDER_FILTERS, ORDER_STATUS_LABELS, type ManagementCycleDto, type ManagementOrderFilter, type ManagementOrderRow, type Page } from '@ordens/contracts';
+import { AsyncCombobox, Badge, Button, Card, cn, Input, Select, Skeleton, type ComboOption } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, Hourglass, Search, Timer, TrendingDown } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Hourglass, Search, Timer, TrendingDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KpiCard } from '@/features/orders/kpi';
 import { lookups } from '@/features/orders/orders-api';
 import { get } from '@/lib/api';
@@ -57,25 +57,74 @@ function Bars({ rows, empty }: { rows: { key: string; label: string; count: numb
   );
 }
 
-/** Uma linha por ordem: marcos e tempo decorrido (ordens abertas contam até agora). */
-function OrdersTable({ rows, truncated, search, onSearch }: { rows: ManagementOrderRow[]; truncated: boolean; search: string; onSearch: (v: string) => void }) {
-  const term = search.trim().toLowerCase();
-  const filtered = term
-    ? rows.filter((o) => [o.number, o.commodity, o.farm, o.buyer].some((v) => v?.toLowerCase().includes(term)))
-    : rows;
+const SORTS = [
+  { value: 'cycle:desc', label: 'Maior ciclo' },
+  { value: 'cycle:asc', label: 'Menor ciclo' },
+  { value: 'completedAt:desc', label: 'Conclusão mais recente' },
+  { value: 'number:asc', label: 'Número da ordem' },
+];
+
+const PAGE_SIZES = [10, 25, 50];
+
+/** Tempo por ordem: uma linha por ordem, paginada no servidor (ordens abertas contam até agora). */
+function OrdersTable({ from, to, commodityId }: { from: string; to: string; commodityId?: string }) {
+  const [search, setSearch] = useState('');
+  const [q, setQ] = useState('');
+  const [situation, setSituation] = useState<ManagementOrderFilter>('all');
+  const [sort, setSort] = useState('cycle:desc');
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setQ(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  // Período, commodity e filtros mudam: volta à primeira página.
+  useEffect(() => setPage(1), [from, to, commodityId, situation, sort, pageSize]);
+
+  const params = { from, to, commodityId, q: q || undefined, situation, sort, page: String(page), pageSize: String(pageSize) };
+  const list = useQuery({
+    queryKey: ['management', 'cycle-orders', params],
+    queryFn: ({ signal }) => get<Page<ManagementOrderRow>>('/management/cycle/orders', params, signal),
+    placeholderData: keepPreviousData,
+  });
+  const total = list.data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const rows = list.data?.items ?? [];
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <label className="relative w-full sm:w-80">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative min-w-52 flex-1 sm:max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
-          <Input className="pl-8" placeholder="Filtrar por ordem, commodity, fazenda ou comprador" aria-label="Filtrar ordens" value={search} onChange={(e) => onSearch(e.target.value)} />
+          <Input className="pl-8" placeholder="Ordem, commodity, fazenda ou comprador" aria-label="Buscar ordens" value={search} onChange={(e) => setSearch(e.target.value)} />
         </label>
-        <span className="text-xs text-subtle">
-          {filtered.length} de {rows.length} ordem(ns){truncated ? ' · listagem limitada às 300 mais demoradas' : ''}
+        <div className="flex items-center rounded-lg bg-surface p-1 ring-1 ring-border" role="radiogroup" aria-label="Situação">
+          {MANAGEMENT_ORDER_FILTERS.map((s) => (
+            <button
+              key={s.key}
+              role="radio"
+              aria-checked={situation === s.key}
+              onClick={() => setSituation(s.key)}
+              className={cn('h-8 rounded-md px-3 text-[13px] font-medium', situation === s.key ? 'bg-primary-soft text-primary' : 'text-muted hover:text-text')}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <Select aria-label="Ordenação" className="w-52" value={sort} onChange={(e) => setSort(e.target.value)} options={SORTS} />
+        <span className="ml-auto text-xs text-subtle tabular" aria-live="polite">
+          {list.isFetching ? 'Atualizando…' : `${total.toLocaleString('pt-BR')} ordem(ns)`}
         </span>
       </div>
-      {filtered.length === 0 ? (
-        <p className="py-8 text-center text-sm text-subtle">Nenhuma ordem no período com esse filtro.</p>
+
+      {!list.data ? (
+        <Skeleton className="h-64 rounded-lg" />
+      ) : rows.length === 0 ? (
+        <p className="py-8 text-center text-sm text-subtle">Nenhuma ordem no período com esses filtros.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[56rem] text-sm">
@@ -92,7 +141,7 @@ function OrdersTable({ rows, truncated, search, onSearch }: { rows: ManagementOr
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o) => (
+              {rows.map((o) => (
                 <tr key={o.id} className="border-b border-border/60 last:border-0 hover:bg-surface-2/50">
                   <td className="py-2.5 pr-3">
                     <Link href={`/ordens/${o.id}`} className="font-mono text-primary hover:underline">
@@ -124,6 +173,30 @@ function OrdersTable({ rows, truncated, search, onSearch }: { rows: ManagementOr
           </table>
         </div>
       )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3 text-[13px] text-muted">
+        <span className="flex items-center gap-2">
+          <span className="tabular">{total ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} de ${total.toLocaleString('pt-BR')}` : '0 ordens'}</span>
+          <Select
+            aria-label="Ordens por página"
+            className="w-28"
+            value={String(pageSize)}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            options={PAGE_SIZES.map((n) => ({ value: String(n), label: `${n} / página` }))}
+          />
+        </span>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon-sm" aria-label="Página anterior" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            <ChevronLeft />
+          </Button>
+          <span className="tabular">
+            {page} / {pages}
+          </span>
+          <Button variant="ghost" size="icon-sm" aria-label="Próxima página" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+            <ChevronRight />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -135,7 +208,6 @@ export function ManagementCyclePage() {
   const [days, setDays] = useState<(typeof PERIODS)[number]['key'] | null>('90');
   const [range, setRange] = useState({ from: iso(new Date(Date.now() - 89 * 86_400_000)), to: iso(new Date()) });
   const [commodity, setCommodity] = useState<ComboOption | null>(null);
-  const [search, setSearch] = useState('');
   // Atalho define o intervalo; digitar datas passa o período para o modo manual.
   const period = days ? { from: iso(new Date(Date.now() - (Number(days) - 1) * 86_400_000)), to: iso(new Date()) } : range;
   const invalidRange = period.from > period.to;
@@ -294,7 +366,7 @@ export function ManagementCyclePage() {
               </span>
             }
           >
-            <OrdersTable rows={d.orders} truncated={d.ordersTruncated} search={search} onSearch={setSearch} />
+            <OrdersTable from={period.from} to={period.to} commodityId={commodity?.id} />
           </Panel>
         </div>
       )}

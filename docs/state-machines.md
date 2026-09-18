@@ -71,8 +71,8 @@ stateDiagram-v2
   ARRIVED --> RECEIVED
   RECEIVED --> CHECKED
   CHECKED --> AWAITING_MATRIZ_INVOICE
-  AWAITING_MATRIZ_INVOICE --> MATRIZ_INVOICED
-  MATRIZ_INVOICED --> COMPLETED
+  AWAITING_MATRIZ_INVOICE --> MATRIZ_INVOICED: PDF + XML da nota da Matriz (Q47)
+  MATRIZ_INVOICED --> COMPLETED: nota da Matriz validada
   SCHEDULED --> CANCELLED
   CONFIRMED --> CANCELLED
   AWAITING_LOADING --> CANCELLED
@@ -95,7 +95,7 @@ stateDiagram-v2
 | RECEIVED | Recebida | MATRIZ | −in_transit, +received |
 | CHECKED | Conferida | MATRIZ | divergência gera ocorrência |
 | AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | MATRIZ | — |
-| MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ | — |
+| MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ | PDF e XML da nota da Matriz validados (Q47) |
 | COMPLETED | Concluída | MATRIZ | — |
 | CANCELLED | Cancelada | MATRIZ (FARM antes de LOADING) | estorna scheduled; +cancelled |
 
