@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import type { Redis } from 'ioredis';
 import { LoggerModule } from 'nestjs-pino';
 import { GlobalErrorFilter } from './common/error.filter.js';
 import { AuthGuard } from './common/guards/auth.guard.js';
 import { CsrfGuard } from './common/guards/csrf.guard.js';
 import { PermissionGuard } from './common/guards/permission.guard.js';
 import { requestContext } from './common/request-context.js';
-import { InfraModule } from './infra/infra.module.js';
+import { InfraModule, REDIS } from './infra/infra.module.js';
+import { RedisThrottlerStorage } from './infra/redis-throttler.storage.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
@@ -47,8 +49,16 @@ const prettyLogs = process.env.LOG_PRETTY === 'true';
         transport: prettyLogs ? { target: 'pino-pretty', options: { singleLine: true, translateTime: 'SYS:HH:MM:ss' } } : undefined,
       },
     }),
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 600 }]),
     InfraModule,
+    // Limites compartilhados entre réplicas via Redis (revisão de segurança 3.1).
+    ThrottlerModule.forRootAsync({
+      imports: [InfraModule],
+      inject: [REDIS],
+      useFactory: (redis: Redis) => ({
+        throttlers: [{ name: 'default', ttl: 60_000, limit: 600 }],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     AuthModule,
     PlatformModule,
     UploadsModule,

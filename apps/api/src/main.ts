@@ -14,8 +14,8 @@ export async function createApp() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
-  // Atrás do Next.js (rewrite) e/ou reverse proxy: confiar apenas em redes privadas.
-  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+  // Atrás do Next.js (rewrite) e/ou reverse proxy. Padrão: redes privadas; produção define os saltos (TRUST_PROXY).
+  app.set('trust proxy', env.TRUST_PROXY);
   app.disable('x-powered-by');
   app.use(requestContextMiddleware);
   app.use(helmet({ contentSecurityPolicy: env.NODE_ENV === 'production' }));

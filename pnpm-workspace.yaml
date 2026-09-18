@@ -19,6 +19,8 @@ overrides:
   multer: '>=2.3.0'
   deepmerge-ts: '>=8.0.0'
   mysql2: '>=3.22.0'
+  # GHSA-w5hq-g745-h8pq (via exceljs); série 11 mantém a saída CommonJS usada pelo exceljs.
+  'uuid@<11.1.1': ^11.1.1
 
 minimumReleaseAgeExclude:
   - zod@4.6.1

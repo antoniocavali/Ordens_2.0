@@ -116,6 +116,9 @@ export interface OrderForLogistics {
 
 /** Ordem apta a operações logísticas (publicada ou em execução), com fator de conversão da unidade. */
 export async function orderForLogistics(tx: Tx, orderId: string): Promise<OrderForLogistics> {
+  // Bloqueia a ordem até o fim da transação: quem consome saldo liberado (agendamento, carga, pesagem)
+  // lê os totais já serializado, evitando que requisições simultâneas ultrapassem o liberado (revisão 3.2).
+  await tx.$queryRaw`select id from loading_orders where id = ${orderId}::uuid for update`;
   const order = await tx.loadingOrder.findUnique({ where: { id: orderId } });
   if (!order) throw AppError.notFound('Ordem não encontrada.');
   if (!['PUBLISHED', 'IN_PROGRESS'].includes(order.status)) {
