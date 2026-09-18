@@ -17,7 +17,7 @@
     "@ordens/db": "workspace:*",
     "bullmq": "^6.3.4",
     "fast-xml-parser": "5.11.1",
-    "file-type": "^22.0.2",
+    "file-type": "^22.1.0",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.1",
     "pino": "^10.3.1",
