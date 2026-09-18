@@ -1,5 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { MANAGEMENT_CYCLE_BUCKETS, MANAGEMENT_ORDERS_LIMIT, type ManagementCycleDto, type ManagementOrderRow, type OrderStatus, type ReportQuery } from '@ordens/contracts';
+import {
+  MANAGEMENT_CYCLE_BUCKETS,
+  type ManagementCycleDto,
+  type ManagementOrderRow,
+  type ManagementOrdersQuery,
+  type OrderStatus,
+  type Page,
+  type ReportQuery,
+} from '@ordens/contracts';
 import { Prisma } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
@@ -63,54 +71,6 @@ export class ManagementService {
         ) fl on true
         where lo.status = 'COMPLETED' and lo.completed_at >= ${start} and lo.completed_at < ${end} ${commodity}
         order by publish_to_complete desc nulls last
-      `);
-
-      const orderRows = await tx.$queryRaw<
-        {
-          id: string;
-          number: string;
-          commodity: string | null;
-          farm: string | null;
-          buyer: string | null;
-          status: OrderStatus;
-          via: string | null;
-          submitted_at: Date | null;
-          published_at: Date | null;
-          first_load_at: Date | null;
-          completed_at: Date | null;
-          loads: Dec;
-          quantity_t: Dec;
-          loaded_t: Dec;
-          submit_to_publish: Dec;
-          publish_to_first_load: Dec;
-          publish_to_end: Dec;
-        }[]
-      >(Prisma.sql`
-        select lo.id, lo.number, c.name as commodity, f.name as farm,
-          coalesce(bp.trade_name, bp.legal_name) as buyer, lo.status::text as status,
-          case when lo.status = 'COMPLETED' then coalesce(lo.completion_via, 'auto') end as via,
-          lo.submitted_at, lo.published_at, fl.first_load as first_load_at, lo.completed_at,
-          fl.loads,
-          lo.quantity * coalesce(u.factor_to_kg, 1000) / 1000.0 as quantity_t,
-          lo.loaded_qty * coalesce(u.factor_to_kg, 1000) / 1000.0 as loaded_t,
-          extract(epoch from lo.published_at - lo.submitted_at) / 3600.0 as submit_to_publish,
-          extract(epoch from fl.first_load - lo.published_at) / 3600.0 as publish_to_first_load,
-          extract(epoch from coalesce(lo.completed_at, now()) - lo.published_at) / 3600.0 as publish_to_end
-        from loading_orders lo
-        left join commodities c on c.id = lo.commodity_id
-        left join farms f on f.id = lo.farm_id
-        left join business_partners bp on bp.id = lo.buyer_partner_id
-        left join units u on u.id = lo.unit_id
-        left join lateral (
-          select min(l.created_at) as first_load, count(*) as loads
-          from loads l where l.order_id = lo.id and l.status <> 'CANCELLED'
-        ) fl on true
-        where (
-          (lo.status = 'COMPLETED' and lo.completed_at >= ${start} and lo.completed_at < ${end})
-          or lo.status in ('PUBLISHED', 'IN_PROGRESS')
-        ) ${commodity}
-        order by publish_to_end desc nulls last
-        limit ${MANAGEMENT_ORDERS_LIMIT + 1}
       `);
 
       const aging = await tx.$queryRaw<{ days: Dec; n: Dec }[]>(Prisma.sql`
@@ -181,7 +141,87 @@ export class ManagementService {
             completedAt: r.completed_at.toISOString(),
           })),
         openAging,
-        orders: orderRows.slice(0, MANAGEMENT_ORDERS_LIMIT).map(
+      };
+    });
+  }
+
+  /**
+   * Listagem paginada do tempo por ordem: concluídas no período e/ou abertas, com busca por número,
+   * commodity, fazenda e comprador. O total vem da mesma consulta (count over).
+   */
+  orders(q: ManagementOrdersQuery & { from: string; to: string }): Promise<Page<ManagementOrderRow>> {
+    const auth = currentAuth();
+    if (auth.membership?.scope !== 'MATRIZ' || !auth.permissions.has('dashboard.matriz')) {
+      throw AppError.forbidden('Painel de gestão disponível apenas para a Matriz.');
+    }
+    const start = Prisma.sql`((${q.from}::date)::timestamp at time zone ${TZ})`;
+    const end = Prisma.sql`((${q.to}::date + 1)::timestamp at time zone ${TZ})`;
+    const commodity = q.commodityId ? Prisma.sql`and lo.commodity_id = ${q.commodityId}::uuid` : Prisma.empty;
+    const completed = Prisma.sql`(lo.status = 'COMPLETED' and lo.completed_at >= ${start} and lo.completed_at < ${end})`;
+    const open = Prisma.sql`lo.status in ('PUBLISHED', 'IN_PROGRESS')`;
+    const situation = q.situation === 'completed' ? completed : q.situation === 'open' ? open : Prisma.sql`(${completed} or ${open})`;
+    const search = q.q
+      ? Prisma.sql`and (lo.number ilike ${'%' + q.q + '%'} or c.name ilike ${'%' + q.q + '%'} or f.name ilike ${'%' + q.q + '%'}
+          or coalesce(bp.trade_name, bp.legal_name) ilike ${'%' + q.q + '%'})`
+      : Prisma.empty;
+    const order = {
+      'cycle:desc': Prisma.sql`publish_to_end desc nulls last`,
+      'cycle:asc': Prisma.sql`publish_to_end asc nulls last`,
+      'completedAt:desc': Prisma.sql`lo.completed_at desc nulls last`,
+      'number:asc': Prisma.sql`lo.number asc`,
+    }[q.sort];
+
+    return this.db.read(async (tx) => {
+      const rows = await tx.$queryRaw<
+        {
+          id: string;
+          number: string;
+          commodity: string | null;
+          farm: string | null;
+          buyer: string | null;
+          status: OrderStatus;
+          via: string | null;
+          submitted_at: Date | null;
+          published_at: Date | null;
+          first_load_at: Date | null;
+          completed_at: Date | null;
+          loads: Dec;
+          quantity_t: Dec;
+          loaded_t: Dec;
+          submit_to_publish: Dec;
+          publish_to_first_load: Dec;
+          publish_to_end: Dec;
+          total_count: Dec;
+        }[]
+      >(Prisma.sql`
+        select lo.id, lo.number, c.name as commodity, f.name as farm,
+          coalesce(bp.trade_name, bp.legal_name) as buyer, lo.status::text as status,
+          case when lo.status = 'COMPLETED' then coalesce(lo.completion_via, 'auto') end as via,
+          lo.submitted_at, lo.published_at, fl.first_load as first_load_at, lo.completed_at, fl.loads,
+          lo.quantity * coalesce(u.factor_to_kg, 1000) / 1000.0 as quantity_t,
+          lo.loaded_qty * coalesce(u.factor_to_kg, 1000) / 1000.0 as loaded_t,
+          extract(epoch from lo.published_at - lo.submitted_at) / 3600.0 as submit_to_publish,
+          extract(epoch from fl.first_load - lo.published_at) / 3600.0 as publish_to_first_load,
+          extract(epoch from coalesce(lo.completed_at, now()) - lo.published_at) / 3600.0 as publish_to_end,
+          count(*) over () as total_count
+        from loading_orders lo
+        left join commodities c on c.id = lo.commodity_id
+        left join farms f on f.id = lo.farm_id
+        left join business_partners bp on bp.id = lo.buyer_partner_id
+        left join units u on u.id = lo.unit_id
+        left join lateral (
+          select min(l.created_at) as first_load, count(*) as loads
+          from loads l where l.order_id = lo.id and l.status <> 'CANCELLED'
+        ) fl on true
+        where ${situation} ${commodity} ${search}
+        order by ${order}
+        limit ${q.pageSize} offset ${(q.page - 1) * q.pageSize}
+      `);
+      return {
+        total: int(rows[0]?.total_count),
+        page: q.page,
+        pageSize: q.pageSize,
+        items: rows.map(
           (o): ManagementOrderRow => ({
             id: o.id,
             number: o.number,
@@ -204,7 +244,6 @@ export class ManagementService {
             },
           }),
         ),
-        ordersTruncated: orderRows.length > MANAGEMENT_ORDERS_LIMIT,
       };
     });
   }
