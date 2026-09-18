@@ -12,7 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1128.0",
+    "@aws-sdk/client-s3": "^3.1132.0",
     "@ordens/contracts": "workspace:*",
     "@ordens/db": "workspace:*",
     "bullmq": "^6.3.4",
@@ -21,7 +21,7 @@
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.1",
     "pino": "^10.3.1",
-    "zod": "4.6.1"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@ordens/config": "workspace:*",

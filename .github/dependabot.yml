@@ -14,6 +14,13 @@ updates:
         patterns: ['@radix-ui/*']
       tanstack:
         patterns: ['@tanstack/*']
+    ignore:
+      # Tipos do Node acompanham o runtime (Node 24, ver .nvmrc); sobem junto com a troca de versão do Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # v9 muda a API da grade de ordens: migração planejada à parte (PR #41 fechado).
+      - dependency-name: '@tanstack/react-table'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: docker
     directory: /docker
     schedule:
