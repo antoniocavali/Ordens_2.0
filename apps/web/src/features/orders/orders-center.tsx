@@ -266,7 +266,8 @@ export function OrdersCenter() {
           </div>
         ),
       },
-      { id: 'status', header: 'Status', size: 132, cell: ({ row }) => <StatusBadge status={row.original.status} size="sm" /> },
+      // Largura para o selo mais longo ("Aguardando faturamento"); o conteúdo nunca invade a coluna vizinha.
+      { id: 'status', header: 'Status', size: 196, cell: ({ row }) => <div className="min-w-0 overflow-hidden"><StatusBadge status={row.original.status} size="sm" /></div> },
       {
         id: 'commodity',
         header: 'Commodity',
@@ -461,7 +462,8 @@ export function OrdersCenter() {
       </div>
 
       {/* Indicadores rápidos */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      {/* A Matriz tem 7 indicadores (inclui Aguardando faturamento): uma linha no desktop, sem cartão sozinho. */}
+      <div className={cn('grid grid-cols-2 gap-3', scope === 'MATRIZ' ? 'md:grid-cols-4 xl:grid-cols-7' : 'md:grid-cols-3 xl:grid-cols-6')}>
         {!s ? (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[106px] rounded-lg" />)
         ) : (
