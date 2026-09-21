@@ -6,6 +6,7 @@ export const QUEUE = {
   REALTIME: 'realtime',
   EMAIL: 'email',
   NOTIFICATIONS: 'notifications',
+  EXPORTS: 'report-exports',
   MAINTENANCE: 'upload-maintenance',
   DEAD_LETTER: 'dead-letter',
 } as const;
@@ -62,4 +63,7 @@ export const ROUTES: Record<string, string[]> = {
   'support.status_changed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'support.updated': [QUEUE.REALTIME],
   'support.team_updated': [QUEUE.REALTIME],
+  'report.requested': [QUEUE.EXPORTS],
+  'report.ready': [QUEUE.NOTIFICATIONS],
+  'report.failed': [QUEUE.NOTIFICATIONS],
 };

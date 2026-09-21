@@ -24,6 +24,7 @@ COPY apps/web/package.json apps/web/
 COPY packages/config/package.json packages/config/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/
+COPY packages/reports/package.json packages/reports/
 COPY packages/ui/package.json packages/ui/
 
 # ─── Todas as dependências (build e dev) ───
@@ -81,6 +82,7 @@ FROM runtime AS api
 COPY --from=prod-deps --chown=node:node /repo /app
 COPY --from=build --chown=node:node /repo/packages/contracts/dist /app/packages/contracts/dist
 COPY --from=build --chown=node:node /repo/packages/db/dist /app/packages/db/dist
+COPY --from=build --chown=node:node /repo/packages/reports/dist /app/packages/reports/dist
 COPY --from=build --chown=node:node /repo/apps/api/dist /app/apps/api/dist
 EXPOSE 4000
 CMD ["node", "apps/api/dist/main.js"]
@@ -90,6 +92,7 @@ FROM runtime AS worker
 COPY --from=prod-deps --chown=node:node /repo /app
 COPY --from=build --chown=node:node /repo/packages/contracts/dist /app/packages/contracts/dist
 COPY --from=build --chown=node:node /repo/packages/db/dist /app/packages/db/dist
+COPY --from=build --chown=node:node /repo/packages/reports/dist /app/packages/reports/dist
 COPY --from=build --chown=node:node /repo/apps/worker/dist /app/apps/worker/dist
 CMD ["node", "apps/worker/dist/main.js"]
 

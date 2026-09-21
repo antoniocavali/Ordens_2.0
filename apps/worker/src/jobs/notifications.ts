@@ -95,6 +95,28 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       };
     }
 
+    case 'report.ready': {
+      const userId = str(p.userId);
+      if (!userId) return null;
+      return {
+        userIds: [userId],
+        title: `Relatório pronto: ${str(p.label) ?? 'exportação'}`,
+        body: p.truncated ? 'O arquivo atingiu o limite de linhas; refine o período para ver tudo.' : 'O arquivo está disponível por 7 dias em Relatórios.',
+        data: { href: '/gestao/relatorios', reportJobId: str(p.jobId) },
+      };
+    }
+
+    case 'report.failed': {
+      const userId = str(p.userId);
+      if (!userId) return null;
+      return {
+        userIds: [userId],
+        title: 'Não foi possível gerar o relatório',
+        body: str(p.error),
+        data: { href: '/gestao/relatorios', reportJobId: str(p.jobId) },
+      };
+    }
+
     case 'order.completed': {
       const order = await tx.loadingOrder.findUnique({ where: { id: str(p.orderId) ?? '' }, select: { sellerOrgId: true, buyerOrgId: true } });
       if (!order) return null;

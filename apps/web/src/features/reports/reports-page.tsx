@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { ApiRequestError, get } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
+import { BackgroundExports } from './background-exports';
 
 const ICONS: Record<ReportKind, ReactNode> = {
   orders: <ClipboardList className="size-5" />,
@@ -107,7 +108,7 @@ export function ReportsPage() {
   if (me && !allowed) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16">
-        <EmptyState icon={<ShieldOff />} title="Sem acesso a relatórios" description="A exportação de relatórios é liberada para gestores e administradores da Matriz." />
+        <EmptyState icon={<ShieldOff />} title="Sem acesso a relatórios" description="A exportação de relatórios é liberada por grupo. Peça ao administrador para incluir a permissão no seu papel." />
       </div>
     );
   }
@@ -257,6 +258,8 @@ export function ReportsPage() {
           </div>
         ) : null}
       </Card>
+
+      <BackgroundExports kind={kind} from={from} to={to} disabled={!validRange} />
     </div>
   );
 }

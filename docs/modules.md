@@ -68,7 +68,7 @@ A ordem evita o problema da aplicação anterior, em que praticamente tudo era u
 | `upload-maintenance` | agendado | aborta multipart órfão |
 | `nfe-parse` | `upload.available` com tipo NFE_XML | `file_upload_id` |
 | `notifications` | eventos de domínio | `event_id` + destinatário |
-| `exports` | pedidos de relatório | `report_job_id` |
+| `report-exports` | `report.requested` (relatório em segundo plano, gerado com o RLS de quem pediu; expira em 7 dias) | `report_job_id` + estado |
 
 ## Pacotes compartilhados
 
