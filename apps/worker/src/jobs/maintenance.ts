@@ -3,6 +3,7 @@ import { systemContext } from '@ordens/db';
 import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { WorkerContext } from '../context.js';
+import { expireReportJobs } from './report-export.js';
 import { notifySupportSla } from './support-sla.js';
 
 const STALE_MS = 24 * 3_600_000;
@@ -29,5 +30,7 @@ export function maintenanceHandler(ctx: WorkerContext, publisher: Redis) {
       await ctx.db.run(systemContext(u.tenantId), (tx) => tx.fileUpload.update({ where: { id: u.id }, data: { status: 'EXPIRED' } }));
     }
     if (stale.length) ctx.logger.info({ count: stale.length }, 'Envios expirados');
+    const reports = await expireReportJobs(ctx);
+    if (reports) ctx.logger.info({ count: reports }, 'Exportações de relatório expiradas');
   };
 }

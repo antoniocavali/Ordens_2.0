@@ -744,3 +744,35 @@ describe('auditoria append-only', () => {
     expect(found).toBeNull();
   });
 });
+
+describe('exportações de relatório em segundo plano', () => {
+  it('cada pessoa vê só as próprias exportações; só o worker (SYSTEM) atualiza', async () => {
+    const [dono, outro] = await db.system((tx) =>
+      Promise.all(['dono', 'outro'].map((label) => tx.user.create({ data: { email: `rls-rel-${label}-${randomUUID()}@teste.local`, name: `RLS ${label}` } }))),
+    );
+    const access = await db.run(systemContext(A.tenantId), (tx) =>
+      tx.membership.create({ data: { tenantId: A.tenantId, userId: dono!.id, organizationId: A.buyerOrgs[0]!, scope: 'BUYER' } }),
+    );
+    const asDono = { ...buyer(A, 0), userId: dono!.id, membershipId: access.id };
+    const asOutro = { ...buyer(A, 0), userId: outro!.id };
+
+    const job = await db.run(asDono, (tx) =>
+      tx.reportJob.create({ data: { tenantId: A.tenantId, membershipId: access.id, requestedBy: dono!.id, kind: 'orders', format: 'csv' } }),
+    );
+    // Pedir em nome de outra pessoa é recusado.
+    await expect(
+      db.run(asOutro, (tx) => tx.reportJob.create({ data: { tenantId: A.tenantId, membershipId: access.id, requestedBy: dono!.id, kind: 'orders', format: 'csv' } })),
+    ).rejects.toThrow(/row-level security/);
+
+    expect(await db.run(asDono, (tx) => tx.reportJob.count({ where: { id: job.id } }))).toBe(1);
+    expect(await db.run(asOutro, (tx) => tx.reportJob.count({ where: { id: job.id } }))).toBe(0);
+    expect(await db.run(matriz(B), (tx) => tx.reportJob.count({ where: { id: job.id } }))).toBe(0);
+
+    // Quem pediu não marca como pronto nem troca o arquivo; o worker sim.
+    const tampered = await db.run(asDono, (tx) => tx.reportJob.updateMany({ where: { id: job.id }, data: { status: 'FAILED' } }));
+    expect(tampered.count).toBe(0);
+    await db.run(systemContext(A.tenantId), (tx) => tx.reportJob.update({ where: { id: job.id }, data: { status: 'RUNNING' } }));
+    // Ninguém apaga o registro.
+    await expect(db.run(asDono, (tx) => tx.$executeRaw`delete from report_jobs where id = ${job.id}::uuid`)).rejects.toThrow(/permission denied/);
+  });
+});

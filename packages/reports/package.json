@@ -1,0 +1,32 @@
+{
+  "name": "@ordens/reports",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ordens/contracts": "workspace:*",
+    "@ordens/db": "workspace:*",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.20.2"
+  },
+  "devDependencies": {
+    "@ordens/config": "workspace:*",
+    "@types/pdfkit": "^0.17.6",
+    "vitest": "^5.0.1"
+  }
+}

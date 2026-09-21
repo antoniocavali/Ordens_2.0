@@ -178,6 +178,9 @@ importers:
       '@ordens/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@ordens/reports':
+        specifier: workspace:*
+        version: link:../../packages/reports
       bullmq:
         specifier: ^6.3.6
         version: 6.3.6(ioredis@6.0.0)(pg@8.23.0)
@@ -187,9 +190,6 @@ importers:
       decimal.js:
         specifier: ^10.6.0
         version: 10.6.0
-      exceljs:
-        specifier: ^4.4.0
-        version: 4.4.0
       helmet:
         specifier: ^8.3.0
         version: 8.3.0
@@ -202,9 +202,6 @@ importers:
       otplib:
         specifier: ^13.5.0
         version: 13.5.0
-      pdfkit:
-        specifier: ^0.20.2
-        version: 0.20.2
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -239,9 +236,6 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
-      '@types/pdfkit':
-        specifier: ^0.17.6
-        version: 0.17.6
       '@types/qrcode':
         specifier: ^1.5.6
         version: 1.5.6
@@ -366,6 +360,9 @@ importers:
       '@ordens/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@ordens/reports':
+        specifier: workspace:*
+        version: link:../../packages/reports
       bullmq:
         specifier: ^6.3.6
         version: 6.3.6(ioredis@6.0.0)(pg@8.23.0)
@@ -453,6 +450,31 @@ importers:
       prisma:
         specifier: 7.10.0
         version: 7.10.0(@types/node@24.13.5)(@types/react-dom@19.2.7(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+
+  packages/reports:
+    dependencies:
+      '@ordens/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@ordens/db':
+        specifier: workspace:*
+        version: link:../db
+      exceljs:
+        specifier: ^4.4.0
+        version: 4.4.0
+      pdfkit:
+        specifier: ^0.20.2
+        version: 0.20.2
+    devDependencies:
+      '@ordens/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/pdfkit':
+        specifier: ^0.17.6
+        version: 0.17.6
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@24.13.5)(vite@8.2.2(@types/node@24.13.5)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13))
 
   packages/ui:
     dependencies:
@@ -6971,7 +6993,7 @@ snapshots:
 
   '@types/pdfkit@0.17.6':
     dependencies:
-      '@types/node': 24.13.3
+      '@types/node': 24.13.5
 
   '@types/pg@8.23.1':
     dependencies:

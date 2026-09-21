@@ -1400,3 +1400,29 @@ model LoadingOrderView {
   @@index([tenantId, orderId, side, version])
   @@map("loading_order_views")
 }
+
+/// Exportação de relatório em segundo plano (ver migration 20260925002300_report_jobs).
+model ReportJob {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  membershipId String    @map("membership_id") @db.Uuid
+  requestedBy  String    @map("requested_by") @db.Uuid
+  kind         String
+  format       String
+  params       Json      @default("{}")
+  status       String    @default("PENDING")
+  rows         Int?
+  total        Int?
+  truncated    Boolean   @default(false)
+  bucket       String?
+  objectKey    String?   @map("object_key")
+  sizeBytes    BigInt?   @map("size_bytes")
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt    DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  @@index([tenantId, requestedBy, createdAt(sort: Desc)], map: "report_jobs_user_recent")
+  @@map("report_jobs")
+}

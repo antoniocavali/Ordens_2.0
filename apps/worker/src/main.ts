@@ -8,6 +8,7 @@ import { fileProcessingHandler } from './jobs/file-processing.js';
 import { invoiceProcessingHandler } from './jobs/invoice-processing.js';
 import { maintenanceHandler } from './jobs/maintenance.js';
 import { notificationsHandler } from './jobs/notifications.js';
+import { reportExportHandler } from './jobs/report-export.js';
 import { realtimeHandler } from './jobs/realtime.js';
 import { OutboxRelay } from './outbox-relay.js';
 import { DEFAULT_JOB_OPTIONS, QUEUE } from './queues.js';
@@ -28,6 +29,8 @@ async function main() {
     new Worker(QUEUE.EMAIL, emailHandler(ctx), { connection, concurrency: 5 }),
     new Worker(QUEUE.NOTIFICATIONS, notificationsHandler(ctx, publisher, emailQueue), { connection, concurrency: 10 }),
     new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx, publisher), { connection, concurrency: 1 }),
+    // Relatórios grandes: poucos por vez para não disputar memória e conexões com o resto do worker.
+    new Worker(QUEUE.EXPORTS, reportExportHandler(ctx), { connection, concurrency: 2 }),
   ];
 
   for (const w of workers) {
