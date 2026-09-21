@@ -3,6 +3,7 @@ import {
   ErrorCode,
   INVOICE_STATUSES,
   type InvoiceDto,
+  type InvoiceArchiveInfo,
   type InvoiceIssue,
   type InvoiceListQuery,
   type InvoiceRejectCode,
@@ -104,6 +105,10 @@ export class InvoicesService {
       tx.loadingOrder.findMany({ where: { id: { in: uniq(rows.map((r) => r.orderId)) } }, select: { id: true, number: true } }),
     ]);
     const loadById = new Map(loads.map((l) => [l.id, l]));
+    // Cópia na pasta de rede: só a Matriz vê (o caminho é da rede interna da empresa).
+    const archiveOn =
+      scopeName === 'MATRIZ' &&
+      Boolean(await tx.xmlArchiveSettings.findUnique({ where: { tenantId: auth.membership!.tenantId }, select: { enabled: true } }).then((a) => a?.enabled));
     const orderNumbers = new Map(orders.map((o) => [o.id, o.number]));
 
     return rows.map((r) => {
@@ -134,6 +139,7 @@ export class InvoicesService {
         cancelReason: r.cancelReason,
         fileUploadId: r.fileUploadId,
         createdAt: r.createdAt.toISOString(),
+        archive: scopeName === 'MATRIZ' ? archiveInfo(r, archiveOn) : null,
         canCancel:
           canUpload &&
           active &&
@@ -141,4 +147,10 @@ export class InvoicesService {
       };
     });
   }
+}
+
+function archiveInfo(r: InvoiceRow, enabled: boolean): InvoiceArchiveInfo | null {
+  if (r.archivedAt) return { status: 'COPIED', at: r.archivedAt.toISOString(), path: r.archivePath, error: null };
+  if (r.origin !== 'FARM' || !['VALID', 'DIVERGENT'].includes(r.status) || (!enabled && !r.archiveError)) return null;
+  return { status: r.archiveError ? 'FAILED' : 'PENDING', at: null, path: null, error: r.archiveError };
 }

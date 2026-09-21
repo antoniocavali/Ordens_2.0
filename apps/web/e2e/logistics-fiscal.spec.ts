@@ -1,63 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
-import { api, apiOk, loginAs, login, nfeKey, nfeXml, password } from './helpers';
+import { expect, test } from '@playwright/test';
+import { api, apiOk, loginAs, login, nfeKey, nfeXml, password, PDF, prepareLoad } from './helpers';
 
 /**
  * Logística + fiscal (Q41): veículo na fazenda → carga → carregamento → pesagem obrigatória → documentação fiscal
  * (PDF + XML validado pelo worker) → transporte. XML rejeitado ou upload pendente bloqueiam. Isolamento entre compradores.
  */
-interface LoadSetup {
-  loadId: string;
-  loadNumber: string;
-  orderId: string;
-  buyerName: string;
-  sellerDoc: string;
-  plate: string;
-}
-
-const PDF = Buffer.from('%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n%%EOF\n');
-
-async function prepareLoad(page: Page): Promise<LoadSetup> {
-  const today = new Date().toISOString().slice(0, 10);
-  const orders = (await apiOk(page, 'GET', '/orders?status=PUBLISHED&status=IN_PROGRESS&pageSize=100')).items as any[];
-  const avail = (o: any) => Number(o.quantities.released) - Number(o.quantities.scheduled ?? 0) - Number(o.quantities.loaded ?? 0);
-  // Comprador com usuários no portal (ABC ou Nutri): a checagem de visibilidade final depende disso.
-  const order = orders.filter((o) => o.farm && o.seller && /abc|nutri/i.test(o.buyer?.name ?? '') && avail(o) > 20).sort((a, b) => avail(b) - avail(a))[0];
-  expect(order, 'ordem publicada com saldo liberado no seed').toBeTruthy();
-
-  const detail = await apiOk(page, 'GET', `/orders/${order.id}`);
-  const seller = await apiOk(page, 'GET', `/partners/${detail.seller.id}`);
-  const drivers = ((await apiOk(page, 'GET', '/lookups/drivers')).items as any[]).filter((d) => d.meta.expired === 'false' && d.meta.carrierId);
-  const tractors = (await apiOk(page, 'GET', '/lookups/vehicles?kind=tractor')).items as any[];
-  const driver = drivers.find((d) => tractors.some((t) => t.meta.carrierId === d.meta.carrierId));
-  const tractor = tractors.find((t) => t.meta.carrierId === driver?.meta.carrierId);
-  expect(driver && tractor, 'motorista e cavalo da mesma transportadora').toBeTruthy();
-
-  const appt = await apiOk(page, 'POST', '/appointments', {
-    orderId: order.id,
-    scheduledOn: today,
-    windowStart: '08:00',
-    windowEnd: '10:00',
-    expectedQty: '10',
-    carrierPartnerId: driver.meta.carrierId,
-    driverId: driver.id,
-    tractorVehicleId: tractor.id,
-  });
-  await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CONFIRMED' });
-  // Sem registrar a chegada do veículo, não há carga.
-  expect((await api(page, 'POST', '/loads', { orderId: order.id, appointmentId: appt.id, expectedQty: '10' })).status).toBe(422);
-  await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CHECKED_IN' });
-  const converted = await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CONVERTED' });
-  const load = await apiOk(page, 'GET', `/loads/${converted.loadId}`);
-
-  return {
-    loadId: load.id,
-    loadNumber: load.number,
-    orderId: order.id,
-    buyerName: detail.buyer?.name ?? '',
-    sellerDoc: String(seller.document ?? '').replace(/\D/g, ''),
-    plate: load.plates[0],
-  };
-}
 
 test.describe('Logística e fiscal', () => {
   test.skip(!password, 'Defina E2E_PASSWORD com a senha demo');

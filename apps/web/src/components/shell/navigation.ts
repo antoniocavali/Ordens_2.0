@@ -18,6 +18,7 @@ import {
   Package,
   PackageCheck,
   Receipt,
+  FolderSync,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
@@ -116,6 +117,7 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Segurança', href: '/configuracoes/seguranca', icon: ShieldCheck, permission: 'security.policy.manage' },
       { label: 'Preferências', href: '/conta/seguranca', icon: SlidersHorizontal },
       { label: 'Workflow', href: '/configuracoes/workflow', icon: Settings2, permission: 'settings.manage' },
+      { label: 'Parâmetros', href: '/configuracoes/parametros', icon: FolderSync, permission: 'settings.manage' },
     ],
   },
 ];

@@ -2,7 +2,7 @@
 
 import { INVOICE_ORIGIN_LABELS, INVOICE_REJECT_LABELS, type InvoiceDto } from '@ordens/contracts';
 import { Button, Card, cn, Drawer, EmptyState, Input, Skeleton } from '@ordens/ui';
-import { AlertTriangle, Copy, Download, FileSpreadsheet, Search, XCircle } from 'lucide-react';
+import { AlertTriangle, Copy, Download, FileSpreadsheet, FolderSync, Search, XCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -93,6 +93,21 @@ export function InvoiceDrawer({ invoice, onClose }: { invoice: InvoiceDto | null
                 <div>
                   <div className="font-semibold text-danger">Rejeitada: {INVOICE_REJECT_LABELS[i.rejectReason]}</div>
                   <div className="text-muted">Corrija o arquivo e envie novamente. A nota rejeitada não conta para o faturamento.</div>
+                </div>
+              </div>
+            ) : null}
+            {i.archive ? (
+              <div
+                aria-label="Cópia na pasta de rede"
+                className={cn('flex gap-3 rounded-lg p-4 text-sm', i.archive.status === 'COPIED' ? 'bg-success-soft' : i.archive.status === 'FAILED' ? 'bg-danger-soft' : 'bg-surface-2')}
+              >
+                <FolderSync className={cn('mt-0.5 size-4 shrink-0', i.archive.status === 'COPIED' ? 'text-success' : i.archive.status === 'FAILED' ? 'text-danger' : 'text-muted')} />
+                <div className="min-w-0">
+                  <div className="font-semibold">
+                    {i.archive.status === 'COPIED' ? 'Copiado para a pasta de rede' : i.archive.status === 'FAILED' ? 'Cópia para a pasta de rede com erro' : 'Cópia para a pasta de rede na fila'}
+                  </div>
+                  {i.archive.path ? <div className="break-all font-mono text-xs text-muted">{i.archive.path}</div> : null}
+                  {i.archive.error ? <div className="text-xs text-muted">{i.archive.error} O sistema tenta de novo automaticamente.</div> : null}
                 </div>
               </div>
             ) : null}

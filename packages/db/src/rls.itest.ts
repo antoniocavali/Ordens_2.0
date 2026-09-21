@@ -776,3 +776,20 @@ describe('exportações de relatório em segundo plano', () => {
     await expect(db.run(asDono, (tx) => tx.$executeRaw`delete from report_jobs where id = ${job.id}::uuid`)).rejects.toThrow(/permission denied/);
   });
 });
+
+describe('pasta de rede do XML (credencial da empresa)', () => {
+  it('só a Matriz da própria empresa lê ou altera; ninguém apaga', async () => {
+    await db.run(systemContext(A.tenantId), (tx) =>
+      tx.xmlArchiveSettings.upsert({ where: { tenantId: A.tenantId }, create: { tenantId: A.tenantId, path: 'rede-a', username: 'svc' }, update: { path: 'rede-a' } }),
+    );
+    expect(await db.run(matriz(A), (tx) => tx.xmlArchiveSettings.count())).toBe(1);
+    expect(await db.run(farm(A, 0), (tx) => tx.xmlArchiveSettings.count())).toBe(0);
+    expect(await db.run(buyer(A, 0), (tx) => tx.xmlArchiveSettings.count())).toBe(0);
+    expect(await db.run(matriz(B), (tx) => tx.xmlArchiveSettings.count({ where: { tenantId: A.tenantId } }))).toBe(0);
+
+    const farmUpdate = await db.run(farm(A, 0), (tx) => tx.xmlArchiveSettings.updateMany({ data: { path: 'invasao' } }));
+    expect(farmUpdate.count).toBe(0);
+    await expect(db.run(farm(A, 0), (tx) => tx.xmlArchiveSettings.create({ data: { tenantId: A.tenantId, path: 'x' } }))).rejects.toThrow();
+    await expect(db.run(matriz(A), (tx) => tx.$executeRaw`delete from xml_archive_settings where tenant_id = ${A.tenantId}::uuid`)).rejects.toThrow(/permission denied/);
+  });
+});

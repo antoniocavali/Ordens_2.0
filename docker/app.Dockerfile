@@ -89,6 +89,10 @@ CMD ["node", "apps/api/dist/main.js"]
 
 # ─── Worker ───
 FROM runtime AS worker
+# smbclient: cópia do XML da Fazenda para a pasta de rede da empresa (\\servidor\compartilhamento).
+USER root
+RUN apk add --no-cache samba-client
+USER node
 COPY --from=prod-deps --chown=node:node /repo /app
 COPY --from=build --chown=node:node /repo/packages/contracts/dist /app/packages/contracts/dist
 COPY --from=build --chown=node:node /repo/packages/db/dist /app/packages/db/dist

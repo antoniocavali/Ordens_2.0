@@ -1,3 +1,4 @@
+import { XmlArchiveController } from './xml-archive.controller.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import {
@@ -14,7 +15,7 @@ import { UsersService } from './users.service.js';
 
 @Module({
   imports: [AuthModule],
-  controllers: [UsersController, RolesController, OrganizationsController, SettingsController, AuditController, MeController, TenantsController],
+  controllers: [UsersController, RolesController, OrganizationsController, SettingsController, XmlArchiveController, AuditController, MeController, TenantsController],
   providers: [UsersService, RolesService],
 })
 export class PlatformModule {}

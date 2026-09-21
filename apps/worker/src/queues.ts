@@ -7,6 +7,7 @@ export const QUEUE = {
   EMAIL: 'email',
   NOTIFICATIONS: 'notifications',
   EXPORTS: 'report-exports',
+  XML_ARCHIVE: 'xml-archive',
   MAINTENANCE: 'upload-maintenance',
   DEAD_LETTER: 'dead-letter',
 } as const;
@@ -52,7 +53,9 @@ export const ROUTES: Record<string, string[]> = {
   'appointment.status_changed': [QUEUE.REALTIME],
   'load.created': [QUEUE.REALTIME],
   'load.status_changed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
-  'invoice.processed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'invoice.processed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME, QUEUE.XML_ARCHIVE],
+  'xml_archive.retry_requested': [QUEUE.XML_ARCHIVE],
+  'xml_archive.test_requested': [QUEUE.XML_ARCHIVE],
   'invoice.cancelled': [QUEUE.REALTIME],
   'occurrence.opened': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'occurrence.status_changed': [QUEUE.REALTIME],

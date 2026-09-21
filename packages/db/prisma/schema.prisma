@@ -1341,6 +1341,11 @@ model Invoice {
   divergences        Json          @default("[]")
   rejectReason       String?       @map("reject_reason")
   cancelReason       String?       @map("cancel_reason")
+  /// Cópia do XML da Fazenda na pasta de rede da empresa.
+  archivedAt         DateTime?     @map("archived_at") @db.Timestamptz(6)
+  archivePath        String?       @map("archive_path")
+  archiveError       String?       @map("archive_error")
+  archiveAttempts    Int           @default(0) @map("archive_attempts")
   createdBy          String?       @map("created_by") @db.Uuid
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1429,4 +1434,22 @@ model ReportJob {
 
   @@index([tenantId, requestedBy, createdAt(sort: Desc)], map: "report_jobs_user_recent")
   @@map("report_jobs")
+}
+
+/// Cópia do XML da Fazenda em pasta de rede (uma configuração por empresa).
+model XmlArchiveSettings {
+  tenantId        String    @id @map("tenant_id") @db.Uuid
+  enabled         Boolean   @default(false)
+  path            String    @default("")
+  domain          String?
+  username        String?
+  passwordEnc     Bytes?    @map("password_enc")
+  folderTemplate  String    @default("{ano}\\{mes}") @map("folder_template")
+  lastTestAt      DateTime? @map("last_test_at") @db.Timestamptz(6)
+  lastTestOk      Boolean?  @map("last_test_ok")
+  lastTestMessage String?   @map("last_test_message")
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("xml_archive_settings")
 }

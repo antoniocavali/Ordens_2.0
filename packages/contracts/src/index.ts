@@ -5,6 +5,7 @@ export * from './errors.js';
 export * from './state-machines.js';
 export * from './schemas/common.js';
 export * from './schemas/auth.js';
+export * from './schemas/xml-archive.js';
 export * from './schemas/users.js';
 export * from './schemas/roles.js';
 export * from './schemas/uploads.js';
