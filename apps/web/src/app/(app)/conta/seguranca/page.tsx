@@ -8,6 +8,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { EmailNotificationsCard } from '@/features/account/email-notifications-card';
+import { PasskeysCard } from '@/features/account/passkeys-card';
 import { ApiRequestError, del, get, post } from '@/lib/api';
 import { formatDateTime, formatRelative } from '@/lib/format';
 import { ME_KEY, useMe } from '@/lib/session';
@@ -15,6 +16,8 @@ import { ME_KEY, useMe } from '@/lib/session';
 const RESULT_LABEL: Record<string, { label: string; tone: 'success' | 'danger' | 'warning' | 'neutral' }> = {
   SUCCESS: { label: 'Senha correta', tone: 'success' },
   TWO_FACTOR_SUCCESS: { label: 'Login concluído (2FA)', tone: 'success' },
+  PASSKEY_SUCCESS: { label: 'Login com passkey', tone: 'success' },
+  PASSKEY_FAILED: { label: 'Passkey recusada', tone: 'danger' },
   INVALID_CREDENTIALS: { label: 'Senha incorreta', tone: 'danger' },
   TWO_FACTOR_FAILED: { label: 'Código 2FA inválido', tone: 'danger' },
   LOCKED: { label: 'Bloqueado', tone: 'warning' },
@@ -51,6 +54,7 @@ function SecurityContent() {
       <TwoFactorCard />
       {!required ? (
         <>
+          <PasskeysCard />
           <EmailNotificationsCard />
           <PasswordCard />
           <SessionsCard />

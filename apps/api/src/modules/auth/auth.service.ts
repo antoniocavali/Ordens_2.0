@@ -190,6 +190,47 @@ export class AuthService {
     });
   }
 
+  /**
+   * Conclui o login por passkey já verificada. A passkey exige verificação no aparelho, então vale
+   * como segundo fator: a sessão nasce ACTIVE (ou na troca de senha provisória), sem pedir TOTP.
+   */
+  async completePasskeyLogin(userId: string, passkey: { credentialId: string; name: string; newCounter: number; backedUp: boolean }): Promise<IssuedSession> {
+    const req = currentRequest();
+    const user = await this.db.system((tx) => tx.user.findUniqueOrThrow({ where: { id: userId } }));
+    const memberships = await this.loadMemberships(user.id);
+    const preferred = await this.preferredMembership(user.id, memberships);
+    const stage: SessionStage = user.mustChangePassword ? 'PENDING_PASSWORD_CHANGE' : 'ACTIVE';
+
+    return this.db.system(async (tx) => {
+      const issued = await this.sessions.create(tx, {
+        userId: user.id,
+        securityVersion: user.securityVersion,
+        stage,
+        activeMembershipId: preferred?.id ?? null,
+        ip: req.ip,
+        userAgent: req.userAgent,
+      });
+      await tx.webauthnCredential.update({
+        where: { id: passkey.credentialId },
+        data: { signCount: BigInt(passkey.newCounter), backedUp: passkey.backedUp, lastUsedAt: new Date() },
+      });
+      await tx.user.update({
+        where: { id: user.id },
+        data: { failedLoginCount: 0, lockedUntil: null, ...(stage === 'ACTIVE' ? { lastLoginAt: new Date() } : {}) },
+      });
+      await tx.loginAttempt.create({
+        data: { userId: user.id, email: user.email, result: 'PASSKEY_SUCCESS', ip: req.ip, userAgent: req.userAgent?.slice(0, 512) },
+      });
+      await writeAudit(tx, systemCtx(user.id, preferred?.tenantId ?? null), { ...this.meta(user.id), sessionId: issued.sessionId }, {
+        entityType: 'user',
+        entityId: user.id,
+        action: 'auth.login.succeeded',
+        metadata: { method: 'passkey', passkey: passkey.name, stage, membershipId: preferred?.id },
+      });
+      return { ...issued, stage };
+    });
+  }
+
   /** Após ativar 2FA em sessão PENDING_2FA_SETUP, a sessão é promovida (rotacionada). */
   async promoteAfterSetup(auth: AuthState): Promise<IssuedSession | null> {
     if (auth.stage !== 'PENDING_2FA_SETUP') return null;

@@ -35,7 +35,7 @@ A ordem evita o problema da aplicação anterior, em que praticamente tudo era u
 |---|---|---|---|
 | `health` | 1 | live/ready (Postgres, Redis, S3) | — |
 | `auth` | 1 | login, sessões, senha, lockout, CSRF | users, sessions, login_attempts, password_reset_tokens |
-| `two-factor` | 1 | TOTP, QR, recovery codes, política | two_factor_credentials, recovery_codes, webauthn_credentials |
+| `two-factor` | 1 | TOTP, QR, recovery codes, política; passkeys (WebAuthn) para login sem senha | two_factor_credentials, recovery_codes, webauthn_credentials |
 | `uploads` | 1 | presigned/multipart, finalização, download | file_uploads |
 | `tenants` | 2 | superadmin: tenants, política de segurança | tenants |
 | `organizations` | 2 | Matriz, Fazenda-org, Comprador-org | organizations |

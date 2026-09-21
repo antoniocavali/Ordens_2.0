@@ -21,6 +21,8 @@
     "@nestjs/throttler": "6.5.0",
     "@ordens/contracts": "workspace:*",
     "@ordens/db": "workspace:*",
+    "@ordens/reports": "workspace:*",
+    "@simplewebauthn/server": "^14.0.2",
     "bullmq": "^6.3.6",
     "cookie-parser": "^1.4.7",
     "decimal.js": "^10.6.0",
@@ -33,8 +35,7 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "4.6.5",
-    "@ordens/reports": "workspace:*"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@nestjs/testing": "12.0.3",

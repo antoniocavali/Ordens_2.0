@@ -13,7 +13,7 @@ export async function submitLogin(page: Page, email: string, secret: string, exp
     await page.getByLabel('E-mail').fill(email);
     await page.getByLabel('Senha', { exact: true }).fill(secret);
     const responsePromise = page.waitForResponse((r) => r.url().includes('/api/auth/login') && r.request().method() === 'POST');
-    await page.getByRole('button', { name: 'Entrar' }).click();
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     const response = await responsePromise;
     // 500 (proxy do Next sem API) e 502-504: API reiniciando (watch em dev, subida no CI).
     const transient = [500, 502, 503, 504].includes(response.status());

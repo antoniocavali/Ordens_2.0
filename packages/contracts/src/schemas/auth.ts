@@ -35,6 +35,45 @@ export const twoFactorDisableSchema = z.object({
   code: z.string().trim().min(6).max(20),
 });
 
+// ─── Passkeys (WebAuthn) ───
+
+export const PASSKEY_MAX_PER_USER = 10;
+
+/** Resposta do navegador (JSON do WebAuthn); a validação criptográfica é feita no servidor. */
+const webauthnResponse = z.looseObject({
+  id: z.string().min(1).max(1024),
+  rawId: z.string().min(1).max(1024),
+  type: z.literal('public-key'),
+  response: z.looseObject({ clientDataJSON: z.string().max(8192) }),
+});
+
+/** Cadastrar passkey exige a senha atual: uma sessão roubada não consegue plantar acesso permanente. */
+export const passkeyRegisterOptionsSchema = z.object({
+  password: z.string().min(1, 'Informe a senha').max(256),
+});
+
+export const passkeyRegisterSchema = z.object({
+  name: z.string().trim().min(1, 'Dê um nome à passkey').max(60),
+  response: webauthnResponse,
+});
+
+export const passkeyLoginSchema = z.object({
+  challengeId: z.string().min(16).max(64),
+  response: webauthnResponse,
+});
+
+export const passkeyRenameSchema = z.object({
+  name: z.string().trim().min(1, 'Dê um nome à passkey').max(60),
+});
+
+export interface PasskeyDto {
+  id: string;
+  name: string;
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export const passwordForgotSchema = z.object({
   email: z.email().max(254).transform((v) => v.toLowerCase()),
 });
