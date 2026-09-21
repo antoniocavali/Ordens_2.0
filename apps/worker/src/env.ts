@@ -18,6 +18,16 @@ const schema = z
     CLAMAV_HOST: z.string().default('clamav'),
     CLAMAV_PORT: z.coerce.number().int().default(3310),
     SESSION_SECRET: z.string().min(1),
+    /** Chave de cifragem de segredos (a mesma da API): decifra a senha da pasta de rede. */
+    TWO_FACTOR_ENC_KEY: z.string().min(1),
+    /**
+     * Pastas locais/montadas liberadas para a cópia do XML (separadas por vírgula). Caminhos de rede
+     * (\\servidor\compartilhamento) não precisam estar aqui.
+     */
+    XML_ARCHIVE_LOCAL_ROOTS: z
+      .string()
+      .default('')
+      .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
     WEB_ORIGIN: z.url(),
     SMTP_HOST: z.string().default('mailpit'),
     SMTP_PORT: z.coerce.number().int().default(1025),

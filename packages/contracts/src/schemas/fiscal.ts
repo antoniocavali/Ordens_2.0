@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { InvoiceArchiveInfo } from './xml-archive.js';
 import {
   DOCUMENT_VISIBILITIES,
   INVOICE_ORIGINS,
@@ -241,6 +242,8 @@ export interface InvoiceDto {
   fileUploadId: string | null;
   createdAt: string;
   canCancel: boolean;
+  /** Cópia na pasta de rede (só para a Matriz, quando a cópia está configurada). */
+  archive: InvoiceArchiveInfo | null;
 }
 
 export interface OccurrenceDto {

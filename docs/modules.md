@@ -69,6 +69,7 @@ A ordem evita o problema da aplicação anterior, em que praticamente tudo era u
 | `nfe-parse` | `upload.available` com tipo NFE_XML | `file_upload_id` |
 | `notifications` | eventos de domínio | `event_id` + destinatário |
 | `report-exports` | `report.requested` (relatório em segundo plano, gerado com o RLS de quem pediu; expira em 7 dias) | `report_job_id` + estado |
+| `xml-archive` | `invoice.processed`, `xml_archive.retry_requested`, `xml_archive.test_requested` e varredura a cada 15 min (cópia do XML da Fazenda na pasta de rede; smbclient em Linux, sistema de arquivos no Windows) | `invoice_id` + `archived_at` |
 
 ## Pacotes compartilhados
 

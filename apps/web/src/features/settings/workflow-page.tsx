@@ -10,7 +10,7 @@ import { ApiRequestError, get, put } from '@/lib/api';
 import { parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (next: boolean) => void }) {
+export function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (next: boolean) => void }) {
   return (
     <button
       type="button"

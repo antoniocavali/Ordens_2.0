@@ -9,6 +9,7 @@ import { invoiceProcessingHandler } from './jobs/invoice-processing.js';
 import { maintenanceHandler } from './jobs/maintenance.js';
 import { notificationsHandler } from './jobs/notifications.js';
 import { reportExportHandler } from './jobs/report-export.js';
+import { xmlArchiveHandler } from './jobs/xml-archive.js';
 import { realtimeHandler } from './jobs/realtime.js';
 import { OutboxRelay } from './outbox-relay.js';
 import { DEFAULT_JOB_OPTIONS, QUEUE } from './queues.js';
@@ -31,6 +32,8 @@ async function main() {
     new Worker(QUEUE.MAINTENANCE, maintenanceHandler(ctx, publisher), { connection, concurrency: 1 }),
     // Relatórios grandes: poucos por vez para não disputar memória e conexões com o resto do worker.
     new Worker(QUEUE.EXPORTS, reportExportHandler(ctx), { connection, concurrency: 2 }),
+    // Uma cópia por vez: evita disputar o mesmo compartilhamento e mantém a ordem das tentativas.
+    new Worker(QUEUE.XML_ARCHIVE, xmlArchiveHandler(ctx), { connection, concurrency: 1 }),
   ];
 
   for (const w of workers) {
@@ -45,6 +48,9 @@ async function main() {
   const maintenance = new Queue(QUEUE.MAINTENANCE, { connection });
   await maintenance.upsertJobScheduler('expire-uploads', { every: 60 * 60_000 }, { name: 'expire-uploads', opts: DEFAULT_JOB_OPTIONS });
   // SLA de 1ª resposta do atendimento (Q30): verificação a cada 5 minutos.
+  // Retoma cópias de XML pendentes (pasta de rede fora do ar, por exemplo) a cada 15 minutos.
+  const xmlArchive = new Queue(QUEUE.XML_ARCHIVE, { connection });
+  await xmlArchive.upsertJobScheduler('xml-archive-sweep', { every: 15 * 60_000 }, { name: 'xml-archive-sweep', opts: { ...DEFAULT_JOB_OPTIONS, attempts: 1 } });
   await maintenance.upsertJobScheduler('support-sla', { every: 5 * 60_000 }, { name: 'support-sla', opts: { ...DEFAULT_JOB_OPTIONS, attempts: 1 } });
 
   const relay = new OutboxRelay(ctx);
