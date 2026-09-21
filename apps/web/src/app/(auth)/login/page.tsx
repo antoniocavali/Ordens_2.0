@@ -4,14 +4,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginResponse } from '@ordens/contracts';
 import { Button, Field, Input } from '@ordens/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Eye, EyeOff, LogIn } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Fingerprint, LogIn } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { z } from 'zod';
 import { Logo } from '@/features/auth/auth-showcase';
 import { ApiRequestError, post } from '@/lib/api';
+import { browserSupportsWebAuthn, loginWithPasskey, passkeyCancelled } from '@/lib/passkeys';
 
 type FormValues = z.input<typeof loginSchema>;
 
@@ -23,19 +24,38 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(params.get('expirada') ? 'Sua sessão expirou. Entre novamente.' : null);
   const form = useForm<FormValues>({ resolver: zodResolver(loginSchema), defaultValues: { email: '', password: '' } });
 
+  const [passkeySupported, setPasskeySupported] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  useEffect(() => setPasskeySupported(browserSupportsWebAuthn()), []);
+
+  const proceed = (res: LoginResponse) => {
+    qc.clear();
+    if (res.stage === 'PENDING_2FA') router.replace('/login/2fa');
+    else if (res.stage === 'PENDING_PASSWORD_CHANGE') router.replace('/login/nova-senha');
+    else if (res.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
+    else router.replace(params.get('next') ?? '/');
+  };
+
   const onSubmit = form.handleSubmit(async (values) => {
     setError(null);
     try {
-      const res = await post<LoginResponse>('/auth/login', values);
-      qc.clear();
-      if (res.stage === 'PENDING_2FA') router.replace('/login/2fa');
-      else if (res.stage === 'PENDING_PASSWORD_CHANGE') router.replace('/login/nova-senha');
-      else if (res.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
-      else router.replace(params.get('next') ?? '/');
+      proceed(await post<LoginResponse>('/auth/login', values));
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : 'Não foi possível entrar agora.');
     }
   });
+
+  const onPasskey = async () => {
+    setError(null);
+    setPasskeyBusy(true);
+    try {
+      proceed(await loginWithPasskey());
+    } catch (err) {
+      if (!passkeyCancelled(err)) setError(err instanceof ApiRequestError ? err.message : 'Não foi possível entrar com a passkey.');
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -85,9 +105,23 @@ function LoginForm() {
           {!form.formState.isSubmitting ? <LogIn /> : null}
           Entrar
         </Button>
+
+        {passkeySupported ? (
+          <>
+            <div className="flex items-center gap-3 text-xs text-subtle" aria-hidden>
+              <span className="h-px flex-1 bg-border" />
+              ou
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <Button type="button" variant="outline" size="lg" className="w-full" onClick={() => void onPasskey()} loading={passkeyBusy}>
+              {!passkeyBusy ? <Fingerprint /> : null}
+              Entrar com passkey
+            </Button>
+          </>
+        ) : null}
       </form>
 
-      <p className="text-center text-xs text-subtle">Protegido por verificação em duas etapas e bloqueio progressivo.</p>
+      <p className="text-center text-xs text-subtle">Protegido por passkeys, verificação em duas etapas e bloqueio progressivo.</p>
     </div>
   );
 }

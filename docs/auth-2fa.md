@@ -31,9 +31,15 @@ Exigem senha + código atual. Desativar incrementa `security_version`. Regenerar
 
 `tenants.require_2fa` (bool) e `tenants.require_2fa_roles` (lista de códigos de papel). Se a membership ativa exigir 2FA e o usuário não tiver, a sessão fica `PENDING_2FA_SETUP` até ativar.
 
-## Futuro: WebAuthn / Passkeys
+## Passkeys (WebAuthn)
 
-Tabela `webauthn_credentials` já criada (credential_id, public_key, sign_count, transports, name). O fluxo de verificação será uma segunda implementação de `SecondFactorVerifier`.
+Login sem senha e resistente a phishing, com `@simplewebauthn/server` na API e `@simplewebauthn/browser` na web.
+
+- **RP**: `rpID` = host de `WEB_ORIGIN`; origem esperada = `WEB_ORIGIN`. Atestação `none`.
+- **Cadastro** (`POST /auth/passkeys/register/options` → `POST /auth/passkeys/register`): exige a senha atual (uma sessão roubada não planta acesso permanente), passkey descoberta (`residentKey: required`) e verificação no aparelho (`userVerification: required`). Até 10 por usuário. Desafio no Redis por sessão, 5 min, uso único.
+- **Login** (`POST /auth/passkeys/login/options` → `POST /auth/passkeys/login`): sem e-mail; o desafio tem id aleatório no Redis (5 min, GETDEL). Verifica assinatura, origem, RP, UV e contador. Como a verificação no aparelho é obrigatória, **vale como segundo fator**: a sessão nasce `ACTIVE` sem TOTP e satisfaz a política de 2FA obrigatória. Senha provisória continua exigindo a troca.
+- **Falhas** entram no bloqueio progressivo por IP, em `login_attempts` (`PASSKEY_FAILED`) e na auditoria (`auth.passkey.failed`). Sucesso: `PASSKEY_SUCCESS` e `auth.login.succeeded` com `method: passkey`.
+- **Gestão** em Preferências: listar, renomear, remover (`auth.passkey.added/renamed/removed`). RLS `own_rows`: cada usuário só vê as próprias.
 
 ## Auditoria
 

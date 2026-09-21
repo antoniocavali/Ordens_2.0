@@ -65,6 +65,8 @@ enum LoginResult {
   TWO_FACTOR_FAILED
   TWO_FACTOR_SUCCESS
   INACTIVE
+  PASSKEY_SUCCESS
+  PASSKEY_FAILED
 
   @@map("login_result")
 }
@@ -538,6 +540,8 @@ model WebauthnCredential {
   signCount    BigInt    @default(0) @map("sign_count")
   transports   String[]  @default([])
   name         String
+  /// Passkey sincronizada entre aparelhos (iCloud, Google, gerenciador de senhas).
+  backedUp     Boolean   @default(false) @map("backed_up")
   lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 

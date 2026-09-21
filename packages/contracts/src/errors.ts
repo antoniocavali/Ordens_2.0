@@ -10,6 +10,8 @@ export const ErrorCode = {
   TWO_FACTOR_SETUP_REQUIRED: 'TWO_FACTOR_SETUP_REQUIRED',
   PASSWORD_CHANGE_REQUIRED: 'PASSWORD_CHANGE_REQUIRED',
   TWO_FACTOR_INVALID: 'TWO_FACTOR_INVALID',
+  /** Passkey recusada (assinatura inválida, desafio vencido ou credencial desconhecida). */
+  PASSKEY_INVALID: 'PASSKEY_INVALID',
   CSRF_INVALID: 'CSRF_INVALID',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
