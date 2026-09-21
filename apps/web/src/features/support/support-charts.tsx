@@ -116,25 +116,28 @@ export function DailyVolumeChart({ points }: { points: { day: string; opened: nu
           <span className="size-2.5 rounded-sm bg-success/70" /> Resolvidas
         </span>
       </figcaption>
-      <table className="sr-only">
-        <caption>Conversas por dia</caption>
-        <thead>
-          <tr>
-            <th>Dia</th>
-            <th>Abertas</th>
-            <th>Resolvidas</th>
-          </tr>
-        </thead>
-        <tbody>
-          {points.map((p) => (
-            <tr key={p.day}>
-              <td>{dayLabel(p.day)}</td>
-              <td>{p.opened}</td>
-              <td>{p.resolved}</td>
+      {/* sr-only no wrapper: no <table> a <caption> escapa do recorte (Firefox) e estica a página. */}
+      <div className="sr-only">
+        <table>
+          <caption>Conversas por dia</caption>
+          <thead>
+            <tr>
+              <th>Dia</th>
+              <th>Abertas</th>
+              <th>Resolvidas</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {points.map((p) => (
+              <tr key={p.day}>
+                <td>{dayLabel(p.day)}</td>
+                <td>{p.opened}</td>
+                <td>{p.resolved}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

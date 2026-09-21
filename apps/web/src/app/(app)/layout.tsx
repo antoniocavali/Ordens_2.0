@@ -62,7 +62,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onOpenMobileNav={() => setMobileOpen(true)} onOpenPalette={() => setPaletteOpen(true)} />
-        <main id="conteudo" className="min-h-0 flex-1 overflow-y-auto">
+        {/* relative: elementos absolutos (ex.: sr-only) ficam presos à rolagem do main e não esticam a página. */}
+        <main id="conteudo" className="relative min-h-0 flex-1 overflow-y-auto">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={pathname}
