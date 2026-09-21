@@ -17,6 +17,10 @@ URLs locais: web `http://localhost:3000`, API `http://localhost:4000` (Swagger `
 
 ## Produção
 
+**Servidor Linux único atrás de Cloudflare Tunnel: passo a passo em [deploy-producao.md](deploy-producao.md)**
+(`docker-compose.prod.yml`, `.env.production` gerado por `scripts/deploy/gen-env.sh`, primeira empresa por
+`packages/db` `bootstrap`, backup/restauração em `scripts/deploy/`).
+
 - Imagens multi-stage non-root publicadas no GHCR.
 - **Migration é um job explícito de release**, executado uma vez antes de subir a nova versão:
   `docker run --rm --env-file prod.env ghcr.io/<org>/ordens-migrate:<sha> migrate`

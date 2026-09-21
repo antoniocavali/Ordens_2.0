@@ -45,6 +45,17 @@ export const envSchema = z
       .string()
       .default('loopback, linklocal, uniquelocal')
       .transform((v) => (/^\d+$/.test(v.trim()) ? Number(v) : v)),
+    /**
+     * Cabeçalho com o IP real quando há Cloudflare Tunnel na frente (`cf-connecting-ip`). Só ative se
+     * a API for alcançável apenas pelo túnel; use com TRUST_PROXY=1.
+     */
+    TRUSTED_IP_HEADER: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9-]+$/, 'nome de cabeçalho inválido')
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {

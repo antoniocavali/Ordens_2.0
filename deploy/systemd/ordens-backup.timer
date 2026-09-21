@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup diário do Ordens
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=10min
+# Se o servidor estava desligado no horário, roda assim que voltar.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

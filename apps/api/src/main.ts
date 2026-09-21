@@ -8,6 +8,7 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
 import { loadEnv } from './config/env.js';
 import { requestContextMiddleware } from './common/request-context.middleware.js';
+import { trustedIpHeader } from './common/trusted-ip.middleware.js';
 
 export async function createApp() {
   const env = loadEnv();
@@ -17,6 +18,7 @@ export async function createApp() {
   // Atrás do Next.js (rewrite) e/ou reverse proxy. Padrão: redes privadas; produção define os saltos (TRUST_PROXY).
   app.set('trust proxy', env.TRUST_PROXY);
   app.disable('x-powered-by');
+  app.use(trustedIpHeader(env.TRUSTED_IP_HEADER));
   app.use(requestContextMiddleware);
   app.use(helmet({ contentSecurityPolicy: env.NODE_ENV === 'production' }));
   app.use(cookieParser());

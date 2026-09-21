@@ -1,0 +1,333 @@
+# Produção em servidor único (bare metal) atrás de Cloudflare Tunnel. Nenhuma porta é publicada no
+# host: o único caminho de entrada é o contêiner `cloudflared`, que faz conexão de SAÍDA à Cloudflare.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.production build
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# Passo a passo completo (servidor, túnel, primeiro acesso, backup): docs/deploy-producao.md
+name: ordens-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+# Comum a todos os serviços de longa duração.
+x-service: &service
+  restart: unless-stopped
+  logging: *logging
+  security_opt: ['no-new-privileges:true']
+
+x-app-env: &app-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://ordens_app:${ORDENS_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-ordens}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
+  REDIS_URL: redis://redis:6379
+  S3_ENDPOINT: http://minio:9000
+  # Mesmo endereço público do sistema: o túnel encaminha /<bucket>/... para o MinIO (URLs assinadas).
+  S3_PUBLIC_ENDPOINT: https://${PUBLIC_HOST}
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  S3_SECRET_KEY: ${S3_SECRET_KEY}
+  S3_FORCE_PATH_STYLE: 'true'
+  S3_BUCKET_QUARANTINE: ${S3_BUCKET_QUARANTINE:-ordens-quarantine}
+  S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-ordens-documents}
+  UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-2147483648}
+  SCANNER: clamav
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: 3310
+  WEB_ORIGIN: https://${PUBLIC_HOST}
+  SESSION_SECRET: ${SESSION_SECRET}
+  TWO_FACTOR_ENC_KEY: ${TWO_FACTOR_ENC_KEY}
+  SESSION_IDLE_HOURS: ${SESSION_IDLE_HOURS:-12}
+  SESSION_ABSOLUTE_DAYS: ${SESSION_ABSOLUTE_DAYS:-7}
+  COOKIE_SECURE: 'true'
+  XML_ARCHIVE_LOCAL_ROOTS: ${XML_ARCHIVE_LOCAL_ROOTS:-}
+
+services:
+  postgres:
+    <<: *service
+    image: postgres:17.6-alpine
+    # Ajuste para 16 GB de RAM no servidor (4 GB para o banco). Revisar se o servidor mudar.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=100
+      - -c
+      - wal_compression=on
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_lock_waits=on
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ordens}
+      ORDENS_OWNER_PASSWORD: ${ORDENS_OWNER_PASSWORD}
+      ORDENS_APP_PASSWORD: ${ORDENS_APP_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    networks: [backend]
+
+  redis:
+    <<: *service
+    image: redis:7.4-alpine
+    # noeviction: a fila (BullMQ) não pode perder chaves; o limite protege o servidor.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '768mb', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks: [backend]
+
+  minio:
+    <<: *service
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ['server', '/data']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+      # Sem console web: o armazenamento só é usado pela API e pelas URLs assinadas.
+      MINIO_BROWSER: 'off'
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks: [backend, edge]
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: 'no'
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET_QUARANTINE: ${S3_BUCKET_QUARANTINE:-ordens-quarantine}
+      S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-ordens-documents}
+    entrypoint: ['/bin/sh', '/init/init-buckets.sh']
+    volumes:
+      - ./docker/minio:/init:ro
+    networks: [backend]
+
+  # Antivírus (obrigatório em produção: SCANNER=noop é recusado). A primeira subida baixa as assinaturas.
+  clamav:
+    <<: *service
+    image: clamav/clamav:1.4
+    volumes:
+      - clamavdb:/var/lib/clamav
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    networks: [backend]
+
+  # Job de release: migrations + catálogo de papéis/permissões (idempotente). Roda a cada `up`.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: migrate
+    image: ordens/migrate:${IMAGE_TAG:-latest}
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      MIGRATION_DATABASE_URL: postgresql://ordens_owner:${ORDENS_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB:-ordens}
+      DATABASE_URL: postgresql://ordens_app:${ORDENS_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-ordens}
+      SEED_DEMO: 'false'
+    networks: [backend]
+
+  api:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: api
+    image: ordens/api:${IMAGE_TAG:-latest}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      API_PORT: 4000
+      # Uma única camada de proxy até a API (cloudflared ou web) e IP real pelo cabeçalho da Cloudflare.
+      TRUST_PROXY: '1'
+      TRUSTED_IP_HEADER: cf-connecting-ip
+      NODE_OPTIONS: --max-old-space-size=768
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks: [backend, frontend]
+
+  worker:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: worker
+    image: ordens/worker:${IMAGE_TAG:-latest}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      WORKER_HEALTH_PORT: 4100
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-true}
+      MAIL_FROM: ${MAIL_FROM}
+      # Relatórios grandes em Excel/PDF ficam inteiros na memória.
+      NODE_OPTIONS: --max-old-space-size=3072
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    networks: [backend]
+
+  web:
+    <<: *service
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: web
+      args:
+        # Gravado no build (rewrite /api/*).
+        API_INTERNAL_URL: http://api:4000
+    image: ordens/web:${IMAGE_TAG:-latest}
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # Entra na CSP (connect-src/img-src) das páginas.
+      S3_PUBLIC_ENDPOINT: https://${PUBLIC_HOST}
+      NODE_OPTIONS: --max-old-space-size=768
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks: [frontend]
+
+  # Túnel de saída para a Cloudflare. Regras de roteamento (Zero Trust › Tunnels › Public hostnames):
+  #   1) ${PUBLIC_HOST}  caminho ^/(ordens-quarantine|ordens-documents)/  →  http://minio:9000
+  #   2) ${PUBLIC_HOST}  caminho ^/realtime/                              →  http://api:4000
+  #   3) ${PUBLIC_HOST}  (sem caminho)                                     →  http://web:3000
+  cloudflared:
+    <<: *service
+    image: cloudflare/cloudflared:2026.9.1
+    command: ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:2000', 'run']
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      web:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'cloudflared', 'tunnel', '--metrics', '127.0.0.1:2000', 'ready']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks: [frontend, edge]
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  clamavdb:
+
+networks:
+  backend:
+  frontend:
+  edge:

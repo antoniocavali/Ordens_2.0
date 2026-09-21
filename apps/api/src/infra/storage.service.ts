@@ -103,6 +103,8 @@ export class StorageService {
         Bucket: bucket,
         Key: key,
         ResponseContentDisposition: `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+        // Documentos fiscais nunca ficam em cache de CDN/proxy (ex.: Cloudflare na frente do storage).
+        ResponseCacheControl: 'private, no-store',
       }),
       { expiresIn },
     );
