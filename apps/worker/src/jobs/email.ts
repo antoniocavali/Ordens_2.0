@@ -31,7 +31,14 @@ function layout(title: string, body: string, cta: { label: string; url: string }
 }
 
 export function emailHandler(ctx: WorkerContext) {
-  const transport = nodemailer.createTransport({ host: ctx.env.SMTP_HOST, port: ctx.env.SMTP_PORT, secure: false });
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_SECURE, SMTP_REQUIRE_TLS } = ctx.env;
+  const transport = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    requireTLS: SMTP_REQUIRE_TLS,
+    ...(SMTP_USER ? { auth: { user: SMTP_USER, pass: SMTP_PASSWORD ?? '' } } : {}),
+  });
 
   return async (job: Job<OutboxJob>) => {
     if (job.data.type === 'notification.email') {

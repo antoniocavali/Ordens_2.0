@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup do Ordens (banco e documentos)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Ajuste o caminho do repositório e o destino do backup.
+WorkingDirectory=/srv/ordens
+Environment=BACKUP_DIR=/srv/backups/ordens
+Environment=BACKUP_KEEP_DAYS=30
+ExecStart=/srv/ordens/scripts/deploy/backup.sh

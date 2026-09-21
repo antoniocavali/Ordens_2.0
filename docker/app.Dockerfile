@@ -54,6 +54,9 @@ CMD ["pnpm", "dev"]
 # ─── Build de produção ───
 FROM source AS build
 ENV NODE_ENV=production
+# O Next grava o destino do rewrite /api/* no build (standalone): sem isto, o web aponta para localhost.
+ARG API_INTERNAL_URL=http://api:4000
+ENV API_INTERNAL_URL=$API_INTERNAL_URL
 RUN pnpm turbo run build --filter=@ordens/api --filter=@ordens/worker --filter=@ordens/web
 
 # ─── Runtime base (sem pnpm, usuário não-root) ───

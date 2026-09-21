@@ -23,6 +23,13 @@ describe('configuração de segurança', () => {
     expect(loadEnv({ ...base, TRUST_PROXY: '10.0.0.0/8' }).TRUST_PROXY).toBe('10.0.0.0/8');
   });
 
+  it('TRUSTED_IP_HEADER (Cloudflare Tunnel) é opcional e só aceita nome de cabeçalho', () => {
+    expect(loadEnv({ ...base }).TRUSTED_IP_HEADER).toBeUndefined();
+    expect(loadEnv({ ...base, TRUSTED_IP_HEADER: '' }).TRUSTED_IP_HEADER).toBeUndefined();
+    expect(loadEnv({ ...base, TRUSTED_IP_HEADER: 'CF-Connecting-IP' }).TRUSTED_IP_HEADER).toBe('cf-connecting-ip');
+    expect(() => loadEnv({ ...base, TRUSTED_IP_HEADER: 'x forwarded' })).toThrow(/cabeçalho/);
+  });
+
   it('produção recusa cookie inseguro e antivírus desligado', () => {
     expect(() => loadEnv({ ...base, NODE_ENV: 'production' })).toThrow(/SCANNER=noop.*|COOKIE_SECURE/s);
   });

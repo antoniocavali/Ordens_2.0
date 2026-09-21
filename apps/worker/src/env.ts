@@ -31,6 +31,13 @@ const schema = z
     WEB_ORIGIN: z.url(),
     SMTP_HOST: z.string().default('mailpit'),
     SMTP_PORT: z.coerce.number().int().default(1025),
+    /** Autenticação do servidor de e-mail (vazio = sem autenticação, como o Mailpit de desenvolvimento). */
+    SMTP_USER: z.string().optional(),
+    SMTP_PASSWORD: z.string().optional(),
+    /** true = TLS desde a conexão (porta 465). */
+    SMTP_SECURE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+    /** true = exige STARTTLS (porta 587) e recusa enviar sem criptografia. */
+    SMTP_REQUIRE_TLS: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
     MAIL_FROM: z.string().default('Ordens <nao-responda@ordens.local>'),
     WORKER_HEALTH_PORT: z.coerce.number().int().default(4100),
   })
