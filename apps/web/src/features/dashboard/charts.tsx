@@ -118,25 +118,28 @@ export function DailyChart({ points }: { points: { day: string; loadedT: string;
           <span className="size-2.5 rounded-sm bg-success/70" /> Recebido
         </span>
       </figcaption>
-      <table className="sr-only">
-        <caption>Toneladas por dia</caption>
-        <thead>
-          <tr>
-            <th>Dia</th>
-            <th>Carregado</th>
-            <th>Recebido</th>
-          </tr>
-        </thead>
-        <tbody>
-          {points.map((p) => (
-            <tr key={p.day}>
-              <td>{dayLabel(p.day)}</td>
-              <td>{p.loadedT}</td>
-              <td>{p.receivedT}</td>
+      {/* sr-only no wrapper: no <table> a <caption> escapa do recorte (Firefox) e estica a página. */}
+      <div className="sr-only">
+        <table>
+          <caption>Toneladas por dia</caption>
+          <thead>
+            <tr>
+              <th>Dia</th>
+              <th>Carregado</th>
+              <th>Recebido</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {points.map((p) => (
+              <tr key={p.day}>
+                <td>{dayLabel(p.day)}</td>
+                <td>{p.loadedT}</td>
+                <td>{p.receivedT}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }
