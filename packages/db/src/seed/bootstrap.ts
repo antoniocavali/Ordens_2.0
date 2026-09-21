@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- ferramenta de linha de comando: a saída no terminal é o resultado */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { CRITICAL_2FA_ROLES, PASSWORD_MIN_LENGTH } from '@ordens/contracts';
 import { Database } from '../client.js';

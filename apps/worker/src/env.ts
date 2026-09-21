@@ -1,6 +1,16 @@
 import { z } from 'zod';
 
-const schema = z
+/** Texto opcional: vazio (variável definida sem valor no compose) vale como ausente. */
+const optionalText = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => v || undefined);
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -39,18 +49,36 @@ const schema = z
     /** true = exige STARTTLS (porta 587) e recusa enviar sem criptografia. */
     SMTP_REQUIRE_TLS: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
     MAIL_FROM: z.string().default('Ordens <nao-responda@ordens.local>'),
+    /** smtp = servidor SMTP (Mailpit em desenvolvimento); graph = Microsoft Graph (Microsoft 365). */
+    MAIL_TRANSPORT: z.enum(['smtp', 'graph']).default('smtp'),
+    /** Aplicativo do Entra ID e caixa remetente (obrigatórios com MAIL_TRANSPORT=graph). */
+    GRAPH_TENANT_ID: optionalText(),
+    GRAPH_CLIENT_ID: optionalText(),
+    GRAPH_CLIENT_SECRET: optionalText(),
+    GRAPH_SENDER: optionalText(),
+    /** Endereços da nuvem Microsoft (mude só para nuvens soberanas ou testes). */
+    GRAPH_AUTHORITY_URL: z.url().default('https://login.microsoftonline.com'),
+    GRAPH_API_URL: z.url().default('https://graph.microsoft.com'),
     WORKER_HEALTH_PORT: z.coerce.number().int().default(4100),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.SCANNER === 'noop') {
       ctx.addIssue({ code: 'custom', path: ['SCANNER'], message: 'SCANNER=noop é proibido em produção' });
     }
+    if (env.MAIL_TRANSPORT === 'graph') {
+      for (const key of ['GRAPH_TENANT_ID', 'GRAPH_CLIENT_ID', 'GRAPH_CLIENT_SECRET', 'GRAPH_SENDER'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: `obrigatório com MAIL_TRANSPORT=graph` });
+      }
+      if (env.GRAPH_TENANT_ID && !GUID.test(env.GRAPH_TENANT_ID)) ctx.addIssue({ code: 'custom', path: ['GRAPH_TENANT_ID'], message: 'deve ser o ID do diretório (GUID)' });
+      if (env.GRAPH_CLIENT_ID && !GUID.test(env.GRAPH_CLIENT_ID)) ctx.addIssue({ code: 'custom', path: ['GRAPH_CLIENT_ID'], message: 'deve ser o ID do aplicativo (GUID)' });
+      if (env.GRAPH_SENDER && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.GRAPH_SENDER)) ctx.addIssue({ code: 'custom', path: ['GRAPH_SENDER'], message: 'deve ser um endereço de e-mail' });
+    }
   });
 
 export type WorkerEnv = z.infer<typeof schema>;
 
-export function loadEnv(): WorkerEnv {
-  const parsed = schema.safeParse(process.env);
+export function loadEnv(source: NodeJS.ProcessEnv = process.env): WorkerEnv {
+  const parsed = schema.safeParse(source);
   if (!parsed.success) {
     throw new Error(`Configuração inválida do worker:\n${parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n')}`);
   }

@@ -11,7 +11,7 @@ Navegador ──HTTPS──► Cloudflare (TLS, WAF) ◄──saída── cloud
                                                                     ├─► api   :4000  (/realtime/* — SSE)
                                                                     └─► minio :9000  (/ordens-*/… URLs assinadas)
 
-web ─► api ─► postgres · redis · minio · clamav        worker ─► postgres · redis · minio · clamav · SMTP · pasta de rede (SMB)
+web ─► api ─► postgres · redis · minio · clamav        worker ─► postgres · redis · minio · clamav · Microsoft Graph (e-mail) · pasta de rede (SMB)
 ```
 
 - **Nenhuma porta é publicada no host.** O servidor só faz conexões de saída. O firewall pode bloquear
@@ -85,12 +85,56 @@ sudo mkdir -p /srv/ordens && sudo chown "$USER" /srv/ordens
 git clone https://github.com/antoniocavali/Ordens_2.0.git /srv/ordens && cd /srv/ordens
 
 PUBLIC_HOST=ordens.cooperfarms.digital ./scripts/deploy/gen-env.sh   # cria .env.production (0600)
-nano .env.production    # preencha CLOUDFLARE_TUNNEL_TOKEN e SMTP_* / MAIL_FROM
+nano .env.production    # preencha CLOUDFLARE_TUNNEL_TOKEN e GRAPH_* (seção 3.1)
 ```
 
 > **Guarde uma cópia do `.env.production` fora do servidor** (cofre de senhas). Sem a
 > `TWO_FACTOR_ENC_KEY`, um restore do banco não recupera os segredos de 2FA cadastrados nem a senha da
 > pasta de rede; sem a `SESSION_SECRET`, todas as sessões precisam ser reabertas.
+
+### 3.1 E-mail pelo Microsoft 365 (Graph)
+
+O sistema envia convites, redefinição de senha e avisos **pela API Microsoft Graph**, com um aplicativo
+registrado no Entra ID (sem senha de usuário e sem SMTP). O acesso do aplicativo é **limitado a uma única
+caixa** pelo *RBAC para Aplicativos* do Exchange Online (que substitui as políticas de acesso legadas). Quem
+faz: a TI do Microsoft 365, com as funções *Exchange Administrator* e *Organization Management*.
+
+1. **Caixa remetente**: crie (ou escolha) a caixa, por exemplo `nao-responda@cooperfarms.digital`. Uma caixa
+   compartilhada costuma bastar; confirme com a TI. Ela vai em `GRAPH_SENDER`.
+2. **Registrar o aplicativo** (Entra admin center › Applications › App registrations › New registration): nome
+   `Ordens - envio de e-mail`, "somente este diretório". Anote:
+   - *Application (client) ID* → `GRAPH_CLIENT_ID`
+   - *Directory (tenant) ID* → `GRAPH_TENANT_ID`
+3. **Segredo**: *Certificates & secrets › New client secret* (validade de até 24 meses). Copie o **Value**
+   na hora (não aparece de novo) → `GRAPH_CLIENT_SECRET`. **Anote a data de vencimento e renove antes**: quando
+   vence, o envio de e-mails para (o worker registra o erro e a fila tenta de novo).
+4. **NÃO conceda permissões de API no Entra** (nem `Mail.Send`): elas valem para todas as caixas da empresa.
+   O acesso será dado só no Exchange, no passo seguinte.
+5. **Object ID do aplicativo empresarial**: em *Enterprise applications*, abra `Ordens - envio de e-mail` e copie
+   o *Object ID*. Atenção: **não** é o Object ID da página *App registrations* (são valores diferentes).
+6. **Exchange Online PowerShell** (`Connect-ExchangeOnline`), trocando os valores:
+
+   ```powershell
+   New-ServicePrincipal -AppId <client-id> -ObjectId <object-id-do-aplicativo-empresarial> -DisplayName "Ordens - envio de e-mail"
+   New-ManagementScope -Name "Ordens-remetente" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'nao-responda@cooperfarms.digital'"
+   New-ManagementRoleAssignment -App <object-id-do-aplicativo-empresarial> -Role "Application Mail.Send" -CustomResourceScope "Ordens-remetente"
+   Test-ServicePrincipalAuthorization -Identity <object-id-do-aplicativo-empresarial> -Resource nao-responda@cooperfarms.digital
+   ```
+
+   O último comando deve mostrar `InScope = True`. As mudanças levam de **30 min a 2 h** para valer no envio real.
+7. Preencha `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` e `GRAPH_SENDER` no `.env.production`
+   e **teste o envio** (depois da propagação):
+
+   ```bash
+   dc run --rm worker node apps/worker/dist/tools/send-test-mail.js seu-email@cooperfarms.digital
+   ```
+
+   Falha 403 = permissão ainda não propagada ou escopo errado (a mensagem indica o que conferir); "recusou o
+   token" = ID ou segredo errado/vencido.
+
+Limites do Exchange Online: cerca de 30 mensagens por minuto por caixa; acima disso a Graph responde 429 e a fila
+repete com espera crescente. Se a empresa preferir SMTP, use `MAIL_TRANSPORT=smtp` e as variáveis `SMTP_*`
+(o Microsoft 365 desliga o SMTP com senha por padrão no fim de dezembro de 2026).
 
 Atalho para os comandos abaixo:
 
@@ -129,7 +173,7 @@ Parâmetros — inclusive a pasta de rede do XML).
 - *Preferências › Histórico de acesso*: o **IP registrado é o seu** (não o interno do Docker).
 - Login com passkey (cadastrar em *Preferências*).
 - *Parâmetros*: testar a conexão com a pasta de rede (o servidor precisa alcançar a porta 445 do servidor de arquivos).
-- E-mail: pedir "Esqueci minha senha" e conferir a chegada.
+- E-mail: `send-test-mail.js` (seção 3.1) e, depois, pedir "Esqueci minha senha" e conferir a chegada.
 
 ## 4. Atualizar e voltar atrás
 
@@ -178,6 +222,9 @@ sudo systemctl start ordens-backup.service && journalctl -u ordens-backup.servic
   `TWO_FACTOR_ENC_KEY` **não pode ser trocada** sem antes reprocessar os segredos de 2FA e a senha da
   pasta de rede (peça o procedimento antes de mexer). Senhas do banco/MinIO: trocar no `.env.production`
   **e** no serviço (`ALTER ROLE` / `mc admin`).
+- **Segredo do aplicativo de e-mail (Graph)**: vence em até 24 meses. Crie um novo segredo no Entra **antes** do
+  vencimento, atualize `GRAPH_CLIENT_SECRET`, rode `dc up -d worker` e confirme com `send-test-mail.js`; só então
+  apague o antigo. Ponha o vencimento na agenda da TI.
 - **Atualizações do sistema operacional**: `unattended-upgrades` cuida das de segurança; reinicie o
   servidor em janela combinada quando o kernel mudar (os contêineres sobem sozinhos: `restart: unless-stopped`).
 

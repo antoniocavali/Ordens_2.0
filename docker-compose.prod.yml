@@ -242,13 +242,19 @@ services:
     environment:
       <<: *app-env
       WORKER_HEALTH_PORT: 4100
-      SMTP_HOST: ${SMTP_HOST}
+      # E-mail: Microsoft 365 pela Graph (padrão) ou SMTP. Ver docs/deploy-producao.md.
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-graph}
+      GRAPH_TENANT_ID: ${GRAPH_TENANT_ID:-}
+      GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID:-}
+      GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
+      GRAPH_SENDER: ${GRAPH_SENDER:-}
+      SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-true}
-      MAIL_FROM: ${MAIL_FROM}
+      MAIL_FROM: ${MAIL_FROM:-Ordens <nao-responda@ordens.local>}
       # Relatórios grandes em Excel/PDF ficam inteiros na memória.
       NODE_OPTIONS: --max-old-space-size=3072
     healthcheck:
