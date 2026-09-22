@@ -44,15 +44,24 @@ S3_SECRET_KEY=$(hex 24)
 SESSION_SECRET=$(key32)
 TWO_FACTOR_ENC_KEY=$(key32)
 
-# E-mail (avisos e redefinição de senha). Porta 587 com STARTTLS (SMTP_REQUIRE_TLS=true) ou
-# 465 com TLS direto (SMTP_SECURE=true, SMTP_REQUIRE_TLS=false).
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASSWORD=
-SMTP_SECURE=false
-SMTP_REQUIRE_TLS=true
-MAIL_FROM=Ordens Cooperfarms <nao-responda@cooperfarms.digital>
+# E-mail (avisos, convites e redefinição de senha) pelo Microsoft 365 via Graph. A TI registra um
+# aplicativo no Entra ID e o limita a UMA caixa no Exchange Online (roteiro: docs/deploy-producao.md).
+MAIL_TRANSPORT=graph
+GRAPH_TENANT_ID=
+GRAPH_CLIENT_ID=
+GRAPH_CLIENT_SECRET=
+GRAPH_SENDER=nao-responda@cooperfarms.digital
+
+# Alternativa por SMTP (MAIL_TRANSPORT=smtp): 587 com STARTTLS (SMTP_REQUIRE_TLS=true) ou 465 com TLS
+# direto (SMTP_SECURE=true, SMTP_REQUIRE_TLS=false). O Microsoft 365 desliga o SMTP com senha por padrão
+# no fim de dezembro de 2026.
+# SMTP_HOST=
+# SMTP_PORT=587
+# SMTP_USER=
+# SMTP_PASSWORD=
+# SMTP_SECURE=false
+# SMTP_REQUIRE_TLS=true
+# MAIL_FROM=Ordens Cooperfarms <nao-responda@cooperfarms.digital>
 
 # Opcionais
 LOG_LEVEL=info

@@ -1,7 +1,7 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 import type { Job } from 'bullmq';
-import nodemailer from 'nodemailer';
 import type { WorkerContext } from '../context.js';
+import { createMailer } from '../mail/mailer.js';
 import type { OutboxJob } from '../queues.js';
 import type { NotificationEmailPayload } from './notifications.js';
 
@@ -31,20 +31,13 @@ function layout(title: string, body: string, cta: { label: string; url: string }
 }
 
 export function emailHandler(ctx: WorkerContext) {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_SECURE, SMTP_REQUIRE_TLS } = ctx.env;
-  const transport = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_SECURE,
-    requireTLS: SMTP_REQUIRE_TLS,
-    ...(SMTP_USER ? { auth: { user: SMTP_USER, pass: SMTP_PASSWORD ?? '' } } : {}),
-  });
+  const mailer = createMailer(ctx.env);
+  ctx.logger.info({ transport: mailer.kind }, 'Envio de e-mail configurado');
 
   return async (job: Job<OutboxJob>) => {
     if (job.data.type === 'notification.email') {
       const n = job.data.payload as unknown as NotificationEmailPayload;
-      await transport.sendMail({
-        from: ctx.env.MAIL_FROM,
+      await mailer.send({
         to: n.email,
         subject: n.title,
         text: [`Olá, ${n.name}.`, n.title, n.body, n.url ? `Abrir: ${n.url}` : null].filter(Boolean).join('\n\n'),
@@ -65,8 +58,7 @@ export function emailHandler(ctx: WorkerContext) {
 
     if (job.data.type === 'auth.password_reset_requested') {
       const url = `${ctx.env.WEB_ORIGIN}/redefinir-senha?token=${encodeURIComponent(token)}`;
-      await transport.sendMail({
-        from: ctx.env.MAIL_FROM,
+      await mailer.send({
         to: p.email,
         subject: 'Redefinição de senha — Ordens',
         text: `Olá, ${p.name}. Para redefinir sua senha acesse: ${url} (válido por 30 minutos).`,
@@ -77,8 +69,7 @@ export function emailHandler(ctx: WorkerContext) {
       });
     } else if (job.data.type === 'user.invited') {
       const url = `${ctx.env.WEB_ORIGIN}/redefinir-senha?token=${encodeURIComponent(token)}&convite=1`;
-      await transport.sendMail({
-        from: ctx.env.MAIL_FROM,
+      await mailer.send({
         to: p.email,
         subject: `Convite para ${p.organization ?? 'Ordens'}`,
         text: `Olá, ${p.name}. Você foi convidado para ${p.organization}. Defina sua senha: ${url} (válido por 72 horas).`,
