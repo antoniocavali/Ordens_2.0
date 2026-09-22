@@ -38,7 +38,7 @@ A ordem evita o problema da aplicação anterior, em que praticamente tudo era u
 | `two-factor` | 1 | TOTP, QR, recovery codes, política; passkeys (WebAuthn) para login sem senha | two_factor_credentials, recovery_codes, webauthn_credentials |
 | `uploads` | 1 | presigned/multipart, finalização, download | file_uploads |
 | `tenants` | 2 | superadmin: tenants, política de segurança | tenants |
-| `organizations` | 2 | Matriz, Fazenda-org, Comprador-org | organizations |
+| `organizations` | 2 | Grupos de acesso: criar/renomear/desativar por parceiro (Matriz, Fazenda/Vendedor, Comprador, Transportadora) | organizations |
 | `users` | 2 | convite, memberships, papéis | users, memberships, membership_roles |
 | `rbac` | 2 | catálogo de papéis/permissões | roles, permissions, role_permissions |
 | `audit` | 2 | consulta de auditoria | audit_events |

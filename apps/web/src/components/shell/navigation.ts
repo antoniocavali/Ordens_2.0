@@ -109,6 +109,7 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Auditoria', href: '/gestao/auditoria', icon: History, permission: 'audit.read' },
       { label: 'Usuários', href: '/gestao/usuarios', icon: Users, permission: 'user.read' },
       { label: 'Papéis e permissões', href: '/gestao/papeis', icon: KeyRound, permission: 'role.manage' },
+      { label: 'Grupos de acesso', href: '/gestao/organizacoes', icon: Building2, permission: 'organization.manage' },
     ],
   },
   {

@@ -4,6 +4,16 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   auditQuerySchema,
+  createOrganizationSchema,
+  ErrorCode,
+  ORG_KIND_LABELS,
+  ORG_KIND_PARTNER_ROLES,
+  PARTNER_ROLE_LABELS,
+  updateOrganizationSchema,
+  type CreateOrganizationInput,
+  type OrganizationListItem,
+  type Scope,
+  type UpdateOrganizationInput,
   CRITICAL_2FA_ROLES,
   createUserSchema,
   emailNotificationPrefsSchema,
@@ -105,6 +115,81 @@ export class OrganizationsController {
     return this.db.read((tx) =>
       tx.organization.findMany({ select: { id: true, name: true, kind: true, status: true, partnerId: true }, orderBy: [{ kind: 'asc' }, { name: 'asc' }] }),
     );
+  }
+
+  /** Grupos de acesso com o parceiro vinculado e quantos acessos ativos cada um tem. */
+  @Get('groups')
+  @RequirePermission('organization.manage')
+  async groups(): Promise<OrganizationListItem[]> {
+    return this.db.read(async (tx) => {
+      const orgs = await tx.organization.findMany({
+        select: { id: true, name: true, kind: true, status: true, createdAt: true, partner: { select: { id: true, legalName: true, tradeName: true, document: true } } },
+        orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+      });
+      const counts = await tx.membership.groupBy({
+        by: ['organizationId'],
+        where: { status: 'ACTIVE', user: { status: 'ACTIVE' } },
+        _count: { _all: true },
+      });
+      const byOrg = new Map(counts.map((c) => [c.organizationId, c._count._all]));
+      return orgs.map((o) => ({
+        id: o.id,
+        kind: o.kind,
+        name: o.name,
+        status: o.status,
+        partner: o.partner ? { id: o.partner.id, name: o.partner.tradeName ?? o.partner.legalName, document: o.partner.document } : null,
+        usersCount: byOrg.get(o.id) ?? 0,
+        scope: o.kind as Scope,
+        createdAt: o.createdAt.toISOString(),
+      }));
+    });
+  }
+
+  /**
+   * Cria um grupo de acesso para um parceiro. O tipo precisa combinar com os papéis comerciais dele
+   * (um Comprador vira grupo BUYER, um Vendedor/Produtor vira FARM), porque é esse vínculo que liga
+   * as ordens ao grupo — e, daí, o isolamento por RLS.
+   */
+  @Post()
+  @RequirePermission('organization.manage')
+  create(@Body(new ZodPipe(createOrganizationSchema)) body: CreateOrganizationInput) {
+    return this.db.write(async (scope) => {
+      const partner = await scope.tx.businessPartner.findUnique({
+        where: { id: body.partnerId },
+        select: { id: true, legalName: true, tradeName: true, status: true, archivedAt: true, roles: { select: { role: true } } },
+      });
+      if (!partner || partner.archivedAt) throw AppError.notFound('Parceiro não encontrado.');
+      if (partner.status !== 'ACTIVE') throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'O parceiro está inativo.');
+
+      const roles = partner.roles.map((r) => r.role);
+      if (!ORG_KIND_PARTNER_ROLES[body.kind].some((role) => roles.includes(role))) {
+        const aceitos = ORG_KIND_PARTNER_ROLES[body.kind].map((r) => PARTNER_ROLE_LABELS[r]).join(', ');
+        throw AppError.domain(ErrorCode.VALIDATION_FAILED, `Para um grupo ${ORG_KIND_LABELS[body.kind]}, o parceiro precisa ter um destes papéis: ${aceitos}.`);
+      }
+      if (await scope.tx.organization.findFirst({ where: { partnerId: partner.id, kind: body.kind }, select: { id: true } })) {
+        throw AppError.conflict(`Este parceiro já tem um grupo ${ORG_KIND_LABELS[body.kind]}.`);
+      }
+
+      const name = body.name ?? partner.tradeName ?? partner.legalName;
+      const org = await scope.tx.organization.create({ data: { tenantId: currentAuth().membership!.tenantId, kind: body.kind, name, partnerId: partner.id } });
+      await scope.audit({ entityType: 'organization', entityId: org.id, action: 'organization.created', after: { kind: org.kind, name: org.name, partnerId: partner.id } });
+      return { id: org.id, kind: org.kind, name: org.name, status: org.status };
+    });
+  }
+
+  /** Renomeia ou ativa/desativa o grupo. Desativar tira o acesso de todo mundo que está nele. */
+  @Patch(':id')
+  @RequirePermission('organization.manage')
+  @HttpCode(204)
+  update(@Param('id', uuid) id: string, @Body(new ZodPipe(updateOrganizationSchema)) body: UpdateOrganizationInput) {
+    return this.db.write(async (scope) => {
+      const before = await scope.tx.organization.findUnique({ where: { id }, select: { id: true, name: true, kind: true, status: true } });
+      if (!before) throw AppError.notFound('Grupo não encontrado.');
+      if (before.kind === 'MATRIZ') throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'O grupo da Matriz não pode ser alterado por aqui.');
+
+      const after = await scope.tx.organization.update({ where: { id }, data: { name: body.name, status: body.status }, select: { name: true, status: true } });
+      await scope.audit({ entityType: 'organization', entityId: id, action: 'organization.updated', before: { name: before.name, status: before.status }, after });
+    });
   }
 }
 

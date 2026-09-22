@@ -15,6 +15,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'order.load_documents_validated': 'Documentação fiscal da carga validada',
   'load.documents_validated': 'Documentação fiscal validada',
   'load.matriz_invoice_validated': 'Nota da Matriz validada',
+  'organization.created': 'Grupo de acesso criado',
+  'organization.updated': 'Grupo de acesso alterado',
   'tenant.xml_archive_updated': 'Pasta de rede do XML alterada',
   'tenant.xml_archive_tested': 'Teste da pasta de rede pedido',
   'tenant.xml_archive_test_result': 'Resultado do teste da pasta de rede',
