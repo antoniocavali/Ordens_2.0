@@ -793,3 +793,47 @@ describe('pasta de rede do XML (credencial da empresa)', () => {
     await expect(db.run(matriz(A), (tx) => tx.$executeRaw`delete from xml_archive_settings where tenant_id = ${A.tenantId}::uuid`)).rejects.toThrow(/permission denied/);
   });
 });
+
+describe('grupos de acesso (organizações)', () => {
+  it('só a Matriz cria e altera grupos; quem é de fora não enxerga os outros', async () => {
+    const novoParceiro = await db.run(matriz(A), (tx) =>
+      tx.businessPartner.create({ data: { tenantId: A.tenantId, personType: 'PJ', legalName: `Comprador Novo ${randomUUID().slice(0, 6)}`, document: randomUUID().replace(/\D/g, '').slice(0, 14).padEnd(14, '0') } }),
+    );
+
+    // Matriz cria o grupo do parceiro.
+    const grupo = await db.run(matriz(A), (tx) =>
+      tx.organization.create({ data: { tenantId: A.tenantId, kind: 'BUYER', name: 'Comprador Novo', partnerId: novoParceiro.id } }),
+    );
+    expect(grupo.id).toBeTruthy();
+
+    // Comprador e Fazenda não criam nem alteram grupos.
+    await expect(
+      db.run(buyer(A, 0), (tx) => tx.organization.create({ data: { tenantId: A.tenantId, kind: 'BUYER', name: 'Grupo pirata', partnerId: novoParceiro.id } })),
+    ).rejects.toThrow(/row-level security/);
+    expect((await db.run(farm(A, 0), (tx) => tx.organization.updateMany({ where: { id: grupo.id }, data: { name: 'Renomeado' } }))).count).toBe(0);
+
+    // Um grupo não enxerga os outros grupos externos (só o próprio e o da Matriz, para o seletor de contexto).
+    const vistosPeloComprador = await db.run(buyer(A, 0), (tx) => tx.organization.findMany({ select: { id: true, kind: true } }));
+    expect(vistosPeloComprador.some((o) => o.id === grupo.id)).toBe(false);
+    expect(vistosPeloComprador.some((o) => o.id === A.buyerOrgs[1])).toBe(false);
+    expect(vistosPeloComprador.some((o) => o.id === A.buyerOrgs[0])).toBe(true);
+
+    // Nem enxerga grupos de outro tenant.
+    expect(await db.run(matriz(B), (tx) => tx.organization.count({ where: { id: grupo.id } }))).toBe(0);
+
+    // A membership precisa combinar com o tipo do grupo (gatilho memberships_check).
+    const pessoa = await db.system((tx) => tx.user.create({ data: { email: `rls-org-${randomUUID()}@teste.local`, name: 'Pessoa do grupo' } }));
+    await expect(
+      db.run(systemContext(A.tenantId), (tx) => tx.membership.create({ data: { tenantId: A.tenantId, userId: pessoa.id, organizationId: grupo.id, scope: 'FARM' } })),
+    ).rejects.toThrow(/Escopo da membership incompatível/);
+    const acesso = await db.run(systemContext(A.tenantId), (tx) =>
+      tx.membership.create({ data: { tenantId: A.tenantId, userId: pessoa.id, organizationId: grupo.id, scope: 'BUYER' } }),
+    );
+    expect(acesso.id).toBeTruthy();
+
+    // Quem entra por esse grupo não vê as ordens dos outros compradores.
+    const doGrupoNovo: DbContext = { tenantId: A.tenantId, userId: pessoa.id, membershipId: acesso.id, scope: 'BUYER', orgIds: [grupo.id] };
+    expect(await db.run(doGrupoNovo, (tx) => tx.loadingOrder.count())).toBe(0);
+    expect(await db.run(buyer(A, 0), (tx) => tx.loadingOrder.count({ where: { id: A.published[0] } }))).toBe(1);
+  });
+});
