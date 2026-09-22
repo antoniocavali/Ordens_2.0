@@ -35,9 +35,12 @@ export function InviteDrawer({ open, onClose, mode = 'invite' }: { open: boolean
   const ownOrgId = me?.activeMembership?.scope === 'MATRIZ' ? null : me?.activeMembership?.organization.id;
   const activeOrgs = (orgs.data ?? []).filter((o) => o.status === 'ACTIVE' && (!ownOrgId || o.id === ownOrgId));
   const org = activeOrgs.find((o) => o.id === organizationId);
-  // Na criação direta, só papéis cujas permissões quem cria já tem (sem escalar privilégios).
+  // Na criação direta, só papéis cujas permissões quem cria já tem (sem escalar privilégios) — a regra
+  // vale dentro do próprio escopo: administrar grupos externos é função da Matriz, e os papéis deles
+  // têm permissões que a Matriz não tem (painel do comprador, solicitar ordens...).
   const myPermissions = new Set(me?.permissions ?? []);
-  const assignable = creating ? (roles.data ?? []).filter((r) => [...permissionsOf([r], [r.id])].every((p) => myPermissions.has(p))) : (roles.data ?? []);
+  const sameScope = Boolean(org) && org!.kind === me?.activeMembership?.scope;
+  const assignable = creating && sameScope ? (roles.data ?? []).filter((r) => [...permissionsOf([r], [r.id])].every((p) => myPermissions.has(p))) : (roles.data ?? []);
 
   useEffect(() => {
     if (!open) return;

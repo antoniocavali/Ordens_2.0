@@ -166,10 +166,16 @@ export class UsersService {
       const customPerms = input.customRoleIds.length
         ? await tx.tenantRolePermission.findMany({ where: { roleId: { in: input.customRoleIds } }, select: { permissionCode: true } })
         : [];
-      const granted = effectivePermissions(input.roles, customPerms.map((p) => p.permissionCode));
-      const beyond = [...granted].filter((p) => !auth.permissions.has(p));
-      if (beyond.length) {
-        throw AppError.forbidden('Você não pode atribuir papéis com permissões que você não tem.');
+      // Escalada de privilégio só existe dentro do próprio escopo: administrar grupos externos
+      // (Comprador, Fazenda, Transportadora) é função da Matriz, e esses papéis têm permissões que
+      // a Matriz não tem nem deveria ter (painel do comprador, solicitar ordens...). Fora do escopo,
+      // o que limita é o RLS do grupo, não as permissões de quem cria.
+      if (org.kind === auth.membership!.scope) {
+        const granted = effectivePermissions(input.roles, customPerms.map((p) => p.permissionCode));
+        const beyond = [...granted].filter((p) => !auth.permissions.has(p));
+        if (beyond.length) {
+          throw AppError.forbidden('Você não pode atribuir papéis com permissões que você não tem.');
+        }
       }
 
       const userId = randomUUID();
