@@ -30,7 +30,22 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     });
   };
 
-  if (!me.data || me.data.stage !== 'ACTIVE') {
+  if (!me.data) {
+    return (
+      <div className="grid min-h-dvh place-items-center">
+        <div className="flex flex-col items-center gap-4">
+          <Logo className="size-10 animate-pulse" />
+          <p className="text-sm text-muted">Carregando sua central…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (me.data.stage !== 'ACTIVE') {
+    // A 2FA obrigatória (Q48) é resolvida na própria Preferências, e é para lá que useSessionGuard
+    // redireciona quem está pendente: essa rota precisa renderizar mesmo fora do estágio ACTIVE,
+    // senão ninguém sai do estágio pendente. Sem a barra lateral: a conta ainda não está liberada.
+    if (pathname === '/conta/seguranca') return <>{children}</>;
     return (
       <div className="grid min-h-dvh place-items-center">
         <div className="flex flex-col items-center gap-4">
