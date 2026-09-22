@@ -27,6 +27,15 @@ Os limites de memória do Compose assumem esse porte: PostgreSQL 4 GB, worker 4 
 ficam inteiros na memória), ClamAV 3 GB, e ≈ 4 GB para API, web, Redis, MinIO e túnel. Abaixo de
 16 GB, reduza os limites e desconfie do ClamAV e do worker primeiro.
 
+**Se o servidor for uma VM** (Proxmox ou outro hypervisor): confira o **tipo de processador** antes de
+subir os contêineres. O padrão de muitos hypervisors (`qemu64` no Proxmox, por exemplo) esconde os
+recursos modernos do processador físico; o MinIO exige esses recursos e derruba a imagem padrão com
+`Fatal glibc error: CPU does not support x86-64-v2` (por isso o compose já usa a variante `-cpuv1`,
+mais lenta mas compatível com qualquer CPU). O ideal é mudar o tipo de processador da VM para `host`
+(Proxmox: desligar a VM → *Hardware* › *Processors* › *Type* → `host` → ligar de novo) — além de evitar
+esse tipo de surpresa em outras imagens no futuro, acelera o hash de senha (Argon2id), TLS e o
+antivírus. Confirme dentro da VM com `lscpu | grep -i "sse4_2\|popcnt"` (encontrado = ok).
+
 ```bash
 # Atualizações, relógio e ferramentas
 sudo apt update && sudo apt -y full-upgrade

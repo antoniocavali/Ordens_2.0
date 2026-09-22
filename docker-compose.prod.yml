@@ -116,7 +116,11 @@ services:
 
   minio:
     <<: *service
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # -cpuv1: builds recentes do MinIO exigem instruções x86-64-v2 (SSE4.2 etc.) e derrubam a imagem
+    # padrão com "Fatal glibc error" em CPUs virtuais com o tipo genérico do QEMU (ex.: "qemu64" no
+    # Proxmox). Se o hypervisor expuser o processador real (tipo "host" ou um baseline v2/v3), pode
+    # voltar para a tag sem o sufixo.
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z-cpuv1
     command: ['server', '/data']
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
