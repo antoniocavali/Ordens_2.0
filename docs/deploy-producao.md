@@ -41,9 +41,23 @@ sudo ufw enable
 # Redis pede overcommit de memória
 echo 'vm.overcommit_memory=1' | sudo tee /etc/sysctl.d/90-ordens.conf && sudo sysctl --system
 
-# Docker Engine + Compose v2 pelo repositório OFICIAL (não use o pacote docker.io da distribuição)
-# https://docs.docker.com/engine/install/ubuntu/
-sudo usermod -aG docker "$USER"   # sair e entrar de novo
+# Docker Engine + Compose v2 pelo repositório OFICIAL (não use o pacote docker.io da distribuição,
+# que atrasa correções de segurança). https://docs.docker.com/engine/install/ubuntu/
+sudo apt -y remove docker.io docker-compose docker-compose-v2 docker-doc podman-docker 2>/dev/null || true
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+ARCH="$(dpkg --print-architecture)"
+sudo tee /etc/apt/sources.list.d/docker.list > /dev/null <<EOF
+deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $CODENAME stable
+EOF
+sudo apt update
+sudo apt -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+sudo usermod -aG docker "$USER"   # sair e entrar de novo (ou `newgrp docker` na mesma sessão)
+docker compose version            # confirma o plugin instalado
+sudo docker run --rm hello-world  # confirma que o Engine está funcionando
 ```
 
 - SSH só por chave (`PasswordAuthentication no`), sem login de root.
