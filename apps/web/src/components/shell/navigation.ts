@@ -28,6 +28,7 @@ import {
   UserRound,
   Users,
   UsersRound,
+  Warehouse,
   Wheat,
   type LucideIcon,
 } from 'lucide-react';
@@ -88,7 +89,8 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Transportadoras', href: '/cadastros/transportadoras', icon: Boxes, permission: 'carrier.read' },
       { label: 'Motoristas', href: '/cadastros/motoristas', icon: Users, permission: 'carrier.read' },
       { label: 'Veículos', href: '/cadastros/veiculos', icon: Package, permission: 'carrier.read' },
-      { label: 'Locais', href: '/cadastros/locais', icon: MapPin, permission: 'partner.read', scopes: ['MATRIZ'] },
+      { label: 'Locais', href: '/cadastros/locais', icon: MapPin, permission: 'partner.read' },
+      { label: 'Locais de carregamento', href: '/cadastros/locais-carregamento', icon: Warehouse, permission: 'partner.read' },
     ],
   },
   {

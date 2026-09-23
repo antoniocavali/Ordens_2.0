@@ -1,6 +1,16 @@
 'use client';
 
-import { LOCATION_KIND_LABELS, LOCATION_KINDS, locationInputSchema, UF, type LocationDetail, type LocationListItem } from '@ordens/contracts';
+import {
+  LOCATION_KIND_LABELS,
+  LOCATION_KINDS,
+  LOCATION_USAGE_LABELS,
+  LOCATION_USAGES,
+  locationInputSchema,
+  UF,
+  type LocationDetail,
+  type LocationListItem,
+  type LocationUsage,
+} from '@ordens/contracts';
 import { AsyncCombobox, Button, Drawer, Field, Input, Select, Skeleton, Textarea, Tooltip, type ComboOption } from '@ordens/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Archive, ArchiveRestore, Check, MapPin, MapPinOff, Warehouse } from 'lucide-react';
@@ -17,9 +27,10 @@ import { RegistryList, StatusPill } from './registry-list';
 
 type Values = Omit<z.input<typeof locationInputSchema>, 'partnerId'> & { partner: ComboOption | null };
 
-const empty = (): Values => ({
+const empty = (usage: LocationUsage = 'DELIVERY'): Values => ({
   partner: null,
   kind: 'WAREHOUSE',
+  usage,
   name: '',
   code: '',
   zipCode: '',
@@ -39,6 +50,7 @@ const empty = (): Values => ({
 const fromDetail = (l: LocationDetail): Values => ({
   partner: l.partner ? { id: l.partner.id, label: l.partner.name } : null,
   kind: l.kind,
+  usage: l.usage,
   name: l.name,
   code: l.code ?? '',
   zipCode: l.zipCode ?? '',
@@ -55,19 +67,19 @@ const fromDetail = (l: LocationDetail): Values => ({
   status: l.status,
 });
 
-function LocationDrawer({ id, open, onClose }: { id: string | null; open: boolean; onClose: () => void }) {
+function LocationDrawer({ id, open, onClose, defaultUsage = 'DELIVERY' }: { id: string | null; open: boolean; onClose: () => void; defaultUsage?: LocationUsage }) {
   const can = useCan();
   const { data: me } = useMe();
   const readOnly = !can('partner.manage') || me?.activeMembership?.scope !== 'MATRIZ';
   const invalidate = useInvalidateRegistry();
   const detail = useQuery({ queryKey: ['registry', 'location', id], queryFn: () => get<LocationDetail>(`/locations/${id}`), enabled: Boolean(id && open) });
-  const form = useForm<Values>({ defaultValues: empty() });
+  const form = useForm<Values>({ defaultValues: empty(defaultUsage) });
   const l = detail.data;
   const errors = form.formState.errors;
 
   useEffect(() => {
     if (!open) return;
-    form.reset(id && l ? fromDetail(l) : empty());
+    form.reset(id && l ? fromDetail(l) : empty(defaultUsage));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, id, l?.updatedAt]);
 
@@ -108,8 +120,14 @@ function LocationDrawer({ id, open, onClose }: { id: string | null; open: boolea
     <Drawer
       open={open}
       onRequestClose={onClose}
-      title={id ? (l?.name ?? 'Carregando…') : 'Novo local'}
-      subtitle={l ? `${LOCATION_KIND_LABELS[l.kind]}${l.city ? ` · ${l.city}/${l.state}` : ''}` : 'Armazém, porto, indústria ou transbordo usado como destino das ordens.'}
+      title={id ? (l?.name ?? 'Carregando…') : defaultUsage === 'LOADING' ? 'Novo local de carregamento' : 'Novo local'}
+      subtitle={
+        l
+          ? `${LOCATION_USAGE_LABELS[l.usage]} · ${LOCATION_KIND_LABELS[l.kind]}${l.city ? ` · ${l.city}/${l.state}` : ''}`
+          : defaultUsage === 'LOADING'
+            ? 'Armazém, silo ou transbordo de onde o caminhão carrega, quando a origem não é uma fazenda.'
+            : 'Armazém, porto, indústria ou transbordo usado como destino das ordens.'
+      }
       footer={
         <div className="flex items-center gap-2">
           {l && !readOnly ? (
@@ -140,8 +158,8 @@ function LocationDrawer({ id, open, onClose }: { id: string | null; open: boolea
           <fieldset disabled={readOnly} className="contents">
             {l ? (
               <div className="grid grid-cols-2 gap-2 px-5 pt-5 sm:px-7">
-                <Stat label="Ordens com este destino" value={l.ordersCount} />
-                <Stat label="Comprador" value={l.partner?.name ?? 'Uso geral'} />
+                <Stat label={l.usage === 'LOADING' ? 'Finalidade' : 'Ordens com este destino'} value={l.usage === 'LOADING' ? LOCATION_USAGE_LABELS[l.usage] : l.ordersCount} />
+                <Stat label="Parceiro" value={l.partner?.name ?? 'Uso geral'} />
               </div>
             ) : null}
             <FormSection title="Identificação">
@@ -151,19 +169,34 @@ function LocationDrawer({ id, open, onClose }: { id: string | null; open: boolea
               <Field label="Código" className={span[2]} error={errors.code?.message}>
                 {(a) => <Input {...a} {...form.register('code')} placeholder="LOC-000" />}
               </Field>
-              <Field label="Tipo" className={span[3]}>
+              <Field label="Finalidade" className={span[2]} hint="Onde o local aparece nas ordens.">
+                {(a) => <Select {...a} {...form.register('usage')} options={LOCATION_USAGES.map((u) => ({ value: u, label: LOCATION_USAGE_LABELS[u] }))} />}
+              </Field>
+              <Field label="Tipo" className={span[2]}>
                 {(a) => <Select {...a} {...form.register('kind')} options={LOCATION_KINDS.map((k) => ({ value: k, label: LOCATION_KIND_LABELS[k] }))} />}
               </Field>
-              <Field label="Status" className={span[3]}>
+              <Field label="Status" className={span[2]}>
                 {(a) => <Select {...a} {...form.register('status')} options={[{ value: 'ACTIVE', label: 'Ativo' }, { value: 'INACTIVE', label: 'Inativo' }, { value: 'BLOCKED', label: 'Bloqueado' }]} />}
               </Field>
-              <Field label="Comprador vinculado" className={span[6]} error={errors.partner?.message} hint="Opcional. Vinculado, o local aparece primeiro nas ordens desse comprador e fica visível para ele.">
+              <Field
+                label={form.watch('usage') === 'LOADING' ? 'Vendedor vinculado' : 'Comprador vinculado'}
+                className={span[6]}
+                error={errors.partner?.message}
+                hint="Opcional. Vinculado, o local aparece primeiro nas ordens desse parceiro e fica visível para ele."
+              >
                 {(a) => (
                   <Controller
                     control={form.control}
                     name="partner"
                     render={({ field }) => (
-                      <AsyncCombobox {...a} value={field.value} onChange={field.onChange} queryKey={['lookup', 'buyers', null]} fetchPage={lookups.buyers()} placeholder="Uso geral (sem comprador)" />
+                      <AsyncCombobox
+                        {...a}
+                        value={field.value}
+                        onChange={field.onChange}
+                        queryKey={['lookup', form.watch('usage') === 'LOADING' ? 'sellers' : 'buyers', null]}
+                        fetchPage={form.watch('usage') === 'LOADING' ? lookups.sellers() : lookups.buyers()}
+                        placeholder="Uso geral (sem parceiro)"
+                      />
                     )}
                   />
                 )}
@@ -215,7 +248,12 @@ function LocationDrawer({ id, open, onClose }: { id: string | null; open: boolea
   );
 }
 
-export function LocationsPage() {
+/**
+ * Cadastro de locais. `usage` decide a variante: entrega (destino das ordens) ou carregamento
+ * (origem, para quando o embarque não sai de uma fazenda — armazém, silo, transbordo).
+ */
+export function LocationsPage({ usage = 'DELIVERY' }: { usage?: LocationUsage } = {}) {
+  const loading = usage === 'LOADING';
   const can = useCan();
   const { data: me } = useMe();
   const params = useSearchParams();
@@ -232,19 +270,24 @@ export function LocationsPage() {
   const close = () => {
     setOpenId(null);
     setCreating(false);
-    if (params.size) router.replace('/cadastros/locais', { scroll: false });
+    if (params.size) router.replace(loading ? '/cadastros/locais-carregamento' : '/cadastros/locais', { scroll: false });
   };
 
   return (
     <>
       <RegistryList<LocationListItem>
-        title="Locais"
-        description="Armazéns, portos, indústrias e transbordos usados como destino das ordens."
+        title={loading ? 'Locais de carregamento' : 'Locais'}
+        description={
+          loading
+            ? 'Armazéns, silos e transbordos usados como origem do carregamento, quando o embarque não sai de uma fazenda.'
+            : 'Armazéns, portos, indústrias e transbordos usados como destino das ordens.'
+        }
         icon={<Warehouse />}
         endpoint="/locations"
-        queryKey="locations"
-        searchPlaceholder="Buscar por local, código, município ou comprador…"
-        createLabel="Novo local"
+        queryKey={loading ? 'locations-loading' : 'locations'}
+        query={{ usage }}
+        searchPlaceholder="Buscar por local, código, município ou parceiro…"
+        createLabel={loading ? 'Novo local de carregamento' : 'Novo local'}
         onCreate={canManage ? () => setCreating(true) : undefined}
         onOpen={(r) => setOpenId(r.id)}
         columns={[
@@ -261,7 +304,7 @@ export function LocationsPage() {
               </div>
             ),
           },
-          { key: 'partner', header: 'Comprador', render: (l) => l.partner?.name ?? <span className="text-subtle">Uso geral</span> },
+          { key: 'partner', header: loading ? 'Parceiro' : 'Comprador', render: (l) => l.partner?.name ?? <span className="text-subtle">Uso geral</span> },
           {
             key: 'city',
             header: 'Localização',
@@ -275,7 +318,7 @@ export function LocationsPage() {
               </span>
             ),
           },
-          { key: 'orders', header: 'Ordens', width: '90px', align: 'right', render: (l) => <span className="tabular">{l.ordersCount}</span> },
+          ...(loading ? [] : [{ key: 'orders', header: 'Ordens', width: '90px', align: 'right' as const, render: (l: LocationListItem) => <span className="tabular">{l.ordersCount}</span> }]),
           { key: 'status', header: 'Status', width: '100px', render: (l) => <StatusPill status={l.status} /> },
         ]}
         renderCard={(l) => (
@@ -291,7 +334,7 @@ export function LocationsPage() {
           </div>
         )}
       />
-      <LocationDrawer id={openId} open={Boolean(openId) || creating} onClose={close} />
+      <LocationDrawer id={openId} open={Boolean(openId) || creating} onClose={close} defaultUsage={usage} />
     </>
   );
 }

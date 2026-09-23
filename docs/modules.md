@@ -47,6 +47,7 @@ A ordem evita o problema da aplicação anterior, em que praticamente tudo era u
 | `farms` | 3 | propriedades rurais | farms |
 | `carriers` | 3 | transportadoras, motoristas, veículos | carrier_profiles, drivers, vehicles |
 | `commodities` | 3 | produtos e unidades | commodities, units |
+| `locations` | 3 | locais de entrega (destino) e de carregamento (origem) | locations |
 | `contracts` | 4 | contratos e saldos | contracts |
 | `orders` | 5–6 | OC, versões, liberações, visualizações | loading_orders, loading_order_versions, loading_order_releases, loading_order_views |
 | `appointments` | 7 | agendamentos, calendário | appointments |

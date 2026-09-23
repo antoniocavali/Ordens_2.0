@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { cursorQuery } from '@ordens/contracts';
+import { cursorQuery, LOCATION_USAGES } from '@ordens/contracts';
 import { z } from 'zod';
 import { RequirePermission } from '../../common/decorators.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
@@ -11,7 +11,8 @@ const partnerQuery = cursorQuery.extend({
   contractId: z.uuid().optional(),
 });
 const farmQuery = cursorQuery.extend({ sellerId: z.uuid({ message: 'Selecione o vendedor primeiro' }) });
-const locationQuery = cursorQuery.extend({ buyerId: z.uuid().optional() });
+// usage=LOADING lista os locais de carregamento (inclui os marcados como "carregamento e entrega").
+const locationQuery = cursorQuery.extend({ buyerId: z.uuid().optional(), usage: z.enum(LOCATION_USAGES).optional() });
 const commodityQuery =z.object({ q: z.string().trim().max(120).optional(), contractId: z.uuid().optional() });
 const contractQuery = cursorQuery.extend({
   sellerId: z.uuid().optional(),

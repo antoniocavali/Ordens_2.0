@@ -201,6 +201,8 @@ export const ROLES = {
     permissions: [
       'organization.read',
       'partner.read',
+      // Acompanha o transporte das próprias cargas: transportadora, motorista e veículo (só leitura).
+      'carrier.read',
       'commodity.read',
       'contract.read',
       'order.read',

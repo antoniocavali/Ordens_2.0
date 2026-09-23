@@ -60,6 +60,8 @@ As **filas** de cada atendente ficam em `support_queue_members` e são definidas
 
 Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — negado
 
+> **Transportadoras, motoristas e veículos** são um cadastro só da empresa: Fazenda e Comprador leem a lista inteira (precisam reconhecer quem está na estrada), mas só a Matriz cria e altera. O recorte por organização vale para ordens, cargas, documentos e locais.
+
 | Permissão | SUPER | M_ADMIN | M_MGR | M_OPER | M_VIEW | F_ADMIN | F_OPER | BUYER |
 |---|---|---|---|---|---|---|---|---|
 | `tenant.manage` | ● | — | — | — | — | — | — | — |
@@ -77,7 +79,7 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `commodity.manage` | — | ● | ● | — | — | — | — | — |
 | `contract.read` | — | ● | ● | ● | ● | ○ | — | ○ |
 | `contract.manage` | — | ● | ● | — | — | — | — | — |
-| `carrier.read` | — | ● | ● | ● | ● | ● | ● | — |
+| `carrier.read` | — | ● | ● | ● | ● | ● | ● | ● |
 | `carrier.manage` | — | ● | ● | ● | — | — | — | — |
 | `order.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
 | `order.create` | — | ● | ● | ● | — | — | — | — |

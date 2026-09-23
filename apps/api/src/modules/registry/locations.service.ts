@@ -12,6 +12,7 @@ type LocationData = z.output<typeof locationInputSchema>;
 interface LocationRow {
   id: string;
   kind: LocationListItem['kind'];
+  usage: LocationListItem['usage'];
   name: string;
   code: string | null;
   partner_id: string | null;
@@ -28,7 +29,7 @@ interface LocationRow {
 
 function listSql(where: Prisma.Sql, limit: number, offset: number) {
   return Prisma.sql`
-    select l.id, l.kind::text as kind, l.name, l.code, p.id as partner_id, coalesce(p.trade_name, p.legal_name) as partner_name,
+    select l.id, l.kind::text as kind, l.usage as usage, l.name, l.code, p.id as partner_id, coalesce(p.trade_name, p.legal_name) as partner_name,
       l.city, l.state, (l.latitude is not null and l.longitude is not null) as has_coordinates,
       (select count(*) from loading_orders lo
         where lo.status <> 'CANCELLED' and lower(lo.destination_name) = lower(l.name)
@@ -45,6 +46,7 @@ function listSql(where: Prisma.Sql, limit: number, offset: number) {
 const toItem = (r: LocationRow): LocationListItem => ({
   id: r.id,
   kind: r.kind,
+  usage: r.usage,
   name: r.name,
   code: r.code,
   partner: r.partner_id ? { id: r.partner_id, name: r.partner_name ?? '' } : null,
@@ -66,6 +68,9 @@ export class LocationsService {
     const conds: Prisma.Sql[] = [q.includeArchived ? Prisma.sql`true` : Prisma.sql`l.archived_at is null`];
     if (q.status) conds.push(Prisma.sql`l.status = ${q.status}::record_status`);
     if (q.partnerId) conds.push(Prisma.sql`l.partner_id = ${q.partnerId}::uuid`);
+    // usage=LOADING lista também os marcados como "carregamento e entrega" (e vice-versa).
+    if (q.usage === 'LOADING') conds.push(Prisma.sql`l.usage in ('LOADING', 'BOTH')`);
+    else if (q.usage === 'DELIVERY') conds.push(Prisma.sql`l.usage in ('DELIVERY', 'BOTH')`);
     if (q.q) {
       const p = likePattern(q.q);
       conds.push(Prisma.sql`(l.name ilike ${p} or l.code ilike ${p} or l.city ilike ${p} or p.legal_name ilike ${p} or p.trade_name ilike ${p})`);
@@ -148,6 +153,7 @@ export class LocationsService {
   private data(i: LocationData) {
     return {
       kind: i.kind,
+      usage: i.usage,
       name: i.name,
       code: i.code ?? null,
       partnerId: i.partnerId ?? null,
@@ -167,7 +173,7 @@ export class LocationsService {
   }
 
   private auditView(i: LocationData) {
-    return { kind: i.kind, name: i.name, code: i.code ?? null, partnerId: i.partnerId ?? null, city: i.city ?? null, state: i.state ?? null, status: i.status };
+    return { kind: i.kind, usage: i.usage, name: i.name, code: i.code ?? null, partnerId: i.partnerId ?? null, city: i.city ?? null, state: i.state ?? null, status: i.status };
   }
 
   private async loadDetail(tx: Tx, id: string): Promise<LocationDetail> {

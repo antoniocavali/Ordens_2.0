@@ -912,6 +912,8 @@ model Location {
   id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId              String       @map("tenant_id") @db.Uuid
   kind                  LocationKind @default(WAREHOUSE)
+  /// Finalidade: entrega (destino), carregamento (origem) ou ambos.
+  usage                 String       @default("DELIVERY")
   name                  String
   code                  String?
   partnerId             String?      @map("partner_id") @db.Uuid

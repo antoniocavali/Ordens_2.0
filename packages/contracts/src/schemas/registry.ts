@@ -54,6 +54,18 @@ export const PARTNER_ROLE_LABELS: Record<PartnerRole, string> = {
   OTHER: 'Outro',
 };
 
+/** Finalidade do local: destino da carga, origem do carregamento, ou os dois. */
+export const LOCATION_USAGES = ['DELIVERY', 'LOADING', 'BOTH'] as const;
+export type LocationUsage = (typeof LOCATION_USAGES)[number];
+export const LOCATION_USAGE_LABELS: Record<LocationUsage, string> = {
+  DELIVERY: 'Entrega (destino)',
+  LOADING: 'Carregamento (origem)',
+  BOTH: 'Carregamento e entrega',
+};
+/** O local aparece na lista de carregamento? (mesma regra usada na API e na tela) */
+export const isLoadingLocation = (usage: LocationUsage) => usage === 'LOADING' || usage === 'BOTH';
+export const isDeliveryLocation = (usage: LocationUsage) => usage === 'DELIVERY' || usage === 'BOTH';
+
 export const registryListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(10).max(200).default(50),
@@ -61,6 +73,8 @@ export const registryListQuery = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
   role: z.enum(PARTNER_ROLES).optional(),
   partnerId: z.uuid().optional(),
+  /** Filtra locais por finalidade (LOADING inclui os marcados como ambos). */
+  usage: z.enum(LOCATION_USAGES).optional(),
   includeArchived: z
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
@@ -238,6 +252,7 @@ export const LOCATION_KIND_LABELS: Record<LocationKind, string> = {
 
 export const locationInputSchema = z.object({
   kind: z.enum(LOCATION_KINDS).default('WAREHOUSE'),
+  usage: z.enum(LOCATION_USAGES).default('DELIVERY'),
   name: z.string().trim().min(2, 'Informe o nome do local').max(160),
   code: text(40),
   partnerId: z
@@ -274,6 +289,7 @@ export type LocationInput = z.input<typeof locationInputSchema>;
 export interface LocationListItem {
   id: string;
   kind: LocationKind;
+  usage: LocationUsage;
   name: string;
   code: string | null;
   partner: { id: string; name: string } | null;

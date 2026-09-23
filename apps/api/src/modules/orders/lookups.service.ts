@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { CursorPage, LookupOption } from '@ordens/contracts';
+import type { CursorPage, LocationUsage, LookupOption } from '@ordens/contracts';
 import { Prisma } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
@@ -100,7 +100,7 @@ export class LookupsService {
   }
 
   /** Locais ativos; com comprador, mostra primeiro os dele e depois os sem vínculo (Q39). */
-  async locations(params: { buyerId?: string; q?: string; cursor?: string; limit: number }): Promise<CursorPage<LookupOption>> {
+  async locations(params: { buyerId?: string; usage?: LocationUsage; q?: string; cursor?: string; limit: number }): Promise<CursorPage<LookupOption>> {
     const cursor = decodeCursor(params.cursor);
     const pattern = like(params.q);
     return this.db.read(async (tx) => {
@@ -111,6 +111,7 @@ export class LookupsService {
           (case when ${params.buyerId ?? null}::uuid is not null and l.partner_id = ${params.buyerId ?? null}::uuid then '0' else '1' end) || lower(l.name) as sort_key
         from locations l
         where l.archived_at is null and l.status = 'ACTIVE'
+          ${params.usage === 'LOADING' ? Prisma.sql`and l.usage in ('LOADING', 'BOTH')` : params.usage === 'DELIVERY' ? Prisma.sql`and l.usage in ('DELIVERY', 'BOTH')` : Prisma.empty}
           ${params.buyerId ? Prisma.sql`and (l.partner_id = ${params.buyerId}::uuid or l.partner_id is null)` : Prisma.empty}
           ${pattern ? Prisma.sql`and (l.name ilike ${pattern} or l.code ilike ${pattern} or l.city ilike ${pattern})` : Prisma.empty}
           ${cursor ? Prisma.sql`and ((case when ${params.buyerId ?? null}::uuid is not null and l.partner_id = ${params.buyerId ?? null}::uuid then '0' else '1' end) || lower(l.name), l.id) > (${cursor.n}, ${cursor.i}::uuid)` : Prisma.empty}

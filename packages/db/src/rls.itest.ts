@@ -837,3 +837,47 @@ describe('grupos de acesso (organizações)', () => {
     expect(await db.run(buyer(A, 0), (tx) => tx.loadingOrder.count({ where: { id: A.published[0] } }))).toBe(1);
   });
 });
+
+describe('cadastros visíveis ao Comprador', () => {
+  it('Comprador lê transportadoras, motoristas e veículos, mas não escreve', async () => {
+    const { carrier, driver, vehicle } = await db.run(matriz(A), async (tx) => {
+      const p = await tx.businessPartner.create({
+        data: { tenantId: A.tenantId, personType: 'PJ', legalName: `Transportadora ${randomUUID().slice(0, 6)}`, document: randomUUID().replace(/\D/g, '').slice(0, 14).padEnd(14, '0') },
+      });
+      await tx.partnerRoleAssignment.create({ data: { partnerId: p.id, role: 'CARRIER', tenantId: A.tenantId } });
+      const carrier = await tx.carrierProfile.create({ data: { tenantId: A.tenantId, partnerId: p.id } });
+      const driver = await tx.driver.create({ data: { tenantId: A.tenantId, carrierPartnerId: p.id, name: 'Motorista Teste', cpf: '52998224725' } });
+      const vehicle = await tx.vehicle.create({ data: { tenantId: A.tenantId, carrierPartnerId: p.id, plate: `TST${randomUUID().slice(0, 4).toUpperCase()}`, type: 'TRUCK' } });
+      return { carrier, driver, vehicle };
+    });
+
+    // Antes desta mudança, o Comprador não enxergava nada disso.
+    expect(await db.run(buyer(A, 0), (tx) => tx.carrierProfile.count({ where: { partnerId: carrier.partnerId } }))).toBe(1);
+    expect(await db.run(buyer(A, 0), (tx) => tx.driver.count({ where: { id: driver.id } }))).toBe(1);
+    expect(await db.run(buyer(A, 0), (tx) => tx.vehicle.count({ where: { id: vehicle.id } }))).toBe(1);
+
+    // Continua sendo só leitura: criar e alterar seguem restritos à Matriz.
+    await expect(
+      db.run(buyer(A, 0), (tx) => tx.driver.create({ data: { tenantId: A.tenantId, carrierPartnerId: driver.carrierPartnerId, name: 'Invasor', cpf: '52998224725' } })),
+    ).rejects.toThrow(/row-level security/);
+    expect((await db.run(buyer(A, 0), (tx) => tx.vehicle.updateMany({ where: { id: vehicle.id }, data: { plate: 'XXX0000' } }))).count).toBe(0);
+
+    // E nada atravessa para outro tenant.
+    expect(await db.run(buyer(B, 0), (tx) => tx.driver.count({ where: { id: driver.id } }))).toBe(0);
+  });
+
+  it('local de carregamento: só a Matriz escreve; parceiro vê apenas os próprios', async () => {
+    const local = await db.run(matriz(A), (tx) =>
+      tx.location.create({ data: { tenantId: A.tenantId, kind: 'WAREHOUSE', usage: 'LOADING', name: 'Armazém de origem', partnerId: A.sellers[0] } }),
+    );
+    expect(local.usage).toBe('LOADING');
+
+    // O vendedor dono enxerga; o outro comprador, não.
+    expect(await db.run(farm(A, 0), (tx) => tx.location.count({ where: { id: local.id } }))).toBe(1);
+    expect(await db.run(buyer(A, 0), (tx) => tx.location.count({ where: { id: local.id } }))).toBe(0);
+
+    await expect(
+      db.run(farm(A, 0), (tx) => tx.location.create({ data: { tenantId: A.tenantId, kind: 'WAREHOUSE', usage: 'LOADING', name: 'Pirata' } })),
+    ).rejects.toThrow(/row-level security/);
+  });
+});
