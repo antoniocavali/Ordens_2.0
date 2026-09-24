@@ -25,8 +25,6 @@ test.describe('Solicitação do Comprador', () => {
     const commodities = (await apiOk(page, 'GET', '/lookups/commodities')).items as any[];
     const commodity = commodities.find((c) => /milho/i.test(c.label)) ?? commodities[0];
     const unit = ((await apiOk(page, 'GET', '/lookups/units')) as any[]).find((u) => u.label === 't');
-    const carriers = (await apiOk(page, 'GET', '/lookups/partners?role=CARRIER&limit=5')).items as any[];
-    expect(carriers.length, 'Comprador enxerga transportadoras para escolher a preferencial').toBeGreaterThan(0);
     const base = {
       commodityId: commodity.id,
       quantity: '60',
@@ -37,7 +35,8 @@ test.describe('Solicitação do Comprador', () => {
       destinationCity: 'Castro',
       destinationState: 'PR',
       freightMode: 'FOB',
-      preferredCarrierId: carriers[0].id,
+      // Transportadora preferencial é texto: o Comprador digita, não escolhe de um cadastro.
+      preferredCarrierName: 'Trans Agro Logística',
       buyerNotes: 'Recebimento até 17h',
     };
 
@@ -52,6 +51,7 @@ test.describe('Solicitação do Comprador', () => {
     const draft = await apiOk(page, 'POST', '/orders/buyer', base);
     expect(draft).toMatchObject({ status: 'DRAFT', origin: 'BUYER', farm: null, seller: null });
     expect(draft.buyer?.name).toBeTruthy();
+    expect(draft.preferredCarrierName).toBe('Trans Agro Logística');
     expect(draft.allowedActions).toEqual(expect.arrayContaining(['buyer_edit', 'submit']));
     const edited = await apiOk(page, 'PATCH', `/orders/buyer/${draft.id}`, { expectedUpdatedAt: draft.updatedAt, data: { quantity: '70' } });
     expect(edited.quantities.total).toBe('70');
@@ -130,19 +130,14 @@ test.describe('Solicitação do Comprador', () => {
     await apiOk(admin.page, 'POST', `/orders/${draft.id}/releases`, { quantity: '40', expectedVersion: withVersion.version });
 
     // ─── Fazenda: chegada do veículo, carga e carregamento ───
-    const drivers = ((await apiOk(admin.page, 'GET', '/lookups/drivers')).items as any[]).filter((d) => d.meta.expired === 'false' && d.meta.carrierId);
-    const tractors = (await apiOk(admin.page, 'GET', '/lookups/vehicles?kind=tractor')).items as any[];
-    const driver = drivers.find((d) => tractors.some((t) => t.meta.carrierId === d.meta.carrierId));
-    const tractor = tractors.find((t) => t.meta.carrierId === driver?.meta.carrierId);
+    const transport = { carrierName: 'Trans Agro Logística', driverName: 'Antônio Pereira', driverCpf: '39053344705', vehicles: [{ plate: 'RVG1A23', type: 'TRUCK_TRACTOR' }] };
     await admin.context.close();
 
     const appointment = await apiOk(farm.page, 'POST', '/appointments', {
       orderId: draft.id,
       scheduledOn: addDays(1),
       expectedQty: '12',
-      carrierPartnerId: driver.meta.carrierId,
-      driverId: driver.id,
-      tractorVehicleId: tractor.id,
+      ...transport,
     });
     await apiOk(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONFIRMED' });
     expect((await api(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONVERTED' })).status).toBe(422);

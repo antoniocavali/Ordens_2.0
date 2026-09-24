@@ -22,10 +22,6 @@ Cadastros
   ├─ Compradores                    /cadastros/compradores
   ├─ Vendedores                     /cadastros/vendedores
   ├─ Fazendas                       /cadastros/fazendas
-  ├─ Transportadoras                /cadastros/transportadoras
-  ├─ Motoristas                     /cadastros/motoristas
-  ├─ Veículos                       /cadastros/veiculos
-  └─ Locais                         /cadastros/locais
 Gestão
   ├─ Relatórios                     /gestao/relatorios
   ├─ Auditoria                      /gestao/auditoria

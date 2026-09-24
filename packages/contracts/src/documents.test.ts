@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatDocument, isValidCnpj, isValidCpf, isValidPlate, normalizePlate } from './documents.js';
-import { driverInputSchema, partnerInputSchema, vehicleInputSchema } from './schemas/registry.js';
+import { appointmentInputSchema } from './schemas/logistics.js';
+import { partnerInputSchema } from './schemas/registry.js';
 
 describe('documentos', () => {
   it('valida CPF por dígitos verificadores', () => {
@@ -40,10 +41,28 @@ describe('schemas de cadastro', () => {
     }
   });
 
-  it('motorista normaliza CPF e veículo normaliza placa', () => {
-    const d = driverInputSchema.parse({ name: 'José Motorista', cpf: '529.982.247-25' });
-    expect(d.cpf).toBe('52998224725');
-    const v = vehicleInputSchema.parse({ plate: 'abc-1d23', type: 'TRUCK_TRACTOR' });
-    expect(v.plate).toBe('ABC1D23');
+  it('transporte digitado normaliza CPF do motorista e placa do veículo', () => {
+    const t = appointmentInputSchema.parse({
+      orderId: '00000000-0000-4000-8000-000000000001',
+      scheduledOn: '2026-10-01',
+      expectedQty: '30',
+      driverCpf: '529.982.247-25',
+      vehicles: [{ plate: 'abc-1d23', type: 'TRUCK_TRACTOR' }],
+    });
+    expect(t.driverCpf).toBe('52998224725');
+    expect(t.vehicles[0]!.plate).toBe('ABC1D23');
+  });
+
+  it('transporte digitado recusa CPF inválido e placa repetida na composição', () => {
+    const base = { orderId: '00000000-0000-4000-8000-000000000001', scheduledOn: '2026-10-01', expectedQty: '30' };
+    expect(appointmentInputSchema.safeParse({ ...base, driverCpf: '111.111.111-11' }).success).toBe(false);
+    const repeated = appointmentInputSchema.safeParse({
+      ...base,
+      vehicles: [
+        { plate: 'ABC1D23', type: 'TRUCK_TRACTOR' },
+        { plate: 'abc1d23', type: 'SEMI_TRAILER' },
+      ],
+    });
+    expect(repeated.success).toBe(false);
   });
 });

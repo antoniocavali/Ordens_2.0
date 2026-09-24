@@ -136,7 +136,7 @@ export class DashboardService {
       `);
       const [appt] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
         select
-          count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED') and a.carrier_partner_id is null and a.scheduled_on >= ${today}::date) as without_carrier,
+          count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED') and a.carrier_name is null and a.scheduled_on >= ${today}::date) as without_carrier,
           count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED', 'CHECKED_IN') and a.scheduled_on = ${today}::date) as today
         from appointments a ${orderFilterJoin('a')}
       `);
@@ -211,17 +211,17 @@ export class DashboardService {
       `);
 
       const carriers = isMatriz
-        ? await tx.$queryRaw<{ id: string; name: string; loads: Dec; loaded_t: Dec; divergent: Dec }[]>(Prisma.sql`
-            select bp.id, coalesce(bp.trade_name, bp.legal_name) as name, count(*) as loads,
+        ? await tx.$queryRaw<{ name: string; loads: Dec; loaded_t: Dec; divergent: Dec }[]>(Prisma.sql`
+            select l.carrier_name as name, count(*) as loads,
               coalesce(sum(l.net_kg), 0) / 1000.0 as loaded_t,
               count(*) filter (where l.received_qty is not null and l.net_kg > 0
                 and abs(l.received_qty * coalesce(u.factor_to_kg, 1000) - l.net_kg) > l.net_kg * greatest(lo.tolerance_pct, 0.5) / 100) as divergent
             from loads l
             join loading_orders lo on lo.id = l.order_id
             left join units u on u.id = lo.unit_id
-            join business_partners bp on bp.id = l.carrier_partner_id
-            where l.status <> 'CANCELLED' and l.created_at >= ${seriesStart} and ${commodity('lo')}
-            group by bp.id, name
+            where l.status <> 'CANCELLED' and l.carrier_name is not null
+              and l.created_at >= ${seriesStart} and ${commodity('lo')}
+            group by l.carrier_name
             order by loads desc
             limit 6
           `)
@@ -313,7 +313,7 @@ export class DashboardService {
           loadedT: tons(r.loaded_t),
         })),
         buyer,
-        carriers: carriers.map((r) => ({ id: r.id, name: r.name, loads: int(r.loads), loadedT: tons(r.loaded_t), divergentLoads: int(r.divergent) })),
+        carriers: carriers.map((r) => ({ name: r.name, loads: int(r.loads), loadedT: tons(r.loaded_t), divergentLoads: int(r.divergent) })),
       };
     });
   }
@@ -336,14 +336,13 @@ export class DashboardService {
       { id: string; number: string; order_id: string; order_number: string; commodity: string | null; farm: string | null; carrier: string | null; plates: string[]; qty_t: Dec; status: 'IN_TRANSIT' | 'ARRIVED'; since: Date | null }[]
     >(Prisma.sql`
       select l.id, l.number, lo.id as order_id, lo.number as order_number, c.name as commodity, f.name as farm,
-        coalesce(cp.trade_name, cp.legal_name) as carrier, l.plates, l.status::text as status,
+        l.carrier_name as carrier, l.plates, l.status::text as status,
         coalesce(l.net_kg / 1000.0, l.expected_qty * coalesce(u.factor_to_kg, 1000) / 1000.0) as qty_t,
         (select max(h.occurred_at) from load_status_history h where h.load_id = l.id and h.to_status = l.status) as since
       from loads l
       join loading_orders lo on lo.id = l.order_id
       left join commodities c on c.id = lo.commodity_id
       left join farms f on f.id = lo.farm_id
-      left join business_partners cp on cp.id = l.carrier_partner_id
       left join units u on u.id = lo.unit_id
       where l.status in ('IN_TRANSIT', 'ARRIVED') ${commodity}
       order by since asc nulls last

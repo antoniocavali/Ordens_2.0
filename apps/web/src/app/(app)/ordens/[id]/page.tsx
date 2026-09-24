@@ -371,7 +371,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </Group>
               <Group title="Logística">
                 <Row label="Janela" value={o.loadingStartsOn ? `${formatDate(o.loadingStartsOn)} até ${formatDate(o.loadingEndsOn)}` : null} />
-                <Row label="Transportadora" value={o.preferredCarrier?.name ?? 'A definir'} />
+                <Row label="Transportadora" value={o.preferredCarrierName ?? 'A definir'} />
+                <Row label="Local de carregamento" value={o.loadingLocationName} />
                 <Row label="Frete" value={o.freightMode ? `${o.freightMode}${o.freightEstimate ? ` · ${formatMoney(o.freightEstimate)}` : ''}` : null} />
                 {o.completedAt ? <Row label="Concluída em" value={`${formatDateTime(o.completedAt)}${o.completedBy ? ` · ${o.completedBy}` : ''}`} /> : null}
                 {o.completionReason ? <Row label="Motivo da conclusão" value={o.completionReason} /> : null}

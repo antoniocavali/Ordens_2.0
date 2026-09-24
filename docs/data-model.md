@@ -53,23 +53,21 @@ erDiagram
   business_partners ||--o{ partner_addresses : ""
   business_partners ||--o{ farms : "possui (vendedor/produtor)"
   business_partners ||--o| carrier_profiles : "se transportadora"
-  business_partners ||--o{ drivers : "transportadora"
-  business_partners ||--o{ vehicles : "transportadora"
   commodities }o--|| units : "unidade padrão"
 
   business_partners { uuid id PK; uuid tenant_id; person_type person_type "PF|PJ"; text legal_name; text trade_name; text document "CPF/CNPJ normalizado"; text state_registration; status; text notes }
   partner_roles { uuid partner_id PK; partner_role role PK "BUYER|SELLER|PRODUCER|COOPERATIVE_MEMBER|COOPERATIVE|CARRIER|OTHER" }
   farms { uuid id PK; uuid tenant_id; uuid owner_partner_id FK; uuid organization_id FK "org da Fazenda"; text name; text code; text state_registration; text city; char2 state; text zip; numeric lat; numeric lng; text loading_point; jsonb operating_hours; numeric daily_capacity; text access_restrictions; text carrier_instructions; status }
   carrier_profiles { uuid partner_id PK; text rntrc; uuid ops_contact_id }
-  drivers { uuid id PK; uuid tenant_id; uuid carrier_partner_id FK; text name; text cpf; text phone; text cnh_number; text cnh_category; date cnh_expires_at; status }
-  vehicles { uuid id PK; uuid tenant_id; uuid carrier_partner_id FK; text plate; vehicle_type type "TRUCK_TRACTOR|TRAILER|BITRAIN|ROAD_TRAIN|TRUCK|OTHER"; numeric capacity_kg; text brand; text model; int year; status }
   commodities { uuid id PK; uuid tenant_id; text code; text name; text category; uuid default_unit_id; status }
   units { uuid id PK; uuid tenant_id "null = global"; text code "KG|T|SC60"; text name; numeric factor_to_kg }
 ```
 
-**Justificativa**: um único `business_partners` com N `partner_roles` evita duplicar a mesma empresa que é compradora e vendedora. Transportadora é parceiro com papel `CARRIER` + `carrier_profiles` (RNTRC). A tabela `carriers` da lista original foi substituída por essa composição.
+**Justificativa**: um único `business_partners` com N `partner_roles` evita duplicar a mesma empresa que é compradora e vendedora. A tabela `carriers` da lista original foi substituída por essa composição.
 
-`unique (tenant_id, document) where deleted_at is null` em `business_partners`; `unique (tenant_id, plate)` em `vehicles`.
+**Transporte sem cadastro**: não há cadastro de transportadora, motorista, veículo nem local de carregamento. Esses dados são digitados no agendamento (e no local da ordem), copiados para a carga e sugeridos a partir do que o grupo já digitou — ver [ADR-010](decisions/ADR-010-transporte-digitavel.md). `business_partners` com papel `CARRIER` só existe quando a transportadora precisa de acesso ao sistema (grupo do tipo Transportadora); `drivers`, `vehicles` e `locations` permanecem no banco apenas como histórico da versão anterior, fora de uso.
+
+`unique (tenant_id, document) where deleted_at is null` em `business_partners`.
 
 ## Comercial e operação
 
@@ -93,8 +91,8 @@ erDiagram
   loading_order_versions { uuid id PK; uuid order_id; int version; jsonb material_snapshot; jsonb changed_fields; uuid created_by; timestamptz created_at }
   loading_order_releases { uuid id PK; uuid order_id; int sequence; numeric quantity; date valid_until; release_status status; int order_version; uuid created_by }
   loading_order_views { uuid id PK; uuid order_id; uuid organization_id; uuid user_id; uuid membership_id; int version; timestamptz first_viewed_at; timestamptz last_viewed_at; int view_count; inet last_ip; text last_user_agent; uuid last_session_id }
-  appointments { uuid id PK; uuid order_id; date scheduled_on; tstzrange window; numeric expected_qty; uuid carrier_partner_id; uuid driver_id; uuid tractor_vehicle_id; uuid trailer_vehicle_id; appointment_status status }
-  loads { uuid id PK; uuid order_id; uuid appointment_id; text number; uuid carrier_partner_id; uuid driver_id; jsonb vehicle_plates; numeric expected_qty; numeric gross_kg; numeric tare_kg; numeric net_kg; numeric invoiced_qty; numeric received_qty; load_status status }
+  appointments { uuid id PK; uuid order_id; date scheduled_on; tstzrange window; numeric expected_qty; text carrier_name; text driver_name; text driver_cpf; text driver_rg; text driver_phone; date driver_birth_date; text driver_cnh; text driver_cnh_category; date driver_cnh_expires_at; text driver_cnh_restrictions; jsonb vehicles "[{plate,description,type,axles,renavam}]"; text_array plates; appointment_status status }
+  loads { uuid id PK; uuid order_id; uuid appointment_id; text number; text carrier_name; text driver_name; text driver_cpf; date driver_cnh_expires_at; jsonb vehicles; text_array plates; numeric expected_qty; numeric gross_kg; numeric tare_kg; numeric net_kg; numeric invoiced_qty; numeric received_qty; load_status status }
   invoices { uuid id PK; uuid load_id; char44 access_key UK; text number; text series; timestamptz issued_at; text issuer_cnpj; text recipient_cnpj; numeric total_value; numeric weight_kg; text plate; uuid file_upload_id; invoice_origin origin; jsonb raw_extract }
   occurrences { uuid id PK; uuid order_id; uuid load_id; occurrence_type type; severity severity; text description; uuid responsible_user_id; occurrence_status status; text resolution }
 ```
@@ -125,8 +123,8 @@ erDiagram
 |---|---|
 | todas de negócio | `(tenant_id, …)` como prefixo |
 | loading_orders | `(tenant_id, number)` unique; `(tenant_id, status, loading_starts_on)`; `(tenant_id, seller_partner_id)`; `(tenant_id, farm_id)`; `(tenant_id, buyer_partner_id)`; `(tenant_id, commodity_id)`; `(tenant_id, contract_id)`; `(tenant_id, seller_org_id)`; `(tenant_id, buyer_org_id)`; `(tenant_id, updated_at desc)`; trigram em `number` para busca |
-| loads | `(tenant_id, order_id)`; `(tenant_id, status)`; GIN em `vehicle_plates` |
-| vehicles | `(tenant_id, plate)` unique |
+| loads | `(tenant_id, order_id)`; `(tenant_id, status)`; GIN em `plates`; `(tenant_id, driver_cpf)` parcial |
+| appointments | `(tenant_id, driver_cpf)` e `(tenant_id, carrier_name)` parciais (sugestões de digitação) |
 | invoices | `access_key` unique; `(tenant_id, load_id)` |
 | loading_order_views | `(order_id, organization_id, user_id)` unique |
 | audit_events | `(tenant_id, entity_type, entity_id, occurred_at desc)`; BRIN em `occurred_at` |

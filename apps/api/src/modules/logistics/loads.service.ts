@@ -23,15 +23,29 @@ import { fromDate, toDate } from '../registry/registry.util.js';
 import { openOccurrence } from '../fiscal/fiscal.util.js';
 import { autoCompleteIfFinished } from '../orders/order-completion.util.js';
 import { fiscalChecklists, matrizChecklists } from './fiscal-checklist.js';
-import { assertWithinReleased, fleetRefs, orderForLogistics, recalcOrder, resolveFleet } from './logistics.util.js';
+import { assertWithinReleased, orderForLogistics, readVehicles, recalcOrder, resolveTransport, transportDto } from './logistics.util.js';
 
 type LoadData = z.output<typeof loadInputSchema>;
 type LoadRow = NonNullable<Awaited<ReturnType<Tx['load']['findUnique']>>>;
 
 const D = Prisma.Decimal;
-/** Frota ainda pode ser trocada: antes da confirmação do carregamento (pesagem). */
+/** Transporte ainda pode ser trocado: antes da confirmação do carregamento (pesagem). */
 const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING'];
-const FLEET_REQUIRED_FROM: LoadStatus[] = ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
+const TRANSPORT_REQUIRED_FROM: LoadStatus[] = ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
+/** Campos de transporte digitados: mudá-los depois do carregamento é bloqueado. */
+const TRANSPORT_FIELDS = [
+  'carrierName',
+  'driverName',
+  'driverCpf',
+  'driverRg',
+  'driverPhone',
+  'driverBirthDate',
+  'driverCnh',
+  'driverCnhCategory',
+  'driverCnhExpiresAt',
+  'driverCnhRestrictions',
+  'vehicles',
+] as const;
 
 /** Trânsito encerrado sem recebimento (ordem dispensa a etapa). */
 const skipsReceipt = (from: LoadStatus, to: LoadStatus) => from === 'IN_TRANSIT' && to === 'AWAITING_MATRIZ_INVOICE';
@@ -46,9 +60,18 @@ export class LoadsService {
       const where: Prisma.LoadWhereInput = {
         ...(q.orderId ? { orderId: q.orderId } : {}),
         ...(q.status?.length ? { status: { in: q.status as LoadStatus[] } } : {}),
-        ...(q.carrierPartnerId ? { carrierPartnerId: q.carrierPartnerId } : {}),
+        ...(q.carrier ? { carrierName: q.carrier } : {}),
         ...(q.from || q.to ? { loadingDate: { ...(q.from ? { gte: toDate(q.from)! } : {}), ...(q.to ? { lte: toDate(q.to)! } : {}) } } : {}),
-        ...(q.q ? { OR: [{ number: { contains: q.q } }, ...(plate.length >= 3 ? [{ plates: { has: plate } }] : [])] } : {}),
+        ...(q.q
+          ? {
+              OR: [
+                { number: { contains: q.q } },
+                ...(plate.length >= 3 ? [{ plates: { has: plate } }] : []),
+                { driverName: { contains: q.q, mode: 'insensitive' as const } },
+                { carrierName: { contains: q.q, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
       };
       const [total, rows] = await Promise.all([
         tx.load.count({ where }),
@@ -105,7 +128,7 @@ export class LoadsService {
       freed = appt.expectedQty;
     }
     assertWithinReleased(fresh, input.expectedQty, freed);
-    const fleet = await resolveFleet(tx, input);
+    const transport = resolveTransport(input);
     const initial: LoadStatus = input.appointmentId ? 'AWAITING_LOADING' : 'SCHEDULED';
 
     const agg = await tx.load.aggregate({ where: { orderId: order.id }, _max: { sequence: true } });
@@ -123,7 +146,7 @@ export class LoadsService {
         notes: input.notes ?? null,
         status: initial,
         createdBy: currentAuth().userId,
-        ...fleet,
+        ...transport,
       },
     });
     await tx.loadStatusHistory.create({
@@ -132,8 +155,8 @@ export class LoadsService {
     if (input.appointmentId) await tx.appointment.update({ where: { id: input.appointmentId }, data: { status: 'CONVERTED' } });
     await recalcOrder(tx, order.id);
 
-    await audit({ entityType: 'load', entityId: load.id, action: 'load.created', after: { number, status: initial, ...input, plates: fleet.plates } });
-    await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.load_created', after: { loadNumber: number, quantity: input.expectedQty, plates: fleet.plates } });
+    await audit({ entityType: 'load', entityId: load.id, action: 'load.created', after: { number, status: initial, ...input, plates: transport.plates } });
+    await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.load_created', after: { loadNumber: number, quantity: input.expectedQty, plates: transport.plates } });
     await outbox({ type: 'load.created', aggregateType: 'load', aggregateId: load.id, payload: { loadId: load.id, orderId: order.id, number } });
     return load.id;
   }
@@ -143,27 +166,22 @@ export class LoadsService {
       const load = await this.lock(tx, id, input.expectedUpdatedAt);
       if (load.status === 'COMPLETED' || load.status === 'CANCELLED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Cargas concluídas ou canceladas não podem ser alteradas.');
 
-      const fleetChanged = ['carrierPartnerId', 'driverId', 'tractorVehicleId', 'trailerVehicleId', 'secondTrailerVehicleId'].some(
-        (k) => (input as Record<string, unknown>)[k] !== undefined && (input as Record<string, unknown>)[k] !== (load as Record<string, unknown>)[k],
-      );
-      if (fleetChanged && !PRE_LOADED.includes(load.status)) {
+      const current = transportDto(load);
+      const sent = input as Record<string, unknown>;
+      const transportChanged = TRANSPORT_FIELDS.some((k) => sent[k] !== undefined && JSON.stringify(sent[k] ?? null) !== JSON.stringify(current[k] ?? null));
+      if (transportChanged && !PRE_LOADED.includes(load.status)) {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Motorista e veículos não podem ser trocados após o carregamento.');
       }
-      const fleet = fleetChanged
-        ? await resolveFleet(tx, {
-            carrierPartnerId: input.carrierPartnerId !== undefined ? input.carrierPartnerId : load.carrierPartnerId,
-            driverId: input.driverId !== undefined ? input.driverId : load.driverId,
-            tractorVehicleId: input.tractorVehicleId !== undefined ? input.tractorVehicleId : load.tractorVehicleId,
-            trailerVehicleId: input.trailerVehicleId !== undefined ? input.trailerVehicleId : load.trailerVehicleId,
-            secondTrailerVehicleId: input.secondTrailerVehicleId !== undefined ? input.secondTrailerVehicleId : load.secondTrailerVehicleId,
-          })
+      // O que não veio na requisição fica como está (edição parcial da carga).
+      const transport = transportChanged
+        ? resolveTransport(Object.fromEntries(TRANSPORT_FIELDS.map((k) => [k, sent[k] !== undefined ? sent[k] : current[k]])))
         : {};
 
       const weights = this.weights(input.grossKg ?? load.grossKg?.toString() ?? null, input.tareKg ?? load.tareKg?.toString() ?? null);
       await tx.load.update({
         where: { id },
         data: {
-          ...fleet,
+          ...transport,
           ...(input.loadingDate !== undefined ? { loadingDate: toDate(input.loadingDate as string | null) } : {}),
           ...weights,
           ...(input.invoicedQty !== undefined ? { invoicedQty: input.invoicedQty } : {}),
@@ -177,7 +195,7 @@ export class LoadsService {
         entityId: id,
         action: 'load.updated',
         before: { plates: load.plates, grossKg: load.grossKg?.toString() ?? null, tareKg: load.tareKg?.toString() ?? null, receivedQty: load.receivedQty?.toString() ?? null },
-        after: { plates: 'plates' in fleet ? fleet.plates : load.plates, ...weights, receivedQty: input.receivedQty ?? null },
+        after: { plates: 'plates' in transport ? transport.plates : load.plates, ...weights, receivedQty: input.receivedQty ?? null },
       });
       return this.dto(tx, id);
     });
@@ -201,10 +219,13 @@ export class LoadsService {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, `Não é possível passar de "${LOAD_STATUS_LABELS[load.status]}" para "${LOAD_STATUS_LABELS[to]}" com seu perfil.`);
       }
       if (to === 'CANCELLED' && !input.notes) throw AppError.validation({ fields: { notes: ['Informe o motivo do cancelamento'] } }, 'Informe o motivo do cancelamento.');
-      if (FLEET_REQUIRED_FROM.includes(to) && (!load.driverId || !load.tractorVehicleId)) {
-        throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Informe motorista e veículo antes de iniciar o carregamento.', {
-          fields: { driverId: load.driverId ? [] : ['Obrigatório'], tractorVehicleId: load.tractorVehicleId ? [] : ['Obrigatório'] },
-        });
+      if (TRANSPORT_REQUIRED_FROM.includes(to)) {
+        const vehicles = readVehicles(load.vehicles);
+        if (!load.driverName || !vehicles.length) {
+          throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Informe o motorista e ao menos um veículo antes de iniciar o carregamento.', {
+            fields: { driverName: load.driverName ? [] : ['Obrigatório'], vehicles: vehicles.length ? [] : ['Informe ao menos um veículo'] },
+          });
+        }
       }
 
       // Q41: documentação fiscal validada (e o trânsito) exigem pesagem, PDF e XML válidos da mesma carga.
@@ -370,7 +391,6 @@ export class LoadsService {
 
   private async toDtos(tx: Tx, rows: LoadRow[]): Promise<LoadDto[]> {
     if (!rows.length) return [];
-    const refs = await fleetRefs(tx, rows);
     const checklists = await fiscalChecklists(tx, rows);
     const matriz = await matrizChecklists(tx, rows);
     const orderIds = [...new Set(rows.map((r) => r.orderId))];
@@ -412,7 +432,7 @@ export class LoadsService {
         allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName, { requiresReceipt: o?.requires_receipt ?? true })) : [],
         fiscalChecklist: checklists.get(r.id) ?? null,
         matrizChecklist: matriz.get(r.id) ?? null,
-        ...refs(r),
+        ...transportDto(r),
       };
     });
   }

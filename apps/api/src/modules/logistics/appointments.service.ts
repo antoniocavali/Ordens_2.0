@@ -6,6 +6,7 @@ import {
   ErrorCode,
   type AppointmentDto,
   type AppointmentStatus,
+  type CnhCategory,
   type LogisticsListQuery,
   type Page,
 } from '@ordens/contracts';
@@ -15,7 +16,7 @@ import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
-import { assertWithinReleased, fleetRefs, orderForLogistics, recalcOrder, resolveFleet } from './logistics.util.js';
+import { assertWithinReleased, orderForLogistics, readVehicles, recalcOrder, resolveTransport, transportDto } from './logistics.util.js';
 import { LoadsService } from './loads.service.js';
 
 type AppointmentData = z.output<typeof appointmentInputSchema>;
@@ -35,9 +36,18 @@ export class AppointmentsService {
       const where: Prisma.AppointmentWhereInput = {
         ...(q.orderId ? { orderId: q.orderId } : {}),
         ...(q.status?.length ? { status: { in: q.status as AppointmentStatus[] } } : {}),
-        ...(q.carrierPartnerId ? { carrierPartnerId: q.carrierPartnerId } : {}),
+        ...(q.carrier ? { carrierName: q.carrier } : {}),
         ...(q.from || q.to ? { scheduledOn: { ...(q.from ? { gte: toDate(q.from)! } : {}), ...(q.to ? { lte: toDate(q.to)! } : {}) } } : {}),
-        ...(q.q ? { OR: [{ order: { number: { contains: q.q } } }, { plates: { has: q.q.toUpperCase().replace(/[^A-Z0-9]/g, '') } }] } : {}),
+        ...(q.q
+          ? {
+              OR: [
+                { order: { number: { contains: q.q } } },
+                { plates: { has: q.q.toUpperCase().replace(/[^A-Z0-9]/g, '') } },
+                { driverName: { contains: q.q, mode: 'insensitive' as const } },
+                { carrierName: { contains: q.q, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
       };
       const [total, rows] = await Promise.all([
         tx.appointment.count({ where }),
@@ -58,7 +68,7 @@ export class AppointmentsService {
       const order = await orderForLogistics(tx, input.orderId);
       const fresh = await recalcOrder(tx, order.id);
       assertWithinReleased(fresh, input.expectedQty);
-      const fleet = await resolveFleet(tx, input);
+      const transport = resolveTransport(input);
       const row = await tx.appointment.create({
         data: {
           tenantId: order.tenantId,
@@ -69,16 +79,16 @@ export class AppointmentsService {
           expectedQty: input.expectedQty,
           notes: input.notes ?? null,
           createdBy: currentAuth().userId,
-          ...fleet,
+          ...transport,
         },
       });
       await recalcOrder(tx, order.id);
-      await audit({ entityType: 'appointment', entityId: row.id, action: 'appointment.created', after: { ...input, plates: fleet.plates } });
+      await audit({ entityType: 'appointment', entityId: row.id, action: 'appointment.created', after: { ...input, plates: transport.plates } });
       await audit({
         entityType: 'loading_order',
         entityId: order.id,
         action: 'order.appointment_created',
-        after: { scheduledOn: input.scheduledOn, quantity: input.expectedQty, plates: fleet.plates },
+        after: { scheduledOn: input.scheduledOn, quantity: input.expectedQty, plates: transport.plates },
       });
       await outbox({ type: 'appointment.created', aggregateType: 'appointment', aggregateId: row.id, payload: { appointmentId: row.id, orderId: order.id, scheduledOn: input.scheduledOn } });
       return this.dto(tx, row.id);
@@ -95,7 +105,7 @@ export class AppointmentsService {
       if (before.orderId !== input.orderId) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'O agendamento não pode mudar de ordem.');
       const order = await recalcOrder(tx, before.orderId);
       assertWithinReleased(order, input.expectedQty, before.expectedQty);
-      const fleet = await resolveFleet(tx, input);
+      const transport = resolveTransport(input);
       await tx.appointment.update({
         where: { id },
         data: {
@@ -104,7 +114,7 @@ export class AppointmentsService {
           windowEnd: input.windowEnd ?? null,
           expectedQty: input.expectedQty,
           notes: input.notes ?? null,
-          ...fleet,
+          ...transport,
         },
       });
       await recalcOrder(tx, before.orderId);
@@ -112,8 +122,8 @@ export class AppointmentsService {
         entityType: 'appointment',
         entityId: id,
         action: 'appointment.updated',
-        before: { scheduledOn: fromDate(before.scheduledOn), expectedQty: before.expectedQty.toString(), plates: before.plates, driverId: before.driverId },
-        after: { scheduledOn: input.scheduledOn, expectedQty: input.expectedQty, plates: fleet.plates, driverId: fleet.driverId },
+        before: { scheduledOn: fromDate(before.scheduledOn), expectedQty: before.expectedQty.toString(), plates: before.plates, driverName: before.driverName },
+        after: { scheduledOn: input.scheduledOn, expectedQty: input.expectedQty, plates: transport.plates, driverName: transport.driverName },
       });
       return this.dto(tx, id);
     });
@@ -130,10 +140,19 @@ export class AppointmentsService {
       if ((to === 'CANCELLED' || to === 'NO_SHOW') && !reason) {
         throw AppError.validation({ fields: { reason: ['Informe o motivo'] } }, 'Informe o motivo.');
       }
-      if (to === 'CONFIRMED' && (!row.driverId || !row.tractorVehicleId)) {
-        throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Para confirmar, informe motorista e veículo.', {
-          fields: { driverId: row.driverId ? [] : ['Obrigatório para confirmar'], tractorVehicleId: row.tractorVehicleId ? [] : ['Obrigatório para confirmar'] },
-        });
+      if (to === 'CONFIRMED') {
+        const vehicles = readVehicles(row.vehicles);
+        if (!row.driverName || !vehicles.length) {
+          throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Para confirmar, informe o motorista e ao menos um veículo.', {
+            fields: { driverName: row.driverName ? [] : ['Obrigatório para confirmar'], vehicles: vehicles.length ? [] : ['Informe ao menos um veículo'] },
+          });
+        }
+        // A CNH digitada continua sendo conferida: vencida na data do carregamento não confirma.
+        if (row.driverCnhExpiresAt && row.driverCnhExpiresAt < row.scheduledOn) {
+          throw AppError.domain(ErrorCode.VALIDATION_FAILED, `A CNH de ${row.driverName} vence antes da data do carregamento.`, {
+            fields: { driverCnhExpiresAt: ['CNH vencida para esta data'] },
+          });
+        }
       }
 
       if (to === 'CONVERTED') {
@@ -142,11 +161,18 @@ export class AppointmentsService {
           appointmentId: row.id,
           loadingDate: fromDate(row.scheduledOn),
           expectedQty: row.expectedQty.toString(),
-          carrierPartnerId: row.carrierPartnerId,
-          driverId: row.driverId,
-          tractorVehicleId: row.tractorVehicleId,
-          trailerVehicleId: row.trailerVehicleId,
-          secondTrailerVehicleId: row.secondTrailerVehicleId,
+          carrierName: row.carrierName,
+          driverName: row.driverName,
+          driverCpf: row.driverCpf,
+          driverRg: row.driverRg,
+          driverPhone: row.driverPhone,
+          driverBirthDate: fromDate(row.driverBirthDate),
+          driverCnh: row.driverCnh,
+          // A coluna é texto; o valor veio do próprio enum do contrato na gravação do agendamento.
+          driverCnhCategory: row.driverCnhCategory as CnhCategory | null,
+          driverCnhExpiresAt: fromDate(row.driverCnhExpiresAt),
+          driverCnhRestrictions: row.driverCnhRestrictions,
+          vehicles: readVehicles(row.vehicles),
           notes: row.notes,
         });
       } else {
@@ -167,7 +193,6 @@ export class AppointmentsService {
 
   private async toDtos(tx: Tx, rows: (AppointmentRow & { load: { id: string } | null })[]): Promise<AppointmentDto[]> {
     if (!rows.length) return [];
-    const refs = await fleetRefs(tx, rows);
     const orderIds = [...new Set(rows.map((r) => r.orderId))];
     const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; unit: string | null }[]>(Prisma.sql`
       select lo.id, lo.number, c.name as commodity, f.name as farm, u.code as unit
@@ -197,7 +222,7 @@ export class AppointmentsService {
         createdBy: r.createdBy ? (userMap.get(r.createdBy) ?? null) : null,
         updatedAt: r.updatedAt.toISOString(),
         allowedTransitions: canManage && ACTIVE.includes(r.status) || r.status === 'REQUESTED' ? (canManage ? [...APPOINTMENT_TRANSITIONS[r.status]] : []) : [],
-        ...refs(r),
+        ...transportDto(r),
       };
     });
   }

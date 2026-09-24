@@ -51,8 +51,8 @@ export interface DashboardDto {
   activeOrders: { id: string; number: string; commodity: string | null; counterpart: string | null; orderedT: string; loadedT: string }[];
   /** Somente Comprador: solicitações do portal (Q41) e cargas a caminho. */
   buyer: BuyerDashboard | null;
-  /** Somente Matriz (Q24). */
-  carriers: { id: string; name: string; loads: number; loadedT: string; divergentLoads: number }[];
+  /** Somente Matriz (Q24), agrupado pelo nome digitado da transportadora (não há cadastro). */
+  carriers: { name: string; loads: number; loadedT: string; divergentLoads: number }[];
 }
 
 export interface BuyerDashboard {

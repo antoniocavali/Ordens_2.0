@@ -24,13 +24,13 @@ interface Values {
   destinationState: string;
   destinationAddress: string;
   freightMode: string;
-  carrier: ComboOption | null;
+  preferredCarrierName: string;
   externalNumber: string;
   buyerNotes: string;
 }
 
 const FREIGHT_LABELS: Record<string, string> = { FOB: 'FOB (retira na origem)', CIF: 'CIF (entregue no destino)', TO_DEFINE: 'A definir' };
-const API_TO_FORM: Record<string, keyof Values> = { commodityId: 'commodity', preferredCarrierId: 'carrier' };
+const API_TO_FORM: Record<string, keyof Values> = { commodityId: 'commodity' };
 
 const fromDetail = (o: OrderDetail | null): Values => ({
   commodity: o?.commodity ? { id: o.commodity.id, label: o.commodity.name } : null,
@@ -44,7 +44,7 @@ const fromDetail = (o: OrderDetail | null): Values => ({
   destinationState: o?.destinationState ?? '',
   destinationAddress: o?.destinationAddress ?? '',
   freightMode: o?.freightMode ?? '',
-  carrier: o?.preferredCarrier ? { id: o.preferredCarrier.id, label: o.preferredCarrier.name } : null,
+  preferredCarrierName: o?.preferredCarrierName ?? '',
   externalNumber: o?.externalNumber ?? '',
   buyerNotes: o?.buyerNotes ?? '',
 });
@@ -64,7 +64,7 @@ const toPayload = (v: Values) => ({
   destinationState: v.destinationState.trim() ? v.destinationState.trim().toUpperCase() : null,
   destinationAddress: txt(v.destinationAddress),
   freightMode: v.freightMode || null,
-  preferredCarrierId: v.carrier?.id ?? null,
+  preferredCarrierName: txt(v.preferredCarrierName),
   externalNumber: txt(v.externalNumber),
   buyerNotes: txt(v.buyerNotes),
 });
@@ -178,14 +178,8 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
           <Field label="Modalidade de frete" className={span[3]} error={errors.freightMode?.message}>
             {(a) => <Select {...a} {...form.register('freightMode')} placeholder="Selecione" options={FREIGHT_MODES.map((m) => ({ value: m, label: FREIGHT_LABELS[m] ?? m }))} />}
           </Field>
-          <Field label="Transportadora preferencial" className={span[3]} error={errors.carrier?.message}>
-            {(a) => (
-              <Controller
-                control={form.control}
-                name="carrier"
-                render={({ field }) => <AsyncCombobox {...a} value={field.value} onChange={field.onChange} queryKey={['lookup', 'carriers', null]} fetchPage={lookups.carriers()} placeholder="Opcional" />}
-              />
-            )}
+          <Field label="Transportadora preferencial" className={span[3]} error={errors.preferredCarrierName?.message}>
+            {(a) => <Input {...a} {...form.register('preferredCarrierName')} placeholder="Opcional" />}
           </Field>
         </FormSection>
 

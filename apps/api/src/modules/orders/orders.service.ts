@@ -1044,9 +1044,6 @@ export class OrdersService {
       if (!c || c.status !== 'ACTIVE') fields.commodityId = ['Commodity não encontrada ou inativa'];
     }
     if (i.unitId && !(await tx.unit.findUnique({ where: { id: i.unitId }, select: { id: true } }))) fields.unitId = ['Unidade não encontrada'];
-    if (i.preferredCarrierId && !(await tx.partnerRoleAssignment.findFirst({ where: { partnerId: i.preferredCarrierId, role: 'CARRIER' } }))) {
-      fields.preferredCarrierId = ['Parceiro não é transportadora'];
-    }
     if (Object.keys(fields).length) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Verifique os dados da solicitação.', { fields });
   }
 
@@ -1307,7 +1304,7 @@ export class OrdersService {
   /** Impede combinações inconsistentes com mensagens por campo (o trigger do banco é a segunda barreira). */
   private async validateRelations(tx: Tx, o: Partial<OrderDraftInput>) {
     const fields: Record<string, string[]> = {};
-    const partnerIds = [o.sellerPartnerId, o.buyerPartnerId, o.preferredCarrierId].filter((v): v is string => Boolean(v));
+    const partnerIds = [o.sellerPartnerId, o.buyerPartnerId].filter((v): v is string => Boolean(v));
     const roles = partnerIds.length
       ? await tx.partnerRoleAssignment.findMany({ where: { partnerId: { in: partnerIds } } })
       : [];
@@ -1315,9 +1312,6 @@ export class OrdersService {
 
     if (o.sellerPartnerId && !hasRole(o.sellerPartnerId, 'SELLER')) fields.sellerPartnerId = ['Parceiro não é vendedor ou não está disponível'];
     if (o.buyerPartnerId && !hasRole(o.buyerPartnerId, 'BUYER')) fields.buyerPartnerId = ['Parceiro não é comprador ou não está disponível'];
-    if (o.preferredCarrierId && !hasRole(o.preferredCarrierId, 'CARRIER')) {
-      fields.preferredCarrierId = ['Parceiro não é transportadora ou não está disponível'];
-    }
 
     if (o.farmId) {
       const farm = await tx.farm.findUnique({ where: { id: o.farmId }, select: { ownerPartnerId: true, name: true } });

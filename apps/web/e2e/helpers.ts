@@ -127,11 +127,16 @@ export async function prepareLoad(page: Page): Promise<LoadSetup> {
 
   const detail = await apiOk(page, 'GET', `/orders/${order.id}`);
   const seller = await apiOk(page, 'GET', `/partners/${detail.seller.id}`);
-  const drivers = ((await apiOk(page, 'GET', '/lookups/drivers')).items as any[]).filter((d) => d.meta.expired === 'false' && d.meta.carrierId);
-  const tractors = (await apiOk(page, 'GET', '/lookups/vehicles?kind=tractor')).items as any[];
-  const driver = drivers.find((d) => tractors.some((t) => t.meta.carrierId === d.meta.carrierId));
-  const tractor = tractors.find((t) => t.meta.carrierId === driver?.meta.carrierId);
-  expect(driver && tractor, 'motorista e cavalo da mesma transportadora').toBeTruthy();
+  // Transporte digitado: os dados vêm do documento do motorista, não de um cadastro.
+  const transport = {
+    carrierName: 'Trans Agro Logística',
+    driverName: 'Antônio Pereira',
+    driverCpf: '39053344705',
+    driverCnh: '01234567890',
+    driverCnhCategory: 'E',
+    driverCnhExpiresAt: new Date(Date.now() + 300 * 86_400_000).toISOString().slice(0, 10),
+    vehicles: [{ plate: 'RVG1A23', description: 'Scania R 450', type: 'TRUCK_TRACTOR', axles: 3 }],
+  };
 
   const appt = await apiOk(page, 'POST', '/appointments', {
     orderId: order.id,
@@ -139,9 +144,7 @@ export async function prepareLoad(page: Page): Promise<LoadSetup> {
     windowStart: '08:00',
     windowEnd: '10:00',
     expectedQty: '10',
-    carrierPartnerId: driver.meta.carrierId,
-    driverId: driver.id,
-    tractorVehicleId: tractor.id,
+    ...transport,
   });
   await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CONFIRMED' });
   // Sem registrar a chegada do veículo, não há carga.

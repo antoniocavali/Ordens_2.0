@@ -11,6 +11,7 @@ import type {
   LookupOption,
   OrderListItem,
   Page,
+  TransportSuggestions,
 } from '@ordens/contracts';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, patch, post, put } from '@/lib/api';
@@ -75,15 +76,18 @@ export function useLoadMutations() {
 
 type Fetch = (p: { q: string; cursor: string | null }) => Promise<CursorPage<LookupOption>>;
 
+/**
+ * Sugestões dos campos digitáveis de transporte. Carregadas uma vez por formulário (cache de 5 min):
+ * a lista é do grupo de quem pergunta, então é curta, e a digitação filtra no próprio datalist.
+ */
+export const useTransportSuggestions = () =>
+  useQuery({
+    queryKey: ['logistics', 'transport-suggestions'],
+    queryFn: ({ signal }) => get<TransportSuggestions>('/transport/suggestions', {}, signal),
+    staleTime: 5 * 60_000,
+  });
+
 export const fleetLookups = {
-  drivers:
-    (carrierId?: string | null): Fetch =>
-    ({ q }) =>
-      get<CursorPage<LookupOption>>('/lookups/drivers', { q, carrierId }),
-  vehicles:
-    (kind: 'tractor' | 'trailer', carrierId?: string | null): Fetch =>
-    ({ q }) =>
-      get<CursorPage<LookupOption>>('/lookups/vehicles', { q, kind, carrierId }),
   /** Ordens aptas a receber agendamentos/cargas. */
   orders:
     (): Fetch =>

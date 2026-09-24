@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { quantityString } from '../decimal.js';
+import { isValidCpf, isValidPlate, normalizePlate, onlyDigits } from '../documents.js';
 import { LOAD_STATUSES, type LoadStatus } from '../enums.js';
 
 export const APPOINTMENT_STATUSES = ['REQUESTED', 'CONFIRMED', 'CHECKED_IN', 'CONVERTED', 'CANCELLED', 'NO_SHOW'] as const;
@@ -136,13 +137,97 @@ const text = (max: number) =>
     .nullish();
 const optQty = quantityString.or(z.literal('').transform(() => null)).nullish();
 
-const fleet = {
-  carrierPartnerId: z.uuid().nullish(),
-  driverId: z.uuid().nullish(),
-  tractorVehicleId: z.uuid().nullish(),
-  trailerVehicleId: z.uuid().nullish(),
-  secondTrailerVehicleId: z.uuid().nullish(),
+// ───────────────────────────── Transporte digitado ─────────────────────────────
+// Não há cadastro de transportadora, motorista ou veículo: os dados vêm do documento que o motorista
+// apresenta na portaria e são digitados no agendamento (a API sugere o que o grupo já usou antes).
+
+/** Tipos da composição, como aparecem no documento do transporte. */
+export const TRANSPORT_VEHICLE_TYPES = ['TRUCK', 'TRUCK_TRACTOR', 'SEMI_TRAILER', 'TRAILER', 'DOLLY', 'BITRAIN', 'ROAD_TRAIN', 'OTHER'] as const;
+export type TransportVehicleType = (typeof TRANSPORT_VEHICLE_TYPES)[number];
+
+export const TRANSPORT_VEHICLE_TYPE_LABELS: Record<TransportVehicleType, string> = {
+  TRUCK: 'Caminhão',
+  TRUCK_TRACTOR: 'Cavalo mecânico',
+  SEMI_TRAILER: 'Semirreboque',
+  TRAILER: 'Reboque/carreta',
+  DOLLY: 'Dolly',
+  BITRAIN: 'Bitrem',
+  ROAD_TRAIN: 'Rodotrem',
+  OTHER: 'Outro',
 };
+
+export const CNH_CATEGORIES = ['A', 'B', 'C', 'D', 'E', 'AB', 'AC', 'AD', 'AE'] as const;
+export type CnhCategory = (typeof CNH_CATEGORIES)[number];
+
+/** Uma unidade da composição. A ordem da lista é a ordem em que engata (cavalo, reboque, dolly...). */
+export const transportVehicleSchema = z.object({
+  plate: z
+    .string()
+    .trim()
+    .transform(normalizePlate)
+    .refine(isValidPlate, 'Placa inválida (ex.: ABC1D23 ou ABC1234)'),
+  description: text(80),
+  type: z.enum(TRANSPORT_VEHICLE_TYPES),
+  axles: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(12)
+    .nullish()
+    .or(z.literal('').transform(() => null)),
+  renavam: z
+    .string()
+    .trim()
+    .transform(onlyDigits)
+    .refine((v) => v === '' || v.length === 11, 'RENAVAM deve ter 11 dígitos')
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+});
+export type TransportVehicle = z.infer<typeof transportVehicleSchema>;
+
+const dateOnly = z
+  .union([z.literal(''), z.iso.date()])
+  .transform((v) => (v === '' ? null : v))
+  .nullish();
+
+const transport = {
+  carrierName: text(160),
+  driverName: text(160),
+  driverCpf: z
+    .string()
+    .trim()
+    .transform(onlyDigits)
+    .refine((v) => v === '' || isValidCpf(v), 'CPF inválido')
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+  driverRg: text(20),
+  driverPhone: text(20),
+  driverBirthDate: dateOnly,
+  driverCnh: z
+    .string()
+    .trim()
+    .transform(onlyDigits)
+    .refine((v) => v === '' || v.length === 11, 'CNH deve ter 11 dígitos')
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+  driverCnhCategory: z
+    .union([z.literal(''), z.enum(CNH_CATEGORIES)])
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+  driverCnhExpiresAt: dateOnly,
+  /** Restrições da CNH, como no documento (ex.: "A", "X", "EAR"). */
+  driverCnhRestrictions: text(40),
+  vehicles: z.array(transportVehicleSchema).max(6, 'No máximo 6 unidades na composição').default([]),
+};
+
+/** A mesma placa não pode aparecer duas vezes na composição. */
+function checkTransport(v: { vehicles?: { plate: string }[] | null }, ctx: z.RefinementCtx) {
+  const seen = new Set<string>();
+  (v.vehicles ?? []).forEach((vehicle, i) => {
+    if (seen.has(vehicle.plate)) ctx.addIssue({ code: 'custom', path: ['vehicles', i, 'plate'], message: 'Placa repetida na composição' });
+    seen.add(vehicle.plate);
+  });
+}
 
 export const appointmentInputSchema = z
   .object({
@@ -157,10 +242,11 @@ export const appointmentInputSchema = z
       .transform((v) => (v === '' ? null : v))
       .nullish(),
     expectedQty: quantityString,
-    ...fleet,
+    ...transport,
     notes: text(2000),
   })
-  .refine((v) => !v.windowStart || !v.windowEnd || v.windowStart < v.windowEnd, { message: 'Horário final deve ser após o inicial', path: ['windowEnd'] });
+  .refine((v) => !v.windowStart || !v.windowEnd || v.windowStart < v.windowEnd, { message: 'Horário final deve ser após o inicial', path: ['windowEnd'] })
+  .superRefine(checkTransport);
 export type AppointmentInput = z.input<typeof appointmentInputSchema>;
 
 export const appointmentTransitionSchema = z.object({
@@ -168,29 +254,30 @@ export const appointmentTransitionSchema = z.object({
   reason: text(500),
 });
 
-export const loadInputSchema = z.object({
-  orderId: z.uuid(),
-  appointmentId: z.uuid().nullish(),
-  loadingDate: z
-    .union([z.literal(''), z.iso.date()])
-    .transform((v) => (v === '' ? null : v))
-    .nullish(),
-  expectedQty: quantityString,
-  ...fleet,
-  notes: text(2000),
-});
+export const loadInputSchema = z
+  .object({
+    orderId: z.uuid(),
+    appointmentId: z.uuid().nullish(),
+    loadingDate: dateOnly,
+    expectedQty: quantityString,
+    ...transport,
+    notes: text(2000),
+  })
+  .superRefine(checkTransport);
 export type LoadInput = z.input<typeof loadInputSchema>;
 
-export const loadUpdateSchema = z.object({
-  expectedUpdatedAt: z.iso.datetime(),
-  loadingDate: loadInputSchema.shape.loadingDate,
-  ...fleet,
-  grossKg: optQty,
-  tareKg: optQty,
-  invoicedQty: optQty,
-  receivedQty: optQty,
-  notes: text(2000),
-});
+export const loadUpdateSchema = z
+  .object({
+    expectedUpdatedAt: z.iso.datetime(),
+    loadingDate: dateOnly,
+    ...transport,
+    grossKg: optQty,
+    tareKg: optQty,
+    invoicedQty: optQty,
+    receivedQty: optQty,
+    notes: text(2000),
+  })
+  .superRefine(checkTransport);
 export type LoadUpdateInput = z.input<typeof loadUpdateSchema>;
 
 export const loadTransitionSchema = z.object({
@@ -220,20 +307,40 @@ export const logisticsListQuery = z.object({
     .optional(),
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
-  carrierPartnerId: z.uuid().optional(),
+  /** Filtro por transportadora digitada (nome exato, como vem das sugestões). */
+  carrier: z.string().trim().max(160).optional(),
 });
 export type LogisticsListQuery = z.infer<typeof logisticsListQuery>;
 
-export interface FleetRefs {
-  carrier: { id: string; name: string } | null;
-  driver: { id: string; name: string; cnhStatus?: string } | null;
-  tractor: { id: string; plate: string } | null;
-  trailer: { id: string; plate: string } | null;
-  secondTrailer: { id: string; plate: string } | null;
+/** Situação da CNH na data do carregamento — o aviso continua existindo mesmo sem cadastro. */
+export type CnhStatus = 'OK' | 'EXPIRING' | 'EXPIRED' | 'UNKNOWN';
+
+export interface TransportDto {
+  carrierName: string | null;
+  driverName: string | null;
+  driverCpf: string | null;
+  driverRg: string | null;
+  driverPhone: string | null;
+  driverBirthDate: string | null;
+  driverCnh: string | null;
+  driverCnhCategory: string | null;
+  driverCnhExpiresAt: string | null;
+  driverCnhRestrictions: string | null;
+  cnhStatus: CnhStatus;
+  vehicles: TransportVehicle[];
   plates: string[];
 }
 
-export interface AppointmentDto extends FleetRefs {
+/** Sugestões de digitação, montadas a partir do que o grupo já usou. */
+export interface TransportSuggestions {
+  carriers: string[];
+  drivers: (Pick<TransportDto, 'driverName' | 'driverCpf' | 'driverRg' | 'driverPhone' | 'driverBirthDate' | 'driverCnh' | 'driverCnhCategory' | 'driverCnhExpiresAt' | 'driverCnhRestrictions'> & {
+    carrierName: string | null;
+  })[];
+  vehicles: TransportVehicle[];
+}
+
+export interface AppointmentDto extends TransportDto {
   id: string;
   order: { id: string; number: string; commodity: string | null; farm: string | null; unit: string };
   scheduledOn: string;
@@ -248,7 +355,7 @@ export interface AppointmentDto extends FleetRefs {
   allowedTransitions: AppointmentStatus[];
 }
 
-export interface LoadDto extends FleetRefs {
+export interface LoadDto extends TransportDto {
   id: string;
   number: string;
   order: { id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string; requiresReceipt: boolean };

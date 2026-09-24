@@ -287,17 +287,6 @@ export function PartnerDrawer({ id, open, defaultRoles, onClose, entityLabel }: 
                 <Field label="E-mail operacional" className={span[2]} error={errors.carrierProfile?.opsContactEmail?.message}>
                   {(a) => <Input {...a} {...form.register('carrierProfile.opsContactEmail')} />}
                 </Field>
-                {p ? (
-                  <div className="flex gap-2 text-sm sm:col-span-6">
-                    <Link href={`/cadastros/motoristas?transportadora=${p.id}`} className="text-primary hover:underline">
-                      {p.driversCount} motorista(s)
-                    </Link>
-                    <span className="text-subtle">·</span>
-                    <Link href={`/cadastros/veiculos?transportadora=${p.id}`} className="text-primary hover:underline">
-                      {p.vehiclesCount} veículo(s)
-                    </Link>
-                  </div>
-                ) : null}
               </FormSection>
             ) : null}
 

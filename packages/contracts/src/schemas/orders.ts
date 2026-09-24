@@ -29,6 +29,10 @@ export const ORDER_MATERIAL_FIELDS = [
   'cropYear',
   'loadingStartsOn',
   'loadingEndsOn',
+  'loadingLocationName',
+  'loadingLocationAddress',
+  'loadingLocationCity',
+  'loadingLocationState',
   'destinationName',
   'destinationAddress',
   'destinationCity',
@@ -70,9 +74,14 @@ export const orderDraftSchema = z
     currency: z.enum(['BRL', 'USD']).nullish(),
     freightMode: z.enum(FREIGHT_MODES).nullish(),
     freightEstimate: moneyString.nullish(),
-    preferredCarrierId: z.uuid().nullish(),
+    preferredCarrierName: optionalText(160),
     loadingStartsOn: dateOnly.nullish(),
     loadingEndsOn: dateOnly.nullish(),
+    /** Local de carregamento digitado: para onde o motorista vai (silo, armazém, ponto da fazenda). */
+    loadingLocationName: optionalText(160),
+    loadingLocationAddress: optionalText(255),
+    loadingLocationCity: optionalText(120),
+    loadingLocationState: z.string().length(2).toUpperCase().nullish(),
     tolerancePct: percentString.nullish(),
     /** Recebimento no destino exigido (padrão). Falso: a carga vai do trânsito direto ao faturamento da Matriz. */
     requiresReceipt: z.boolean().nullish(),
@@ -123,7 +132,7 @@ export const buyerOrderSchema = z
     destinationCity: optionalText(120),
     destinationState: z.string().length(2).toUpperCase().nullish(),
     freightMode: z.enum(FREIGHT_MODES).nullish(),
-    preferredCarrierId: z.uuid().nullish(),
+    preferredCarrierName: optionalText(160),
     buyerNotes: optionalText(4000),
   })
   .refine((v) => !v.loadingStartsOn || !v.loadingEndsOn || v.loadingStartsOn <= v.loadingEndsOn, {
@@ -350,7 +359,7 @@ export interface OrderListItem {
   quantities: OrderQuantities;
   totalValue: string | null;
   currency: string;
-  preferredCarrier: Ref | null;
+  preferredCarrierName: string | null;
   loadingStartsOn: string | null;
   loadingEndsOn: string | null;
   farmView: ViewSignalInfo;
@@ -368,6 +377,10 @@ export interface OrderDetail extends OrderListItem {
   freightEstimate: string | null;
   tolerancePct: string;
   requiresReceipt: boolean;
+  loadingLocationName: string | null;
+  loadingLocationAddress: string | null;
+  loadingLocationCity: string | null;
+  loadingLocationState: string | null;
   destinationName: string | null;
   destinationAddress: string | null;
   destinationCity: string | null;

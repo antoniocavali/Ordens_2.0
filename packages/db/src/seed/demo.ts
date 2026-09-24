@@ -153,16 +153,12 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     { personType: 'PJ', legalName: 'Exporta Grãos Ltda', tradeName: 'Exporta Grãos', document: '60701190000104', city: 'Paranaguá', state: 'PR' },
     ['BUYER'],
   );
-  const transAgro = await partner(
+  await partner(
     { personType: 'PJ', legalName: 'TransAgro Logística Ltda', tradeName: 'TransAgro', document: '07526557000100', city: 'Rondonópolis', state: 'MT' },
     ['CARRIER'],
   );
-  const rodoviaSul = await partner(
-    { personType: 'PJ', legalName: 'Rodovia Sul Transportes Ltda', tradeName: 'Rodovia Sul', document: '02916265000160', city: 'Cascavel', state: 'PR' },
-    ['CARRIER'],
-  );
 
-  // ─── Contatos, transportadoras, motoristas e veículos ───
+  // ─── Contatos e transporte ───
   await tx.partnerContact.createMany({
     data: [
       { tenantId, partnerId: joao.id, name: 'João da Silva', role: 'Proprietário', phone: '64999990001', isPrimary: true },
@@ -170,41 +166,44 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
       { tenantId, partnerId: abc.id, name: 'Paulo Ribeiro', role: 'Recebimento', phone: '42999990003', email: 'recebimento@coopabc.demo', isPrimary: true },
     ],
   });
-  for (const [carrier, rntrc, name, phone] of [
-    [transAgro, '12345678', 'Sandra Lopes', '66999994001'],
-    [rodoviaSul, '87654321', 'Ricardo Alves', '45999994002'],
-  ] as const) {
-    await tx.carrierProfile.create({
-      data: { partnerId: carrier.id, tenantId, rntrc, rntrcExpiresAt: dateOnly(addDays(now, 400)), opsContactName: name, opsContactPhone: phone },
-    });
-  }
-  const drivers = [
-    ['Antônio Pereira', '39053344705', transAgro.id, 'E', 300],
-    ['Carlos Mendonça', '71428793860', transAgro.id, 'E', 20],
-    ['Edson Batista', '15350946056', rodoviaSul.id, 'E', -10],
-    ['Gilmar Souza', '86288366757', rodoviaSul.id, 'D', 600],
-  ] as const;
-  const driverIds: Record<string, string> = {};
-  for (const [name, cpf, carrierPartnerId, cnhCategory, days] of drivers) {
-    const d = await tx.driver.create({
-      data: { tenantId, name, cpf, carrierPartnerId, cnhCategory, cnhExpiresAt: dateOnly(addDays(now, days)), phone: `669${cpf.slice(0, 8)}` },
-    });
-    driverIds[name] = d.id;
-  }
-  const vehicles = [
-    ['RVG1A23', 'TRUCK_TRACTOR', transAgro.id, null, 'Scania', 'R 450', 2022],
-    ['RVG2B34', 'BITRAIN', transAgro.id, '37000', 'Randon', 'Bitrem graneleiro', 2021],
-    ['PRS3C45', 'TRUCK_TRACTOR', rodoviaSul.id, null, 'Volvo', 'FH 540', 2023],
-    ['PRS4D56', 'ROAD_TRAIN', rodoviaSul.id, '57000', 'Librelato', 'Rodotrem graneleiro', 2020],
-  ] as const;
-  const vehicleIds: Record<string, string> = {};
-  for (const [plate, type, carrierPartnerId, capacityKg, brand, model, year] of vehicles) {
-    vehicleIds[plate] = (await tx.vehicle.create({ data: { tenantId, plate, type, carrierPartnerId, capacityKg, brand, model, year } })).id;
-  }
-  // Conjuntos válidos (motorista com CNH em dia + veículos da mesma transportadora).
-  const fleets = [
-    { carrierPartnerId: transAgro.id, driverId: driverIds['Antônio Pereira']!, tractorVehicleId: vehicleIds.RVG1A23!, trailerVehicleId: vehicleIds.RVG2B34!, plates: ['RVG1A23', 'RVG2B34'], truckT: 37 },
-    { carrierPartnerId: rodoviaSul.id, driverId: driverIds['Gilmar Souza']!, tractorVehicleId: vehicleIds.PRS3C45!, trailerVehicleId: vehicleIds.PRS4D56!, plates: ['PRS3C45', 'PRS4D56'], truckT: 50 },
+  // Transporte digitado: conjuntos plausíveis para os agendamentos e cargas (não há cadastro).
+  // Um deles tem CNH vencida de propósito, para exercitar o aviso na tela.
+  const transports = [
+    {
+      carrierName: 'Trans Agro Logística',
+      driverName: 'Antônio Pereira',
+      driverCpf: '39053344705',
+      driverRg: '1234567',
+      driverPhone: '66999991001',
+      driverBirthDate: dateOnly(addDays(now, -14_600)),
+      driverCnh: '01234567890',
+      driverCnhCategory: 'E',
+      driverCnhExpiresAt: dateOnly(addDays(now, 300)),
+      driverCnhRestrictions: 'EAR',
+      vehicles: [
+        { plate: 'RVG1A23', description: 'Scania R 450', type: 'TRUCK_TRACTOR', axles: 3, renavam: '12345678901' },
+        { plate: 'RVG2B34', description: 'Randon bitrem graneleiro', type: 'BITRAIN', axles: 4, renavam: '12345678902' },
+      ],
+      truckT: 37,
+    },
+    {
+      carrierName: 'Rodovia Sul Transportes',
+      driverName: 'Gilmar Souza',
+      driverCpf: '86288366757',
+      driverRg: '7654321',
+      driverPhone: '45999991002',
+      driverBirthDate: dateOnly(addDays(now, -16_800)),
+      driverCnh: '09876543210',
+      driverCnhCategory: 'D',
+      driverCnhExpiresAt: dateOnly(addDays(now, 600)),
+      driverCnhRestrictions: null,
+      vehicles: [
+        { plate: 'PRS3C45', description: 'Volvo FH 540', type: 'TRUCK_TRACTOR', axles: 3, renavam: '12345678903' },
+        { plate: 'PRS4D56', description: 'Librelato rodotrem graneleiro', type: 'ROAD_TRAIN', axles: 4, renavam: '12345678904' },
+        { plate: 'PRS5E67', description: 'Dolly', type: 'DOLLY', axles: 2, renavam: '12345678905' },
+      ],
+      truckT: 50,
+    },
   ];
 
   // ─── Organizações ───
@@ -332,7 +331,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     'PENDING_BILLING',
   ];
   const quantities = [300, 450, 600, 800, 1000, 1200, 1500, 2000];
-  const carriers = [transAgro.id, rodoviaSul.id, null];
+  const carrierNames = ['Trans Agro Logística', 'Rodovia Sul Transportes', null];
   const priorities = ['NORMAL', 'NORMAL', 'NORMAL', 'HIGH', 'LOW', 'URGENT'] as const;
   const orgUsers: Record<string, { userId: string; membershipId: string } | undefined> = {
     [orgJoao.id]: userIds['fazenda.joao@graoforte.demo'],
@@ -391,7 +390,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         currency: 'BRL',
         freightMode: r.pick(['FOB', 'CIF', 'TO_DEFINE'] as const),
         freightEstimate: pending ? null : String(qty * r.int(90, 180)) + '.00',
-        preferredCarrierId: r.pick(carriers),
+        preferredCarrierName: r.pick(carrierNames),
         loadingStartsOn: starts,
         loadingEndsOn: dateOnly(ends),
         tolerancePct: r.pick(['0', '0.5', '1', '2']),
@@ -487,19 +486,14 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     });
 
     // Totais operacionais nascem de cargas e agendamentos reais (recalc_order_quantities).
-    const fleet = r.pick(fleets);
+    const transport = r.pick(transports);
     const split = (total: number) => {
       const parts: number[] = [];
-      for (let left = total; left > 0; left -= fleet.truckT) parts.push(Math.min(fleet.truckT, left));
+      for (let left = total; left > 0; left -= transport.truckT) parts.push(Math.min(transport.truckT, left));
       return parts;
     };
-    const fleetData = {
-      carrierPartnerId: fleet.carrierPartnerId,
-      driverId: fleet.driverId,
-      tractorVehicleId: fleet.tractorVehicleId,
-      trailerVehicleId: fleet.trailerVehicleId,
-      plates: fleet.plates,
-    };
+    const { truckT: _truckT, ...transportFields } = transport;
+    const transportData = { ...transportFields, plates: transport.vehicles.map((v) => v.plate) };
     const loadedTarget = status === 'IN_PROGRESS' ? Math.round((released * r.int(20, 70)) / 100) : status === 'COMPLETED' ? qty : 0;
     const trucks = split(loadedTarget);
     const receivedTrucks = status === 'COMPLETED' ? trucks.length : Math.floor((trucks.length * r.int(30, 80)) / 100);
@@ -527,7 +521,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           sequence,
           loadingDate: dateOnly(loadingDate),
           expectedQty: String(tons),
-          ...fleetData,
+          ...transportData,
           tareKg: String(tareKg),
           grossKg: String(tareKg + netKg),
           netKg: String(netKg),
@@ -579,7 +573,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           quantity: String(netKg),
           quantityUnit: 'KG',
           productDescription: `${commodityCode} EM GRAOS`,
-          plate: fleet.plates[0] ?? null,
+          plate: transportData.plates[0] ?? null,
           protocolStatus: '100',
           createdBy: creator.userId,
           createdAt: issuedAt,
@@ -597,7 +591,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
             windowStart: '07:00',
             windowEnd: '11:00',
             expectedQty: String(tons),
-            ...fleetData,
+            ...transportData,
             status: 'CONFIRMED',
             createdBy: creator.userId,
           },

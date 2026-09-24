@@ -1,103 +1,102 @@
-import { ErrorCode, type FleetRefs } from '@ordens/contracts';
+import { ErrorCode, type CnhStatus, type TransportDto, type TransportVehicle, transportVehicleSchema } from '@ordens/contracts';
 import { Prisma, type Tx } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
 
-export interface FleetInput {
-  carrierPartnerId?: string | null;
-  driverId?: string | null;
-  tractorVehicleId?: string | null;
-  trailerVehicleId?: string | null;
-  secondTrailerVehicleId?: string | null;
+export interface TransportInput {
+  carrierName?: string | null;
+  driverName?: string | null;
+  driverCpf?: string | null;
+  driverRg?: string | null;
+  driverPhone?: string | null;
+  driverBirthDate?: string | null;
+  driverCnh?: string | null;
+  driverCnhCategory?: string | null;
+  driverCnhExpiresAt?: string | null;
+  driverCnhRestrictions?: string | null;
+  vehicles?: TransportVehicle[] | null;
 }
 
-const TRACTOR_TYPES = ['TRUCK_TRACTOR', 'TRUCK'];
-const TRAILER_TYPES = ['TRAILER', 'SEMI_TRAILER', 'BITRAIN', 'ROAD_TRAIN'];
-
-/** Valida transportadora, motorista e composição; retorna dados normalizados e placas. */
-export async function resolveFleet(tx: Tx, input: FleetInput) {
-  const fields: Record<string, string[]> = {};
-  const carrierId = input.carrierPartnerId ?? null;
-
-  if (carrierId) {
-    const role = await tx.partnerRoleAssignment.findFirst({ where: { partnerId: carrierId, role: 'CARRIER' } });
-    if (!role) fields.carrierPartnerId = ['Parceiro não é transportadora'];
-  }
-
-  if (input.driverId) {
-    const d = await tx.driver.findUnique({ where: { id: input.driverId } });
-    if (!d || d.archivedAt) fields.driverId = ['Motorista não encontrado'];
-    else {
-      if (d.status !== 'ACTIVE') fields.driverId = ['Motorista inativo ou bloqueado'];
-      else if (d.cnhExpiresAt && d.cnhExpiresAt.getTime() < Date.now()) fields.driverId = [`CNH de ${d.name} vencida`];
-      else if (carrierId && d.carrierPartnerId && d.carrierPartnerId !== carrierId) fields.driverId = ['Motorista de outra transportadora'];
-    }
-  }
-
-  const ids = [input.tractorVehicleId, input.trailerVehicleId, input.secondTrailerVehicleId].filter((v): v is string => Boolean(v));
-  const vehicles = ids.length ? await tx.vehicle.findMany({ where: { id: { in: ids } } }) : [];
-  const byId = new Map(vehicles.map((v) => [v.id, v]));
-  const check = (id: string | null | undefined, key: string, types: string[], label: string) => {
-    if (!id) return;
-    const v = byId.get(id);
-    if (!v || v.archivedAt) return (fields[key] = ['Veículo não encontrado']);
-    if (v.status !== 'ACTIVE') return (fields[key] = [`${v.plate} está inativo ou bloqueado`]);
-    if (!types.includes(v.type)) return (fields[key] = [`${v.plate} não é ${label}`]);
-    if (carrierId && v.carrierPartnerId && v.carrierPartnerId !== carrierId) fields[key] = [`${v.plate} pertence a outra transportadora`];
-  };
-  check(input.tractorVehicleId, 'tractorVehicleId', TRACTOR_TYPES, 'cavalo mecânico ou caminhão');
-  check(input.trailerVehicleId, 'trailerVehicleId', TRAILER_TYPES, 'carreta/implemento');
-  check(input.secondTrailerVehicleId, 'secondTrailerVehicleId', TRAILER_TYPES, 'carreta/implemento');
-  if (input.secondTrailerVehicleId && !input.trailerVehicleId) fields.secondTrailerVehicleId = ['Informe a primeira carreta antes da segunda'];
-  if (new Set(ids).size !== ids.length) fields.trailerVehicleId = ['O mesmo veículo foi informado mais de uma vez'];
-
-  if (Object.keys(fields).length) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Verifique a transportadora, o motorista e os veículos.', { fields });
-
-  return {
-    carrierPartnerId: carrierId,
-    driverId: input.driverId ?? null,
-    tractorVehicleId: input.tractorVehicleId ?? null,
-    trailerVehicleId: input.trailerVehicleId ?? null,
-    secondTrailerVehicleId: input.secondTrailerVehicleId ?? null,
-    plates: ids.map((id) => byId.get(id)!.plate),
-  };
-}
-
-interface FleetColumns {
-  carrierPartnerId: string | null;
-  driverId: string | null;
-  tractorVehicleId: string | null;
-  trailerVehicleId: string | null;
-  secondTrailerVehicleId: string | null;
+/** Colunas de transporte gravadas em `appointments` e `loads` (mesmo formato nas duas tabelas). */
+export interface TransportColumns {
+  carrierName: string | null;
+  driverName: string | null;
+  driverCpf: string | null;
+  driverRg: string | null;
+  driverPhone: string | null;
+  driverBirthDate: Date | null;
+  driverCnh: string | null;
+  driverCnhCategory: string | null;
+  driverCnhExpiresAt: Date | null;
+  driverCnhRestrictions: string | null;
+  vehicles: Prisma.JsonValue;
   plates: string[];
 }
 
-/** Carrega nomes de transportadoras, motoristas e placas para uma lista de registros (sem N+1). */
-export async function fleetRefs<T extends FleetColumns>(tx: Tx, rows: T[]): Promise<(row: T) => FleetRefs> {
-  const carrierIds = [...new Set(rows.map((r) => r.carrierPartnerId).filter((v): v is string => Boolean(v)))];
-  const driverIds = [...new Set(rows.map((r) => r.driverId).filter((v): v is string => Boolean(v)))];
-  const vehicleIds = [...new Set(rows.flatMap((r) => [r.tractorVehicleId, r.trailerVehicleId, r.secondTrailerVehicleId]).filter((v): v is string => Boolean(v)))];
-  const [carriers, drivers, vehicles] = await Promise.all([
-    carrierIds.length ? tx.businessPartner.findMany({ where: { id: { in: carrierIds } }, select: { id: true, legalName: true, tradeName: true } }) : [],
-    driverIds.length ? tx.driver.findMany({ where: { id: { in: driverIds } }, select: { id: true, name: true, cnhExpiresAt: true } }) : [],
-    vehicleIds.length ? tx.vehicle.findMany({ where: { id: { in: vehicleIds } }, select: { id: true, plate: true } }) : [],
-  ]);
-  const c = new Map(carriers.map((x) => [x.id, x]));
-  const d = new Map(drivers.map((x) => [x.id, x]));
-  const v = new Map(vehicles.map((x) => [x.id, x]));
-  const plate = (id: string | null) => (id && v.get(id) ? { id, plate: v.get(id)!.plate } : null);
-  return (row) => {
-    const carrier = row.carrierPartnerId ? c.get(row.carrierPartnerId) : undefined;
-    const driver = row.driverId ? d.get(row.driverId) : undefined;
-    return {
-      carrier: carrier ? { id: carrier.id, name: carrier.tradeName ?? carrier.legalName } : null,
-      driver: driver
-        ? { id: driver.id, name: driver.name, cnhStatus: driver.cnhExpiresAt && driver.cnhExpiresAt.getTime() < Date.now() ? 'EXPIRED' : 'OK' }
-        : null,
-      tractor: plate(row.tractorVehicleId),
-      trailer: plate(row.trailerVehicleId),
-      secondTrailer: plate(row.secondTrailerVehicleId),
-      plates: row.plates,
-    };
+const date = (v: string | null | undefined) => (v ? new Date(`${v}T00:00:00.000Z`) : null);
+
+/**
+ * Normaliza o transporte digitado para gravação. O Zod do contrato já validou placa, CPF, CNH e
+ * duplicidade; aqui só derivamos as placas (usadas em busca e na portaria) a partir da composição.
+ */
+export function resolveTransport(input: TransportInput) {
+  const vehicles = (input.vehicles ?? []).map((v) => ({
+    plate: v.plate,
+    description: v.description ?? null,
+    type: v.type,
+    axles: v.axles ?? null,
+    renavam: v.renavam ?? null,
+  }));
+  return {
+    carrierName: input.carrierName ?? null,
+    driverName: input.driverName ?? null,
+    driverCpf: input.driverCpf ?? null,
+    driverRg: input.driverRg ?? null,
+    driverPhone: input.driverPhone ?? null,
+    driverBirthDate: date(input.driverBirthDate),
+    driverCnh: input.driverCnh ?? null,
+    driverCnhCategory: input.driverCnhCategory ?? null,
+    driverCnhExpiresAt: date(input.driverCnhExpiresAt),
+    driverCnhRestrictions: input.driverCnhRestrictions ?? null,
+    vehicles: vehicles as unknown as Prisma.InputJsonValue,
+    plates: vehicles.map((v) => v.plate),
+  };
+}
+
+/** CNH vencida bloqueia; a menos de 30 dias do vencimento, avisa. */
+export function cnhStatus(expiresAt: Date | null, reference = new Date()): CnhStatus {
+  if (!expiresAt) return 'UNKNOWN';
+  const days = Math.floor((expiresAt.getTime() - reference.getTime()) / 86_400_000);
+  if (days < 0) return 'EXPIRED';
+  return days <= 30 ? 'EXPIRING' : 'OK';
+}
+
+const iso = (v: Date | null) => (v ? v.toISOString().slice(0, 10) : null);
+
+/** Lê a composição do jsonb descartando o que não tem o formato esperado (dado antigo ou manual). */
+export function readVehicles(value: Prisma.JsonValue): TransportVehicle[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const parsed = transportVehicleSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+/** Monta o transporte para resposta da API a partir das colunas da tabela. */
+export function transportDto(row: TransportColumns): TransportDto {
+  return {
+    carrierName: row.carrierName,
+    driverName: row.driverName,
+    driverCpf: row.driverCpf,
+    driverRg: row.driverRg,
+    driverPhone: row.driverPhone,
+    driverBirthDate: iso(row.driverBirthDate),
+    driverCnh: row.driverCnh,
+    driverCnhCategory: row.driverCnhCategory,
+    driverCnhExpiresAt: iso(row.driverCnhExpiresAt),
+    driverCnhRestrictions: row.driverCnhRestrictions,
+    cnhStatus: cnhStatus(row.driverCnhExpiresAt),
+    vehicles: readVehicles(row.vehicles),
+    plates: row.plates,
   };
 }
 

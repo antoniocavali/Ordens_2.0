@@ -129,6 +129,7 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       { key: 'farm', label: 'Fazenda', type: 'text' },
       { key: 'buyer', label: 'Comprador', type: 'text' },
       { key: 'carrier', label: 'Transportadora', type: 'text' },
+      { key: 'driver', label: 'Motorista', type: 'text' },
       { key: 'plates', label: 'Placas', type: 'text' },
       { key: 'unit', label: 'Unidade', type: 'text' },
       { key: 'expected_qty', label: 'Previsto', type: 'qty' },
@@ -139,7 +140,7 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
     ],
     sql: (p) => Prisma.sql`
       select l.number, lo.number as order_number, l.status::text as status, l.loading_date, c.name as commodity,
-        f.name as farm, ${partner('bp')} as buyer, ${partner('cp')} as carrier, array_to_string(l.plates, ' ') as plates,
+        f.name as farm, ${partner('bp')} as buyer, l.carrier_name as carrier, l.driver_name as driver, array_to_string(l.plates, ' ') as plates,
         ${unit} as unit, l.expected_qty, l.net_kg, l.received_qty, l.loaded_at, l.received_at,
         count(*) over () as total_count
       from loads l
@@ -147,7 +148,6 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       left join commodities c on c.id = lo.commodity_id
       left join farms f on f.id = lo.farm_id
       left join business_partners bp on bp.id = lo.buyer_partner_id
-      left join business_partners cp on cp.id = l.carrier_partner_id
       left join units u on u.id = lo.unit_id
       where coalesce(l.loading_date, (l.created_at at time zone ${TZ})::date) between ${p.from}::date and ${p.to}::date
         ${commodity(p)}
@@ -187,7 +187,6 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
   carriers: {
     columns: [
       { key: 'carrier', label: 'Transportadora', type: 'text' },
-      { key: 'document', label: 'CNPJ/CPF', type: 'text' },
       { key: 'loads', label: 'Cargas', type: 'number' },
       { key: 'net_t', label: 'Volume líquido (t)', type: 'qty' },
       { key: 'divergent', label: 'Cargas com divergência de peso', type: 'number' },
@@ -195,7 +194,7 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
     ],
     // Mesma regra de divergência do painel (Q24): recebido × líquido acima da tolerância (mínimo 0,5%).
     sql: (p) => Prisma.sql`
-      select ${partner('bp')} as carrier, bp.document, count(*) as loads,
+      select l.carrier_name as carrier, count(*) as loads,
         round(coalesce(sum(l.net_kg), 0) / 1000.0, 3) as net_t,
         count(*) filter (where d.divergent) as divergent,
         round(100.0 * count(*) filter (where d.divergent) / count(*), 1) as divergent_pct,
@@ -203,11 +202,11 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       from loads l
       join loading_orders lo on lo.id = l.order_id
       left join units u on u.id = lo.unit_id
-      join business_partners bp on bp.id = l.carrier_partner_id
       cross join lateral (select (l.received_qty is not null and l.net_kg > 0
         and abs(l.received_qty * coalesce(u.factor_to_kg, 1000) - l.net_kg) > l.net_kg * greatest(lo.tolerance_pct, 0.5) / 100) as divergent) d
-      where l.status <> 'CANCELLED' and l.created_at >= ${start(p)} and l.created_at < ${end(p)} ${commodity(p)}
-      group by bp.id, carrier, bp.document
+      where l.status <> 'CANCELLED' and l.carrier_name is not null
+        and l.created_at >= ${start(p)} and l.created_at < ${end(p)} ${commodity(p)}
+      group by l.carrier_name
       order by loads desc, carrier
       limit ${p.limit}`,
   },
