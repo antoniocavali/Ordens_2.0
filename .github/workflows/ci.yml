@@ -162,18 +162,18 @@ jobs:
             echo "E2E_PASSWORD=$demo"
           } >> "$GITHUB_ENV"
 
-      - name: MinIO e buckets privados
+      - name: Object storage compatível com S3 e buckets privados
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER="$S3_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$S3_SECRET_KEY" \
-            -e MINIO_API_CORS_ALLOW_ORIGIN="$WEB_ORIGIN" \
-            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
-          timeout 60 bash -c 'until curl -sf http://localhost:9000/minio/health/ready; do sleep 1; done'
-          docker run --rm --network host -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET_QUARANTINE -e S3_BUCKET_DOCUMENTS \
-            --entrypoint /bin/sh quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z -c '
-              set -eu
-              mc alias set local http://localhost:9000 "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
-              for b in "$S3_BUCKET_QUARANTINE" "$S3_BUCKET_DOCUMENTS"; do mc mb --ignore-existing "local/$b"; mc anonymous set none "local/$b"; done'
+          docker run -d --name s3 -p 9000:4566 \
+            -e SERVICES=s3 -e AWS_DEFAULT_REGION="$S3_REGION" \
+            -e AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" -e AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" \
+            -e EXTRA_CORS_ALLOWED_ORIGINS="$WEB_ORIGIN" \
+            localstack/localstack:4.0
+          timeout 120 bash -c 'until curl -sf http://localhost:9000/_localstack/health | grep -q "\"s3\": \"available\""; do sleep 2; done'
+          export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" AWS_DEFAULT_REGION="$S3_REGION"
+          for b in "$S3_BUCKET_QUARANTINE" "$S3_BUCKET_DOCUMENTS"; do
+            aws --endpoint-url http://localhost:9000 s3api create-bucket --bucket "$b"
+          done
 
       - name: Criar roles do banco
         env:

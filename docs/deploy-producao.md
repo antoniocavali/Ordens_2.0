@@ -36,6 +36,22 @@ mais lenta mas compatível com qualquer CPU). O ideal é mudar o tipo de process
 esse tipo de surpresa em outras imagens no futuro, acelera o hash de senha (Argon2id), TLS e o
 antivírus. Confirme dentro da VM com `lscpu | grep -i "sse4_2\|popcnt"` (encontrado = ok).
 
+**A imagem do MinIO não é mais pública** (desde setembro/2026, `quay.io/minio` e `minio/minio` no
+Docker Hub respondem `unauthorized` para quem não está autenticado). O servidor atual já tem a imagem
+baixada e continua funcionando, inclusive em `dc up -d --build`, porque o Docker só busca no registro
+o que não está em cache local. **Não rode `docker image prune -a`** nem recrie o servidor do zero sem
+antes resolver isso — sem a imagem em cache, o `minio` não sobe. Se precisar recuperá-la:
+
+```bash
+# No servidor, antes de qualquer limpeza: guarde uma cópia da imagem.
+docker save quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z-cpuv1 | gzip > /srv/ordens/backup/minio-image.tar.gz
+# Para restaurar em outra máquina:
+gunzip -c minio-image.tar.gz | docker load
+```
+
+O CI não usa mais o MinIO: os testes de upload rodam contra o LocalStack (S3 compatível, imagem
+pública), o que mantém a verificação automática do fluxo de upload direto sem depender desse registro.
+
 ```bash
 # Atualizações, relógio e ferramentas
 sudo apt update && sudo apt -y full-upgrade
