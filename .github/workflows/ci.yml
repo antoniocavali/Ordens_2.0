@@ -171,8 +171,22 @@ jobs:
             localstack/localstack:4.0
           timeout 120 bash -c 'until curl -sf http://localhost:9000/_localstack/health | grep -q "\"s3\": \"available\""; do sleep 2; done'
           export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" AWS_DEFAULT_REGION="$S3_REGION"
+          cat > /tmp/cors.json <<JSON
+          {
+            "CORSRules": [
+              {
+                "AllowedOrigins": ["$WEB_ORIGIN"],
+                "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
+                "AllowedHeaders": ["*"],
+                "ExposeHeaders": ["ETag"],
+                "MaxAgeSeconds": 3000
+              }
+            ]
+          }
+          JSON
           for b in "$S3_BUCKET_QUARANTINE" "$S3_BUCKET_DOCUMENTS"; do
             aws --endpoint-url http://localhost:9000 s3api create-bucket --bucket "$b"
+            aws --endpoint-url http://localhost:9000 s3api put-bucket-cors --bucket "$b" --cors-configuration file:///tmp/cors.json
           done
 
       - name: Criar roles do banco
@@ -212,6 +226,14 @@ jobs:
       - run: pnpm --filter @ordens/web e2e
         env:
           CI: 'true'
+
+      - name: Diagnóstico de uploads
+        if: failure()
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d ordens -c "select status, scan_status, count(*) from file_uploads group by 1, 2 order by 3 desc" || true
+          docker logs --tail 80 s3 || true
 
       - name: Artefatos da falha
         if: failure()
