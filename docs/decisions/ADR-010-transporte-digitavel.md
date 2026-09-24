@@ -24,12 +24,12 @@ Na operação real da Cooperfarms isso não se sustenta:
 Transportadora, motorista, composição de veículos e local de carregamento passam a ser **campos
 digitados**, no formato do documento apresentado pelo motorista:
 
-- `appointments` e `loads` recebem `carrier_name`, `driver_name`, `driver_cpf`, `driver_rg`,
+- `loading_orders`, `appointments` e `loads` recebem `carrier_name`, `driver_name`, `driver_cpf`, `driver_rg`,
   `driver_phone`, `driver_birth_date`, `driver_cnh`, `driver_cnh_category`, `driver_cnh_expires_at`,
   `driver_cnh_restrictions` e `vehicles jsonb` — uma lista `{plate, description, type, axles, renavam}`
   na ordem em que engata, sem limite de posições. `plates[]` continua derivado da lista (busca e portaria).
-- `loading_orders` recebe `loading_location_*` (nome, endereço, cidade, UF) e `preferred_carrier_name`.
-- A carga copia o transporte do agendamento e continua editável até a confirmação do carregamento.
+- `loading_orders` recebe também `loading_location_*` (nome, endereço, cidade, UF). O transporte é digitado já na ordem — o Comprador informa ao solicitar, no portal — e o agendamento nasce com esses dados quando não informa os próprios, porque o caminhão que chega nem sempre é o previsto.
+- O agendamento herda o transporte da ordem; a carga copia o do agendamento e continua editável até a confirmação do carregamento.
 - `GET /transport/suggestions` devolve o que o grupo de quem pergunta já digitou (transportadoras,
   motoristas por CPF, veículos por placa). A leitura passa pelo RLS, então a sugestão nunca cruza grupos.
   Escolher uma sugestão preenche os demais campos — não há retrabalho de digitação, e os relatórios

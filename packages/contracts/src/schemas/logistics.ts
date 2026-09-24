@@ -190,7 +190,8 @@ const dateOnly = z
   .transform((v) => (v === '' ? null : v))
   .nullish();
 
-const transport = {
+/** Campos do transporte digitado, compartilhados entre ordem, agendamento e carga. */
+export const transportFields = {
   carrierName: text(160),
   driverName: text(160),
   driverCpf: z
@@ -217,11 +218,13 @@ const transport = {
   driverCnhExpiresAt: dateOnly,
   /** Restrições da CNH, como no documento (ex.: "A", "X", "EAR"). */
   driverCnhRestrictions: text(40),
-  vehicles: z.array(transportVehicleSchema).max(6, 'No máximo 6 unidades na composição').default([]),
+  // Opcional de propósito: numa atualização parcial (o Faturamento completando a ordem, por
+  // exemplo) não enviar a composição significa não mexer nela, não apagá-la.
+  vehicles: z.array(transportVehicleSchema).max(6, 'No máximo 6 unidades na composição').optional(),
 };
 
 /** A mesma placa não pode aparecer duas vezes na composição. */
-function checkTransport(v: { vehicles?: { plate: string }[] | null }, ctx: z.RefinementCtx) {
+export function checkTransport(v: { vehicles?: { plate: string }[] | null }, ctx: z.RefinementCtx) {
   const seen = new Set<string>();
   (v.vehicles ?? []).forEach((vehicle, i) => {
     if (seen.has(vehicle.plate)) ctx.addIssue({ code: 'custom', path: ['vehicles', i, 'plate'], message: 'Placa repetida na composição' });
@@ -242,7 +245,7 @@ export const appointmentInputSchema = z
       .transform((v) => (v === '' ? null : v))
       .nullish(),
     expectedQty: quantityString,
-    ...transport,
+    ...transportFields,
     notes: text(2000),
   })
   .refine((v) => !v.windowStart || !v.windowEnd || v.windowStart < v.windowEnd, { message: 'Horário final deve ser após o inicial', path: ['windowEnd'] })
@@ -260,7 +263,7 @@ export const loadInputSchema = z
     appointmentId: z.uuid().nullish(),
     loadingDate: dateOnly,
     expectedQty: quantityString,
-    ...transport,
+    ...transportFields,
     notes: text(2000),
   })
   .superRefine(checkTransport);
@@ -270,7 +273,7 @@ export const loadUpdateSchema = z
   .object({
     expectedUpdatedAt: z.iso.datetime(),
     loadingDate: dateOnly,
-    ...transport,
+    ...transportFields,
     grossKg: optQty,
     tareKg: optQty,
     invoicedQty: optQty,

@@ -13,6 +13,7 @@ import {
   type ViewSignal,
 } from '../enums.js';
 import { moneyString, percentString, priceString, quantityString } from '../decimal.js';
+import { checkTransport, transportFields, type TransportDto } from './logistics.js';
 
 /**
  * Campos materiais: alteração após publicação gera nova versão (docs/versioning.md).
@@ -29,6 +30,10 @@ export const ORDER_MATERIAL_FIELDS = [
   'cropYear',
   'loadingStartsOn',
   'loadingEndsOn',
+  'carrierName',
+  'driverName',
+  'driverCpf',
+  'vehicles',
   'loadingLocationName',
   'loadingLocationAddress',
   'loadingLocationCity',
@@ -74,7 +79,8 @@ export const orderDraftSchema = z
     currency: z.enum(['BRL', 'USD']).nullish(),
     freightMode: z.enum(FREIGHT_MODES).nullish(),
     freightEstimate: moneyString.nullish(),
-    preferredCarrierName: optionalText(160),
+    // Transporte digitado na própria ordem (ADR-010): o agendamento herda e pode corrigir.
+    ...transportFields,
     loadingStartsOn: dateOnly.nullish(),
     loadingEndsOn: dateOnly.nullish(),
     /** Local de carregamento digitado: para onde o motorista vai (silo, armazém, ponto da fazenda). */
@@ -99,8 +105,11 @@ export const orderDraftSchema = z
   .refine((v) => !v.loadingStartsOn || !v.loadingEndsOn || v.loadingStartsOn <= v.loadingEndsOn, {
     message: 'A data limite deve ser posterior à data inicial',
     path: ['loadingEndsOn'],
-  });
+  })
+  .superRefine(checkTransport);
 export type OrderDraftInput = z.infer<typeof orderDraftSchema>;
+/** O que a tela envia (antes das transformações do Zod): eixos e quantidades chegam como texto. */
+export type OrderDraftPayload = z.input<typeof orderDraftSchema>;
 
 export const updateOrderSchema = z.object({
   expectedVersion: z.number().int().min(0),
@@ -132,14 +141,16 @@ export const buyerOrderSchema = z
     destinationCity: optionalText(120),
     destinationState: z.string().length(2).toUpperCase().nullish(),
     freightMode: z.enum(FREIGHT_MODES).nullish(),
-    preferredCarrierName: optionalText(160),
+    ...transportFields,
     buyerNotes: optionalText(4000),
   })
   .refine((v) => !v.loadingStartsOn || !v.loadingEndsOn || v.loadingStartsOn <= v.loadingEndsOn, {
     message: 'A data limite deve ser posterior à data inicial',
     path: ['loadingEndsOn'],
-  });
+  })
+  .superRefine(checkTransport);
 export type BuyerOrderInput = z.infer<typeof buyerOrderSchema>;
+export type BuyerOrderPayload = z.input<typeof buyerOrderSchema>;
 
 export const updateBuyerOrderSchema = z.strictObject({
   expectedUpdatedAt: z.iso.datetime(),
@@ -359,7 +370,8 @@ export interface OrderListItem {
   quantities: OrderQuantities;
   totalValue: string | null;
   currency: string;
-  preferredCarrierName: string | null;
+  /** Transporte digitado na ordem. */
+  transport: TransportDto;
   loadingStartsOn: string | null;
   loadingEndsOn: string | null;
   farmView: ViewSignalInfo;

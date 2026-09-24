@@ -1,5 +1,6 @@
 import type { OrderDetail, OrderListItem, ReleaseDto, Scope, ViewSignalInfo } from '@ordens/contracts';
 import { Prisma } from '@ordens/db';
+import { transportDto } from '../logistics/logistics.util.js';
 import type { OrderRow } from './orders.queries.js';
 
 export const dec = (v: Prisma.Decimal | null | undefined): string | null => (v == null ? null : new Prisma.Decimal(v).toString());
@@ -55,7 +56,20 @@ export function toListItem(row: OrderRow, scope: Scope): OrderListItem {
     },
     totalValue,
     currency: row.currency,
-    preferredCarrierName: row.preferred_carrier_name,
+    transport: transportDto({
+      carrierName: row.carrier_name,
+      driverName: row.driver_name,
+      driverCpf: row.driver_cpf,
+      driverRg: row.driver_rg,
+      driverPhone: row.driver_phone,
+      driverBirthDate: row.driver_birth_date,
+      driverCnh: row.driver_cnh,
+      driverCnhCategory: row.driver_cnh_category,
+      driverCnhExpiresAt: row.driver_cnh_expires_at,
+      driverCnhRestrictions: row.driver_cnh_restrictions,
+      vehicles: row.vehicles,
+      plates: row.plates ?? [],
+    }),
     loadingStartsOn: day(row.loading_starts_on),
     loadingEndsOn: day(row.loading_ends_on),
     farmView: signal(row, 'FARM', scope),

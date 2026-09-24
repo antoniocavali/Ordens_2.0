@@ -1,16 +1,17 @@
 'use client';
 
-import { FREIGHT_MODES, OPERATION_TYPES, type OrderDetail, type OrderDraftInput } from '@ordens/contracts';
+import { FREIGHT_MODES, OPERATION_TYPES, type OrderDetail, type OrderDraftInput, type OrderDraftPayload } from '@ordens/contracts';
 import { AsyncCombobox, Button, cn, Drawer, Field, Input, inputBase, Kbd, Textarea, type ComboOption } from '@ordens/ui';
 import { AlertCircle, CheckCircle2, CloudOff, Info, Loader2, Send, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Controller, useForm, useWatch, type UseFormReturn } from 'react-hook-form';
+import { Controller, FormProvider, useForm, useWatch, type UseFormReturn } from 'react-hook-form';
 import { toast } from 'sonner';
 import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ApiRequestError } from '@/lib/api';
 import { mulDec } from '@/lib/decimal';
 import { formatMoney, formatTime, parseDecimalInput, toDecimalInput } from '@/lib/format';
+import { emptyTransport, TransportFields, transportFromDto, transportPayload, type TransportValues } from '@/features/logistics/transport-fields';
 import { StatusBadge } from './indicators';
 import { useCan } from '@/lib/session';
 import { createOrder, lookups, publishOrder, requestPublishOrder, updateOrder, useInvalidateOrders, useUnits } from './orders-api';
@@ -19,7 +20,7 @@ import { useNoDestinationConfirm } from './destination-guard';
 
 // ───────────────────────────── Modelo do formulário ─────────────────────────────
 
-interface FormValues {
+interface FormValues extends TransportValues {
   externalNumber: string;
   orderDate: string;
   priority: string;
@@ -36,7 +37,6 @@ interface FormValues {
   currency: string;
   freightMode: string;
   freightEstimate: string;
-  preferredCarrierName: string;
   loadingLocationName: string;
   loadingLocationAddress: string;
   loadingLocationCity: string;
@@ -79,7 +79,7 @@ function fromDetail(o: OrderDetail | null): FormValues {
     currency: o?.currency ?? 'BRL',
     freightMode: o?.freightMode ?? '',
     freightEstimate: toDecimalInput(o?.freightEstimate),
-    preferredCarrierName: o?.preferredCarrierName ?? '',
+    ...(o ? transportFromDto(o.transport) : emptyTransport()),
     loadingLocationName: o?.loadingLocationName ?? '',
     loadingLocationAddress: o?.loadingLocationAddress ?? '',
     loadingLocationCity: o?.loadingLocationCity ?? '',
@@ -104,7 +104,7 @@ function fromDetail(o: OrderDetail | null): FormValues {
 const txt = (v: string) => (v.trim() ? v.trim() : null);
 const dec = (v: string) => (v.trim() ? parseDecimalInput(v) || null : null);
 
-function toPayload(v: FormValues): OrderDraftInput {
+function toPayload(v: FormValues): OrderDraftPayload {
   return {
     externalNumber: txt(v.externalNumber),
     orderDate: v.orderDate || null,
@@ -122,7 +122,7 @@ function toPayload(v: FormValues): OrderDraftInput {
     currency: (v.currency || 'BRL') as 'BRL' | 'USD',
     freightMode: (v.freightMode || null) as OrderDraftInput['freightMode'],
     freightEstimate: dec(v.freightEstimate),
-    preferredCarrierName: txt(v.preferredCarrierName),
+    ...transportPayload(v),
     loadingLocationName: txt(v.loadingLocationName),
     loadingLocationAddress: txt(v.loadingLocationAddress),
     loadingLocationCity: txt(v.loadingLocationCity),
@@ -441,6 +441,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
         }
       >
         <div ref={scrollRef} className="h-full overflow-y-auto overscroll-contain">
+          <FormProvider {...form}>
           <form onSubmit={(e) => e.preventDefault()} className="space-y-1 px-5 py-5 sm:px-7" noValidate>
             <AnimatePresence>
               {notice ? (
@@ -461,6 +462,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
             </AnimatePresence>
             <OrderFormSections form={form} orderId={current?.id ?? null} onNotice={setNotice} isDraft={isDraft} />
           </form>
+          </FormProvider>
         </div>
       </Drawer>
 
@@ -793,7 +795,7 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
       </Section>
 
-      <Section id="logistica" title="Logística" description="Motorista, veículo e placas são definidos no agendamento de cada carga — não na ordem.">
+      <Section id="logistica" title="Logística" description="O transporte é digitado aqui; o agendamento de cada carga nasce com estes dados e pode corrigi-los na portaria.">
         <Field label="Início do carregamento" required className={col[2]} error={err('loadingStartsOn')}>
           {(a) => <Input {...a} type="date" {...register('loadingStartsOn')} />}
         </Field>
@@ -802,9 +804,6 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
         <Field label="Tolerância (%)" className={col[2]} error={err('tolerancePct')} hint="Excedente permitido sobre a quantidade">
           {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...register('tolerancePct')} placeholder="0" />}
-        </Field>
-        <Field label="Transportadora preferencial" className={col[3]}>
-          {(a) => <Input {...a} {...register('preferredCarrierName')} placeholder="Transportadora a definir" />}
         </Field>
         <Field label="Modalidade de frete" className={col[3]}>
           {(a) => <Select {...a} {...register('freightMode')} placeholder="Selecionar…" options={FREIGHT_MODES.map((v) => ({ value: v, label: FREIGHT_LABEL[v] ?? v }))} />}
@@ -820,6 +819,7 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         >
           {(a) => <Input {...a} inputMode="decimal" disabled={!isDraft} className="text-right tabular" {...register('initialReleaseQty')} placeholder="0,000" />}
         </Field>
+        <TransportFields />
         <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 ring-1 ring-border hover:bg-surface-2 sm:col-span-6">
           <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-primary)]" {...register('requiresReceipt')} />
           <span className="min-w-0 text-sm">

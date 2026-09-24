@@ -29,7 +29,8 @@ export interface TransportColumns {
   driverCnhExpiresAt: Date | null;
   driverCnhRestrictions: string | null;
   vehicles: Prisma.JsonValue;
-  plates: string[];
+  /** A ordem não guarda placas: elas são derivadas da composição. */
+  plates?: string[];
 }
 
 const date = (v: string | null | undefined) => (v ? new Date(`${v}T00:00:00.000Z`) : null);
@@ -96,7 +97,7 @@ export function transportDto(row: TransportColumns): TransportDto {
     driverCnhRestrictions: row.driverCnhRestrictions,
     cnhStatus: cnhStatus(row.driverCnhExpiresAt),
     vehicles: readVehicles(row.vehicles),
-    plates: row.plates,
+    plates: row.plates ?? readVehicles(row.vehicles).map((v) => v.plate),
   };
 }
 

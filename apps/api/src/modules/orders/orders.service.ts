@@ -30,6 +30,7 @@ import {
 } from '@ordens/contracts';
 import { nextSequence, Prisma, shallowDiff, type Tx, type UnitOfWorkScope } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
+import { readVehicles } from '../logistics/logistics.util.js';
 import { currentAuth, currentRequest } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { dec, day, toDetail, toListItem } from './orders.mapper.js';
@@ -40,7 +41,7 @@ import { listReleases, releasesSummary } from './releases.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
 
-const DATE_FIELDS = new Set(['orderDate', 'loadingStartsOn', 'loadingEndsOn']);
+const DATE_FIELDS = new Set(['orderDate', 'loadingStartsOn', 'loadingEndsOn', 'driverBirthDate', 'driverCnhExpiresAt']);
 const ACTIVE_STATUSES = ['PUBLISHED', 'IN_PROGRESS', 'SUSPENDED'];
 
 const FIELD_LABELS: Record<string, string> = {
@@ -113,6 +114,9 @@ const REASON_VISIBLE_TO_BUYER = new Set(['order.returned', 'order.cancelled_by_b
 /** Serializa valores para comparação/snapshot (decimais normalizados, datas AAAA-MM-DD). */
 function normalize(field: string, value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  // O jsonb volta do banco com outra ordem de chaves: canoniza antes de comparar, senão salvar
+  // sem mudar nada geraria uma versão nova da ordem publicada.
+  if (field === 'vehicles') return readVehicles(value as Prisma.JsonValue);
   if (DATE_FIELDS.has(field) && value instanceof Date) return day(value);
   if (Prisma.Decimal.isDecimal(value)) return new Prisma.Decimal(value as Prisma.Decimal).toString();
   if (['quantity', 'unitPrice', 'tolerancePct', 'freightEstimate', 'initialReleaseQty'].includes(field) && typeof value === 'string') {

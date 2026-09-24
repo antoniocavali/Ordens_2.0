@@ -390,7 +390,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         currency: 'BRL',
         freightMode: r.pick(['FOB', 'CIF', 'TO_DEFINE'] as const),
         freightEstimate: pending ? null : String(qty * r.int(90, 180)) + '.00',
-        preferredCarrierName: r.pick(carrierNames),
+        // Transporte digitado já na ordem: parte das ordens nasce com ele, parte fica para o agendamento.
+        ...(r.pick([true, false]) ? { carrierName: transports[0]!.carrierName, driverName: transports[0]!.driverName, driverCpf: transports[0]!.driverCpf, vehicles: transports[0]!.vehicles } : { carrierName: r.pick(carrierNames) }),
         loadingStartsOn: starts,
         loadingEndsOn: dateOnly(ends),
         tolerancePct: r.pick(['0', '0.5', '1', '2']),

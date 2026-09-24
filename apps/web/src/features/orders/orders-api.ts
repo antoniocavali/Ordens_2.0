@@ -4,7 +4,7 @@ import type {
   CursorPage,
   LookupOption,
   OrderDetail,
-  OrderDraftInput,
+  OrderDraftPayload,
   OrderListItem,
   OrderListQuery,
   OrdersSummary,
@@ -58,8 +58,8 @@ export function useInvalidateOrders() {
   };
 }
 
-export const createOrder = (data: OrderDraftInput) => post<OrderDetail>('/orders', data);
-export const updateOrder = (id: string, expectedVersion: number, expectedUpdatedAt: string, data: OrderDraftInput) =>
+export const createOrder = (data: OrderDraftPayload) => post<OrderDetail>('/orders', data);
+export const updateOrder = (id: string, expectedVersion: number, expectedUpdatedAt: string, data: OrderDraftPayload) =>
   patch<OrderDetail>(`/orders/${id}`, { expectedVersion, expectedUpdatedAt, data });
 export const publishOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish`, { expectedUpdatedAt });
 // Portal do Comprador e Faturamento (Q41)

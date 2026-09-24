@@ -343,7 +343,7 @@ export function OrdersCenter() {
         size: 120,
         cell: ({ row: { original: o } }) => <span className="block text-right tabular">{o.totalValue ? formatMoney(o.totalValue, o.currency, true) : '—'}</span>,
       },
-      { id: 'carrier', header: 'Transportadora', size: 140, cell: ({ row: { original: o } }) => <span className="block truncate">{o.preferredCarrierName ?? 'A definir'}</span> },
+      { id: 'carrier', header: 'Transportadora', size: 140, cell: ({ row: { original: o } }) => <span className="block truncate">{o.transport.carrierName ?? 'A definir'}</span> },
       ...(scope !== 'BUYER'
         ? [
             {

@@ -982,8 +982,18 @@ model LoadingOrder {
   freightMode        FreightMode?   @map("freight_mode")
   freightEstimate    Decimal?       @map("freight_estimate") @db.Decimal(18, 2)
   preferredCarrierId String?        @map("preferred_carrier_id") @db.Uuid
-  /// Transportadora preferencial digitada (não há cadastro de transportadora).
-  preferredCarrierName String?      @map("preferred_carrier_name")
+  /// Transporte digitado já na ordem (o Comprador informa ao solicitar); o agendamento herda e pode corrigir.
+  carrierName        String?        @map("carrier_name")
+  driverName         String?        @map("driver_name")
+  driverCpf          String?        @map("driver_cpf")
+  driverRg           String?        @map("driver_rg")
+  driverPhone        String?        @map("driver_phone")
+  driverBirthDate    DateTime?      @map("driver_birth_date") @db.Date
+  driverCnh          String?        @map("driver_cnh")
+  driverCnhCategory  String?        @map("driver_cnh_category")
+  driverCnhExpiresAt DateTime?      @map("driver_cnh_expires_at") @db.Date
+  driverCnhRestrictions String?     @map("driver_cnh_restrictions")
+  vehicles           Json           @default("[]")
   loadingStartsOn    DateTime?      @map("loading_starts_on") @db.Date
   loadingEndsOn      DateTime?      @map("loading_ends_on") @db.Date
   tolerancePct       Decimal        @default(0) @map("tolerance_pct") @db.Decimal(9, 4)

@@ -16,13 +16,28 @@ import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
-import { assertWithinReleased, orderForLogistics, readVehicles, recalcOrder, resolveTransport, transportDto } from './logistics.util.js';
+import {
+  assertWithinReleased,
+  orderForLogistics,
+  readVehicles,
+  recalcOrder,
+  resolveTransport,
+  transportDto,
+  type TransportColumns,
+  type TransportInput,
+} from './logistics.util.js';
 import { LoadsService } from './loads.service.js';
 
 type AppointmentData = z.output<typeof appointmentInputSchema>;
 type AppointmentRow = NonNullable<Awaited<ReturnType<Tx['appointment']['findUnique']>>>;
 
 const ACTIVE: AppointmentStatus[] = ['REQUESTED', 'CONFIRMED', 'CHECKED_IN'];
+
+/** Transporte da ordem no formato do input do agendamento (datas como AAAA-MM-DD). */
+function transportOf(order: TransportColumns): TransportInput {
+  const { plates: _plates, cnhStatus: _cnhStatus, ...dto } = transportDto(order);
+  return { ...dto, driverCnhCategory: dto.driverCnhCategory as CnhCategory | null };
+}
 
 @Injectable()
 export class AppointmentsService {
@@ -68,7 +83,9 @@ export class AppointmentsService {
       const order = await orderForLogistics(tx, input.orderId);
       const fresh = await recalcOrder(tx, order.id);
       assertWithinReleased(fresh, input.expectedQty);
-      const transport = resolveTransport(input);
+      // O transporte é digitado na ordem (o Comprador informa ao solicitar): sem motorista nem
+      // veículo no agendamento, ele nasce com o da ordem, que ainda pode ser corrigido na portaria.
+      const transport = resolveTransport(input.driverName || input.vehicles?.length ? input : transportOf(fresh));
       const row = await tx.appointment.create({
         data: {
           tenantId: order.tenantId,

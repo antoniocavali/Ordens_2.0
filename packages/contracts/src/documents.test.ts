@@ -50,7 +50,7 @@ describe('schemas de cadastro', () => {
       vehicles: [{ plate: 'abc-1d23', type: 'TRUCK_TRACTOR' }],
     });
     expect(t.driverCpf).toBe('52998224725');
-    expect(t.vehicles[0]!.plate).toBe('ABC1D23');
+    expect(t.vehicles?.[0]?.plate).toBe('ABC1D23');
   });
 
   it('transporte digitado recusa CPF inválido e placa repetida na composição', () => {
