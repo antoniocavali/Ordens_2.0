@@ -12,5 +12,6 @@
 | [007](ADR-007-object-storage-upload-direto.md) | Object storage e upload direto desde a fundação | Aceito |
 | [008](ADR-008-toolchain-fixado.md) | Toolchain fixado | Aceito |
 | [009](ADR-009-stack-versoes.md) | Stack, ORM e tipos numéricos | Aceito |
+| [010](ADR-010-transporte-digitavel.md) | Transporte digitado, sem cadastro de transportadora, motorista, veículo e local | Aceito |
 
 Questões de negócio em aberto: [open-questions.md](open-questions.md).

@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { formatDate, formatQty } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { AppointmentDrawer } from './appointment-drawer';
-import { Plates } from './fleet-fields';
+import { Plates } from './transport-fields';
 import { AppointmentStatusBadge } from './load-status';
 import { useAppointments } from './logistics-api';
 
@@ -27,7 +27,7 @@ const weekday = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', timeZone: '
 const dayMonth = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', timeZone: 'UTC' });
 
 function AppointmentCard({ a, onOpen, compact }: { a: AppointmentDto; onOpen: () => void; compact?: boolean }) {
-  const noCarrier = !a.carrier && ['REQUESTED', 'CONFIRMED'].includes(a.status);
+  const noCarrier = !a.carrierName && ['REQUESTED', 'CONFIRMED'].includes(a.status);
   return (
     <motion.button
       layout
@@ -79,7 +79,7 @@ export function AppointmentsPage() {
   const shift = (dir: number) => setAnchor(iso(new Date(utc(anchor).getTime() + dir * step * DAY_MS)));
 
   const active = items.filter((a) => ['REQUESTED', 'CONFIRMED', 'CHECKED_IN'].includes(a.status));
-  const withoutCarrier = active.filter((a) => !a.carrier).length;
+  const withoutCarrier = active.filter((a) => !a.carrierName).length;
 
   const openNew = (date?: string) => {
     setNewDate(date);
@@ -165,7 +165,7 @@ export function AppointmentsPage() {
                     <span className="text-sm font-medium">{formatDate(a.scheduledOn)}</span>
                     <span className="font-mono text-sm">{a.order.number}</span>
                     <span className="truncate text-sm text-muted">
-                      {a.order.farm} · {a.driver?.name ?? 'motorista a definir'}
+                      {a.order.farm} · {a.driverName ?? 'motorista a definir'}
                     </span>
                     <Plates plates={a.plates} />
                     <span className="text-right text-sm tabular">{formatQty(a.expectedQty, a.order.unit)}</span>

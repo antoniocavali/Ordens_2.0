@@ -30,6 +30,7 @@ import {
 } from '@ordens/contracts';
 import { nextSequence, Prisma, shallowDiff, type Tx, type UnitOfWorkScope } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
+import { readVehicles } from '../logistics/logistics.util.js';
 import { currentAuth, currentRequest } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { dec, day, toDetail, toListItem } from './orders.mapper.js';
@@ -40,7 +41,7 @@ import { listReleases, releasesSummary } from './releases.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
 
-const DATE_FIELDS = new Set(['orderDate', 'loadingStartsOn', 'loadingEndsOn']);
+const DATE_FIELDS = new Set(['orderDate', 'loadingStartsOn', 'loadingEndsOn', 'driverBirthDate', 'driverCnhExpiresAt']);
 const ACTIVE_STATUSES = ['PUBLISHED', 'IN_PROGRESS', 'SUSPENDED'];
 
 const FIELD_LABELS: Record<string, string> = {
@@ -113,6 +114,9 @@ const REASON_VISIBLE_TO_BUYER = new Set(['order.returned', 'order.cancelled_by_b
 /** Serializa valores para comparação/snapshot (decimais normalizados, datas AAAA-MM-DD). */
 function normalize(field: string, value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  // O jsonb volta do banco com outra ordem de chaves: canoniza antes de comparar, senão salvar
+  // sem mudar nada geraria uma versão nova da ordem publicada.
+  if (field === 'vehicles') return readVehicles(value as Prisma.JsonValue);
   if (DATE_FIELDS.has(field) && value instanceof Date) return day(value);
   if (Prisma.Decimal.isDecimal(value)) return new Prisma.Decimal(value as Prisma.Decimal).toString();
   if (['quantity', 'unitPrice', 'tolerancePct', 'freightEstimate', 'initialReleaseQty'].includes(field) && typeof value === 'string') {
@@ -1044,9 +1048,6 @@ export class OrdersService {
       if (!c || c.status !== 'ACTIVE') fields.commodityId = ['Commodity não encontrada ou inativa'];
     }
     if (i.unitId && !(await tx.unit.findUnique({ where: { id: i.unitId }, select: { id: true } }))) fields.unitId = ['Unidade não encontrada'];
-    if (i.preferredCarrierId && !(await tx.partnerRoleAssignment.findFirst({ where: { partnerId: i.preferredCarrierId, role: 'CARRIER' } }))) {
-      fields.preferredCarrierId = ['Parceiro não é transportadora'];
-    }
     if (Object.keys(fields).length) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Verifique os dados da solicitação.', { fields });
   }
 
@@ -1307,7 +1308,7 @@ export class OrdersService {
   /** Impede combinações inconsistentes com mensagens por campo (o trigger do banco é a segunda barreira). */
   private async validateRelations(tx: Tx, o: Partial<OrderDraftInput>) {
     const fields: Record<string, string[]> = {};
-    const partnerIds = [o.sellerPartnerId, o.buyerPartnerId, o.preferredCarrierId].filter((v): v is string => Boolean(v));
+    const partnerIds = [o.sellerPartnerId, o.buyerPartnerId].filter((v): v is string => Boolean(v));
     const roles = partnerIds.length
       ? await tx.partnerRoleAssignment.findMany({ where: { partnerId: { in: partnerIds } } })
       : [];
@@ -1315,9 +1316,6 @@ export class OrdersService {
 
     if (o.sellerPartnerId && !hasRole(o.sellerPartnerId, 'SELLER')) fields.sellerPartnerId = ['Parceiro não é vendedor ou não está disponível'];
     if (o.buyerPartnerId && !hasRole(o.buyerPartnerId, 'BUYER')) fields.buyerPartnerId = ['Parceiro não é comprador ou não está disponível'];
-    if (o.preferredCarrierId && !hasRole(o.preferredCarrierId, 'CARRIER')) {
-      fields.preferredCarrierId = ['Parceiro não é transportadora ou não está disponível'];
-    }
 
     if (o.farmId) {
       const farm = await tx.farm.findUnique({ where: { id: o.farmId }, select: { ownerPartnerId: true, name: true } });

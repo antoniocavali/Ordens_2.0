@@ -982,6 +982,18 @@ model LoadingOrder {
   freightMode        FreightMode?   @map("freight_mode")
   freightEstimate    Decimal?       @map("freight_estimate") @db.Decimal(18, 2)
   preferredCarrierId String?        @map("preferred_carrier_id") @db.Uuid
+  /// Transporte digitado já na ordem (o Comprador informa ao solicitar); o agendamento herda e pode corrigir.
+  carrierName        String?        @map("carrier_name")
+  driverName         String?        @map("driver_name")
+  driverCpf          String?        @map("driver_cpf")
+  driverRg           String?        @map("driver_rg")
+  driverPhone        String?        @map("driver_phone")
+  driverBirthDate    DateTime?      @map("driver_birth_date") @db.Date
+  driverCnh          String?        @map("driver_cnh")
+  driverCnhCategory  String?        @map("driver_cnh_category")
+  driverCnhExpiresAt DateTime?      @map("driver_cnh_expires_at") @db.Date
+  driverCnhRestrictions String?     @map("driver_cnh_restrictions")
+  vehicles           Json           @default("[]")
   loadingStartsOn    DateTime?      @map("loading_starts_on") @db.Date
   loadingEndsOn      DateTime?      @map("loading_ends_on") @db.Date
   tolerancePct       Decimal        @default(0) @map("tolerance_pct") @db.Decimal(9, 4)
@@ -990,6 +1002,11 @@ model LoadingOrder {
   completedBy        String?        @map("completed_by") @db.Uuid
   completionReason   String?        @map("completion_reason")
   completionVia      String?        @map("completion_via")
+  /// Local de carregamento digitado (silo, armazém, ponto da fazenda): o motorista vai até aqui.
+  loadingLocationName    String?    @map("loading_location_name")
+  loadingLocationAddress String?    @map("loading_location_address")
+  loadingLocationCity    String?    @map("loading_location_city")
+  loadingLocationState   String?    @map("loading_location_state") @db.Char(2)
   destinationName    String?        @map("destination_name")
   destinationAddress String?        @map("destination_address")
   destinationCity    String?        @map("destination_city")
@@ -1097,6 +1114,19 @@ model Appointment {
   tractorVehicleId       String?           @map("tractor_vehicle_id") @db.Uuid
   trailerVehicleId       String?           @map("trailer_vehicle_id") @db.Uuid
   secondTrailerVehicleId String?           @map("second_trailer_vehicle_id") @db.Uuid
+  /// Transporte digitado (não há cadastro de transportadora/motorista/veículo): a API sugere o que
+  /// o grupo já usou antes. `vehicles` é a composição na ordem em que engata, sem limite de posições.
+  carrierName            String?           @map("carrier_name")
+  driverName             String?           @map("driver_name")
+  driverCpf              String?           @map("driver_cpf")
+  driverRg               String?           @map("driver_rg")
+  driverPhone            String?           @map("driver_phone")
+  driverBirthDate        DateTime?         @map("driver_birth_date") @db.Date
+  driverCnh              String?           @map("driver_cnh")
+  driverCnhCategory      String?           @map("driver_cnh_category")
+  driverCnhExpiresAt     DateTime?         @map("driver_cnh_expires_at") @db.Date
+  driverCnhRestrictions  String?           @map("driver_cnh_restrictions")
+  vehicles               Json              @default("[]")
   plates                 String[]          @default([])
   status                 AppointmentStatus @default(REQUESTED)
   notes                  String?
@@ -1130,6 +1160,18 @@ model Load {
   tractorVehicleId       String?    @map("tractor_vehicle_id") @db.Uuid
   trailerVehicleId       String?    @map("trailer_vehicle_id") @db.Uuid
   secondTrailerVehicleId String?    @map("second_trailer_vehicle_id") @db.Uuid
+  /// Transporte digitado, copiado do agendamento e ainda editável até o carregamento começar.
+  carrierName            String?    @map("carrier_name")
+  driverName             String?    @map("driver_name")
+  driverCpf              String?    @map("driver_cpf")
+  driverRg               String?    @map("driver_rg")
+  driverPhone            String?    @map("driver_phone")
+  driverBirthDate        DateTime?  @map("driver_birth_date") @db.Date
+  driverCnh              String?    @map("driver_cnh")
+  driverCnhCategory      String?    @map("driver_cnh_category")
+  driverCnhExpiresAt     DateTime?  @map("driver_cnh_expires_at") @db.Date
+  driverCnhRestrictions  String?    @map("driver_cnh_restrictions")
+  vehicles               Json       @default("[]")
   plates                 String[]   @default([])
   grossKg                Decimal?   @map("gross_kg") @db.Decimal(18, 4)
   tareKg                 Decimal?   @map("tare_kg") @db.Decimal(18, 4)

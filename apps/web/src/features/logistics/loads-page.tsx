@@ -7,7 +7,7 @@ import { motion } from 'motion/react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { formatDate, formatQty, formatRelative } from '@/lib/format';
-import { Plates } from './fleet-fields';
+import { Plates } from './transport-fields';
 import { LoadDrawer } from './load-drawer';
 import { LoadStatusBadge } from './load-status';
 import { useLoads } from './logistics-api';
@@ -156,8 +156,8 @@ export function LoadsPage({ orderId, embedded }: { orderId?: string; embedded?: 
                     <Plates plates={l.plates} />
                   </td>
                   <td className="px-4">
-                    <div className="truncate">{l.driver?.name ?? <span className="text-subtle">A definir</span>}</div>
-                    <div className="truncate text-[11px] text-subtle">{l.carrier?.name ?? ''}</div>
+                    <div className="truncate">{l.driverName ?? <span className="text-subtle">A definir</span>}</div>
+                    <div className="truncate text-[11px] text-subtle">{l.carrierName ?? ''}</div>
                   </td>
                   <td className="px-4 text-right tabular">{formatQty(l.expectedQty, l.order.unit)}</td>
                   <td className="px-4 text-right tabular">{l.netKg ? formatQty(l.netKg, 'kg') : '—'}</td>

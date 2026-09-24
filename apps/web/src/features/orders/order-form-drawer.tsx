@@ -1,16 +1,17 @@
 'use client';
 
-import { FREIGHT_MODES, OPERATION_TYPES, type OrderDetail, type OrderDraftInput } from '@ordens/contracts';
+import { FREIGHT_MODES, OPERATION_TYPES, type OrderDetail, type OrderDraftInput, type OrderDraftPayload } from '@ordens/contracts';
 import { AsyncCombobox, Button, cn, Drawer, Field, Input, inputBase, Kbd, Textarea, type ComboOption } from '@ordens/ui';
 import { AlertCircle, CheckCircle2, CloudOff, Info, Loader2, Send, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Controller, useForm, useWatch, type UseFormReturn } from 'react-hook-form';
+import { Controller, FormProvider, useForm, useWatch, type UseFormReturn } from 'react-hook-form';
 import { toast } from 'sonner';
 import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ApiRequestError } from '@/lib/api';
 import { mulDec } from '@/lib/decimal';
 import { formatMoney, formatTime, parseDecimalInput, toDecimalInput } from '@/lib/format';
+import { emptyTransport, TransportFields, transportFromDto, transportPayload, type TransportValues } from '@/features/logistics/transport-fields';
 import { StatusBadge } from './indicators';
 import { useCan } from '@/lib/session';
 import { createOrder, lookups, publishOrder, requestPublishOrder, updateOrder, useInvalidateOrders, useUnits } from './orders-api';
@@ -19,7 +20,7 @@ import { useNoDestinationConfirm } from './destination-guard';
 
 // ───────────────────────────── Modelo do formulário ─────────────────────────────
 
-interface FormValues {
+interface FormValues extends TransportValues {
   externalNumber: string;
   orderDate: string;
   priority: string;
@@ -36,7 +37,10 @@ interface FormValues {
   currency: string;
   freightMode: string;
   freightEstimate: string;
-  carrier: ComboOption | null;
+  loadingLocationName: string;
+  loadingLocationAddress: string;
+  loadingLocationCity: string;
+  loadingLocationState: string;
   loadingStartsOn: string;
   loadingEndsOn: string;
   tolerancePct: string;
@@ -75,7 +79,11 @@ function fromDetail(o: OrderDetail | null): FormValues {
     currency: o?.currency ?? 'BRL',
     freightMode: o?.freightMode ?? '',
     freightEstimate: toDecimalInput(o?.freightEstimate),
-    carrier: opt(o?.preferredCarrier?.id, o?.preferredCarrier?.name),
+    ...(o ? transportFromDto(o.transport) : emptyTransport()),
+    loadingLocationName: o?.loadingLocationName ?? '',
+    loadingLocationAddress: o?.loadingLocationAddress ?? '',
+    loadingLocationCity: o?.loadingLocationCity ?? '',
+    loadingLocationState: o?.loadingLocationState ?? '',
     loadingStartsOn: o?.loadingStartsOn ?? '',
     loadingEndsOn: o?.loadingEndsOn ?? '',
     tolerancePct: toDecimalInput(o?.tolerancePct && o.tolerancePct !== '0' ? o.tolerancePct : ''),
@@ -96,7 +104,7 @@ function fromDetail(o: OrderDetail | null): FormValues {
 const txt = (v: string) => (v.trim() ? v.trim() : null);
 const dec = (v: string) => (v.trim() ? parseDecimalInput(v) || null : null);
 
-function toPayload(v: FormValues): OrderDraftInput {
+function toPayload(v: FormValues): OrderDraftPayload {
   return {
     externalNumber: txt(v.externalNumber),
     orderDate: v.orderDate || null,
@@ -114,7 +122,11 @@ function toPayload(v: FormValues): OrderDraftInput {
     currency: (v.currency || 'BRL') as 'BRL' | 'USD',
     freightMode: (v.freightMode || null) as OrderDraftInput['freightMode'],
     freightEstimate: dec(v.freightEstimate),
-    preferredCarrierId: v.carrier?.id ?? null,
+    ...transportPayload(v),
+    loadingLocationName: txt(v.loadingLocationName),
+    loadingLocationAddress: txt(v.loadingLocationAddress),
+    loadingLocationCity: txt(v.loadingLocationCity),
+    loadingLocationState: v.loadingLocationState.trim() ? v.loadingLocationState.trim().toUpperCase() : null,
     loadingStartsOn: v.loadingStartsOn || null,
     loadingEndsOn: v.loadingEndsOn || null,
     tolerancePct: dec(v.tolerancePct),
@@ -139,7 +151,6 @@ const API_TO_FORM: Record<string, keyof FormValues> = {
   farmId: 'farm',
   buyerPartnerId: 'buyer',
   commodityId: 'commodity',
-  preferredCarrierId: 'carrier',
 };
 
 const SECTIONS = [
@@ -430,6 +441,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
         }
       >
         <div ref={scrollRef} className="h-full overflow-y-auto overscroll-contain">
+          <FormProvider {...form}>
           <form onSubmit={(e) => e.preventDefault()} className="space-y-1 px-5 py-5 sm:px-7" noValidate>
             <AnimatePresence>
               {notice ? (
@@ -450,6 +462,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
             </AnimatePresence>
             <OrderFormSections form={form} orderId={current?.id ?? null} onNotice={setNotice} isDraft={isDraft} />
           </form>
+          </FormProvider>
         </div>
       </Drawer>
 
@@ -756,24 +769,17 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
             {farm?.meta?.city ? `${farm.meta.city}/${farm.meta.state}` : '—'}
           </div>
         </div>
-        <Field label="Local cadastrado" className={col[6]} hint="Preenche o destino abaixo; você ainda pode ajustar os campos nesta ordem.">
-          {(a) => (
-            <AsyncCombobox
-              {...a}
-              value={null}
-              onChange={(v) => {
-                if (!v?.meta) return;
-                setValue('destinationName', v.meta.name ?? v.label, dirty);
-                setValue('destinationCity', v.meta.city ?? '', dirty);
-                setValue('destinationState', v.meta.state ?? '', dirty);
-                setValue('destinationAddress', v.meta.address ?? '', dirty);
-              }}
-              queryKey={['lookup', 'locations', buyer?.id ?? null]}
-              fetchPage={lookups.locations(buyer?.id)}
-              placeholder={buyer ? `Buscar local de ${buyer.label} ou de uso geral…` : 'Buscar armazém, porto ou indústria…'}
-              emptyText="Nenhum local cadastrado. Cadastre em Cadastros > Locais."
-            />
-          )}
+        <Field label="Local de carregamento" className={col[3]} hint="Para onde o motorista vai: silo, armazém ou ponto da fazenda.">
+          {(a) => <Input {...a} {...register('loadingLocationName')} placeholder={farm ? `Ex.: Armazém da ${farm.label}` : 'Ex.: Armazém sede'} />}
+        </Field>
+        <Field label="Cidade do carregamento" className={col[2]}>
+          {(a) => <Input {...a} {...register('loadingLocationCity')} />}
+        </Field>
+        <Field label="UF do carregamento" className="sm:col-span-1">
+          {(a) => <Input {...a} maxLength={2} className="uppercase" {...register('loadingLocationState')} />}
+        </Field>
+        <Field label="Endereço do carregamento" className={col[6]}>
+          {(a) => <Input {...a} {...register('loadingLocationAddress')} />}
         </Field>
         <Field label="Destino / unidade de recebimento" className={col[3]}>
           {(a) => <Input {...a} {...register('destinationName')} placeholder={buyer ? `Unidade de ${buyer.label}` : 'Ex.: Fábrica Chapecó'} />}
@@ -789,7 +795,7 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
       </Section>
 
-      <Section id="logistica" title="Logística" description="Motorista, veículo e placas são definidos no agendamento de cada carga — não na ordem.">
+      <Section id="logistica" title="Logística" description="O transporte é digitado aqui; o agendamento de cada carga nasce com estes dados e pode corrigi-los na portaria.">
         <Field label="Início do carregamento" required className={col[2]} error={err('loadingStartsOn')}>
           {(a) => <Input {...a} type="date" {...register('loadingStartsOn')} />}
         </Field>
@@ -798,15 +804,6 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
         <Field label="Tolerância (%)" className={col[2]} error={err('tolerancePct')} hint="Excedente permitido sobre a quantidade">
           {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...register('tolerancePct')} placeholder="0" />}
-        </Field>
-        <Field label="Transportadora preferencial" className={col[3]}>
-          {(a) => (
-            <Controller
-              control={control}
-              name="carrier"
-              render={({ field }) => <AsyncCombobox {...a} value={field.value} onChange={field.onChange} queryKey={['lookup', 'carriers']} fetchPage={lookups.carriers()} placeholder="Transportadora a definir" />}
-            />
-          )}
         </Field>
         <Field label="Modalidade de frete" className={col[3]}>
           {(a) => <Select {...a} {...register('freightMode')} placeholder="Selecionar…" options={FREIGHT_MODES.map((v) => ({ value: v, label: FREIGHT_LABEL[v] ?? v }))} />}
@@ -822,6 +819,7 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         >
           {(a) => <Input {...a} inputMode="decimal" disabled={!isDraft} className="text-right tabular" {...register('initialReleaseQty')} placeholder="0,000" />}
         </Field>
+        <TransportFields />
         <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 ring-1 ring-border hover:bg-surface-2 sm:col-span-6">
           <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-primary)]" {...register('requiresReceipt')} />
           <span className="min-w-0 text-sm">
