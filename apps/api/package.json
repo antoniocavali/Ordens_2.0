@@ -14,11 +14,11 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1132.0",
     "@aws-sdk/s3-request-presigner": "^3.1132.0",
-    "@nestjs/common": "12.0.3",
-    "@nestjs/core": "12.0.3",
-    "@nestjs/platform-express": "12.0.3",
+    "@nestjs/common": "12.0.4",
+    "@nestjs/core": "12.0.4",
+    "@nestjs/platform-express": "12.0.4",
     "@nestjs/swagger": "12.0.1",
-    "@nestjs/throttler": "6.5.0",
+    "@nestjs/throttler": "6.7.0",
     "@ordens/contracts": "workspace:*",
     "@ordens/db": "workspace:*",
     "@ordens/reports": "workspace:*",
@@ -38,7 +38,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@nestjs/testing": "12.0.3",
+    "@nestjs/testing": "12.0.4",
     "@ordens/config": "workspace:*",
     "@swc/core": "^1.16.2",
     "@types/cookie-parser": "^1.4.10",
