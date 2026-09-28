@@ -8,6 +8,7 @@ import {
   UPLOAD_RULES,
   type InitiateUploadInput,
   type InitiateUploadResponse,
+  type LoadStatus,
   type UploadDto,
 } from '@ordens/contracts';
 import type { Tx } from '@ordens/db';
@@ -21,7 +22,15 @@ type UploadRecord = NonNullable<Awaited<ReturnType<Tx['fileUpload']['findUnique'
 
 const MAX_PARTS = 10_000;
 
-function toDto(u: UploadRecord, uploadedParts?: { partNumber: number; etag: string }[]): UploadDto {
+/**
+ * Fora da Matriz, corrigir um anexo só vale enquanto a documentação fiscal não foi validada — a mesma
+ * régua do cancelamento da NF-e (ver invoices.service). Depois disso, só a Matriz mexe.
+ */
+const EXTERNAL_CAN_REMOVE: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING', 'LOADED', 'AWAITING_FARM_INVOICE'];
+/** Envio em andamento não se remove: cancela-se (abort), que também libera o multipart no storage. */
+const IN_FLIGHT = ['PENDING', 'UPLOADING'];
+
+function toDto(u: UploadRecord, uploadedParts?: { partNumber: number; etag: string }[], removedByName?: string | null): UploadDto {
   return {
     id: u.id,
     entityType: u.entityType,
@@ -34,6 +43,9 @@ function toDto(u: UploadRecord, uploadedParts?: { partNumber: number; etag: stri
     scanStatus: u.scanStatus,
     sha256: u.sha256Actual ?? u.sha256Declared,
     createdAt: u.createdAt.toISOString(),
+    removedAt: u.removedAt?.toISOString() ?? null,
+    removedBy: removedByName ?? null,
+    removeReason: u.removeReason,
     ...(uploadedParts ? { uploadedParts } : {}),
   };
 }
@@ -205,7 +217,65 @@ export class UploadsService {
         orderBy: { createdAt: 'desc' },
         take: 200,
       });
-      return rows.map((r) => toDto(r));
+      // Removidos continuam na lista, marcados e com o motivo: quem confere precisa ver que o arquivo
+      // saiu e por quê, em vez de ele simplesmente desaparecer da tela.
+      const removedBy = [...new Set(rows.map((r) => r.removedBy).filter((v): v is string => Boolean(v)))];
+      const users = removedBy.length ? await tx.user.findMany({ where: { id: { in: removedBy } }, select: { id: true, name: true } }) : [];
+      const names = new Map(users.map((u) => [u.id, u.name]));
+      return rows.map((r) => toDto(r, undefined, r.removedBy ? (names.get(r.removedBy) ?? null) : null));
+    });
+  }
+
+  /**
+   * Tira o arquivo da conferência fiscal sem apagar o rastro: o registro fica como REMOVED com autor,
+   * data e motivo, e o objeto permanece no storage. Se o XML já tinha virado NF-e, ela é cancelada
+   * junto — senão o checklist continuaria contando uma nota de um arquivo que ninguém mais vê.
+   */
+  async remove(id: string, reason: string): Promise<UploadDto> {
+    const auth = currentAuth();
+    const upload = await this.get(id);
+    if (upload.status === 'REMOVED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Este arquivo já foi removido.');
+    if (IN_FLIGHT.includes(upload.status)) {
+      throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'O envio ainda está em andamento: cancele o envio em vez de remover.');
+    }
+
+    return this.db.write(async ({ tx, audit, outbox }) => {
+      const load = upload.entityType === 'load' ? await tx.load.findUnique({ where: { id: upload.entityId }, select: { id: true, number: true, status: true, orderId: true } }) : null;
+      if (load) {
+        if (['COMPLETED', 'CANCELLED'].includes(load.status)) {
+          throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A carga já foi encerrada: os documentos dela não podem mais ser removidos.');
+        }
+        if (auth.membership!.scope !== 'MATRIZ' && !EXTERNAL_CAN_REMOVE.includes(load.status)) {
+          throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Após o envio para transporte, somente a Matriz remove documentos desta carga.');
+        }
+      }
+
+      await tx.fileUpload.update({ where: { id }, data: { status: 'REMOVED', removedAt: new Date(), removedBy: auth.userId, removeReason: reason } });
+
+      const invoice = await tx.invoice.findFirst({ where: { fileUploadId: id }, select: { id: true, status: true, number: true, orderId: true } });
+      if (invoice && ['VALID', 'DIVERGENT'].includes(invoice.status)) {
+        await tx.invoice.update({ where: { id: invoice.id }, data: { status: 'CANCELLED', cancelReason: `Arquivo removido: ${reason}` } });
+        await audit({ entityType: 'invoice', entityId: invoice.id, action: 'invoice.cancelled', before: { status: invoice.status }, after: { status: 'CANCELLED', reason } });
+      }
+
+      await audit({
+        entityType: 'file_upload',
+        entityId: id,
+        action: 'upload.removed',
+        before: { status: upload.status },
+        after: { status: 'REMOVED', reason, fileName: upload.originalName },
+      });
+      if (load) {
+        await audit({
+          entityType: 'loading_order',
+          entityId: load.orderId,
+          action: 'order.load_document_removed',
+          after: { loadNumber: load.number, fileName: upload.originalName, reason },
+        });
+        await outbox({ type: 'upload.removed', aggregateType: 'file_upload', aggregateId: id, payload: { uploadId: id, loadId: load.id, orderId: load.orderId, reason } });
+      }
+      const fresh = await tx.fileUpload.findUniqueOrThrow({ where: { id } });
+      return toDto(fresh, undefined, auth.userName);
     });
   }
 

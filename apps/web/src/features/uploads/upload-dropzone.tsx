@@ -3,10 +3,13 @@
 import type { UploadDto } from '@ordens/contracts';
 import { Button, cn } from '@ordens/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, FileText, Loader2, RotateCcw, ShieldAlert, UploadCloud, X } from 'lucide-react';
+import { CheckCircle2, FileText, Loader2, RotateCcw, ShieldAlert, Trash2, UploadCloud, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef, useState, type DragEvent } from 'react';
-import { ApiRequestError, get } from '@/lib/api';
+import { toast } from 'sonner';
+import { ReasonDialog } from '@/features/logistics/reason-dialog';
+import { ApiRequestError, get, post } from '@/lib/api';
+import { useCan } from '@/lib/session';
 import { uploadFile, type UploadEntityType } from './uploader';
 
 interface QueueItem {
@@ -24,7 +27,11 @@ const STATUS_LABEL: Record<string, string> = {
   AVAILABLE: 'Disponível',
   REJECTED: 'Rejeitado',
   INFECTED: 'Bloqueado (malware)',
+  REMOVED: 'Removido',
 };
+
+/** Já enviado: dá para tirar da conferência. Em andamento, cancela-se o envio (a API recusa remover). */
+const removable = (status: string) => !['PENDING', 'UPLOADING', 'REMOVED'].includes(status);
 
 const fmtSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
@@ -48,6 +55,9 @@ export function UploadDropzone({
 }) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [removing, setRemoving] = useState<UploadDto | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const can = useCan();
   const input = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
 
@@ -88,6 +98,26 @@ export function UploadDropzone({
     },
     [entityId, entityType, qc],
   );
+
+  const canRemove = can('document.upload');
+
+  const confirmRemove = async (reason: string) => {
+    if (!removing) return;
+    setRemoveBusy(true);
+    try {
+      await post(`/uploads/${removing.id}/remove`, { reason });
+      toast.success('Arquivo removido da conferência');
+      setRemoving(null);
+      void qc.invalidateQueries({ queryKey: ['uploads', entityType, entityId] });
+      // A NF-e gerada a partir dele é cancelada junto, e o checklist da carga muda.
+      void qc.invalidateQueries({ queryKey: ['fiscal'] });
+      void qc.invalidateQueries({ queryKey: ['logistics'] });
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível remover o arquivo.');
+    } finally {
+      setRemoveBusy(false);
+    }
+  };
 
   const onFiles = (files: FileList | null) => files && Array.from(files).forEach((f) => start(f));
   const onDrop = (e: DragEvent) => {
@@ -170,23 +200,48 @@ export function UploadDropzone({
         </AnimatePresence>
         {showExisting
           ? existing.data?.map((u) => (
-              <li key={u.id} className="flex items-center gap-3 rounded-md px-3 py-2 ring-1 ring-border/70">
-                {u.status === 'AVAILABLE' ? (
-                  <FileText className="size-4 text-primary" />
-                ) : u.status === 'REJECTED' || u.status === 'INFECTED' ? (
-                  <ShieldAlert className="size-4 text-danger" />
-                ) : (
-                  <Loader2 className="size-4 animate-spin text-muted" />
-                )}
-                <span className="min-w-0 flex-1 truncate text-sm">{u.fileName}</span>
-                <span className="text-xs text-subtle">{fmtSize(Number(u.sizeBytes))}</span>
-                <span className={cn('text-xs', u.status === 'AVAILABLE' ? 'text-success' : u.status === 'REJECTED' || u.status === 'INFECTED' ? 'text-danger' : 'text-muted')}>
-                  {STATUS_LABEL[u.status] ?? u.status}
-                </span>
+              <li key={u.id} className={cn('rounded-md px-3 py-2 ring-1 ring-border/70', u.status === 'REMOVED' && 'opacity-60')}>
+                <div className="flex items-center gap-3">
+                  {u.status === 'AVAILABLE' ? (
+                    <FileText className="size-4 text-primary" />
+                  ) : u.status === 'REJECTED' || u.status === 'INFECTED' ? (
+                    <ShieldAlert className="size-4 text-danger" />
+                  ) : u.status === 'REMOVED' ? (
+                    <Trash2 className="size-4 text-muted" />
+                  ) : (
+                    <Loader2 className="size-4 animate-spin text-muted" />
+                  )}
+                  <span className={cn('min-w-0 flex-1 truncate text-sm', u.status === 'REMOVED' && 'line-through')}>{u.fileName}</span>
+                  <span className="text-xs text-subtle">{fmtSize(Number(u.sizeBytes))}</span>
+                  <span className={cn('text-xs', u.status === 'AVAILABLE' ? 'text-success' : u.status === 'REJECTED' || u.status === 'INFECTED' ? 'text-danger' : 'text-muted')}>
+                    {STATUS_LABEL[u.status] ?? u.status}
+                  </span>
+                  {canRemove && removable(u.status) ? (
+                    <Button variant="ghost" size="icon-sm" aria-label={`Remover ${u.fileName}`} onClick={() => setRemoving(u)}>
+                      <Trash2 />
+                    </Button>
+                  ) : null}
+                </div>
+                {u.status === 'REMOVED' ? (
+                  <p className="mt-1 pl-7 text-xs text-muted">
+                    Removido{u.removedBy ? ` por ${u.removedBy}` : ''}
+                    {u.removeReason ? `: ${u.removeReason}` : ''}
+                  </p>
+                ) : null}
               </li>
             ))
           : null}
       </ul>
+
+      <ReasonDialog
+        open={removing !== null}
+        title="Remover arquivo"
+        description={`"${removing?.fileName ?? ''}" sai da conferência fiscal. O arquivo continua no histórico com o motivo, e a NF-e gerada a partir dele, se houver, é cancelada.`}
+        confirmLabel="Remover arquivo"
+        loading={removeBusy}
+        onCancel={() => setRemoving(null)}
+        onConfirm={(reason) => void confirmRemove(reason)}
+      />
     </div>
   );
 }

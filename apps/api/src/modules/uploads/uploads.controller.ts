@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { completeUploadSchema, initiateUploadSchema, partUrlsSchema, UPLOAD_ENTITY_TYPES, type InitiateUploadInput } from '@ordens/contracts';
+import { completeUploadSchema, initiateUploadSchema, partUrlsSchema, removeUploadSchema, UPLOAD_ENTITY_TYPES, type InitiateUploadInput } from '@ordens/contracts';
 import { z } from 'zod';
 import { RequirePermission } from '../../common/decorators.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
@@ -51,6 +51,14 @@ export class UploadsController {
   @RequirePermission('document.upload')
   abort(@Param('id', uuid) id: string) {
     return this.uploads.abort(id);
+  }
+
+  /** Remove o arquivo da conferência (arquivo errado). O registro fica, com motivo e autor. */
+  @Post(':id/remove')
+  @HttpCode(200)
+  @RequirePermission('document.upload')
+  remove(@Param('id', uuid) id: string, @Body(new ZodPipe(removeUploadSchema)) body: z.infer<typeof removeUploadSchema>) {
+    return this.uploads.remove(id, body.reason);
   }
 
   @Get(':id/download')

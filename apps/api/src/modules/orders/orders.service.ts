@@ -82,6 +82,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.load_status': 'Carga atualizada',
   'order.invoice_attached': 'NF-e anexada',
   'order.invoice_cancelled': 'NF-e cancelada',
+  'order.load_document_removed': 'Documento removido da carga',
   'order.occurrence_opened': 'Ocorrência aberta',
   'order.occurrence_status': 'Ocorrência atualizada',
   'order.occurrence_resolved': 'Ocorrência resolvida',
@@ -107,6 +108,7 @@ const EXTERNAL_TIMELINE = new Set([
   'order.load_status',
   'order.invoice_attached',
   'order.invoice_cancelled',
+  'order.load_document_removed',
 ]);
 
 const REASON_VISIBLE_TO_BUYER = new Set(['order.returned', 'order.cancelled_by_buyer', 'order.suspended', 'order.cancelled']);
