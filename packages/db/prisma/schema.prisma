@@ -164,6 +164,8 @@ enum UploadStatus {
   INFECTED
   ABORTED
   EXPIRED
+  /// Tirado da conferência por quem anexou (arquivo errado); o registro e o objeto ficam para auditoria.
+  REMOVED
 
   @@map("upload_status")
 }
@@ -650,6 +652,9 @@ model FileUpload {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   completedAt    DateTime?    @map("completed_at") @db.Timestamptz(6)
+  removedAt      DateTime?    @map("removed_at") @db.Timestamptz(6)
+  removedBy      String?      @map("removed_by") @db.Uuid
+  removeReason   String?      @map("remove_reason")
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, entityType, entityId])

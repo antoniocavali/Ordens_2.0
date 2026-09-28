@@ -120,6 +120,8 @@ export const UploadStatus = {
   INFECTED: 'INFECTED',
   ABORTED: 'ABORTED',
   EXPIRED: 'EXPIRED',
+  /** Tirado da conferência por quem anexou (arquivo errado), com motivo registrado. */
+  REMOVED: 'REMOVED',
 } as const;
 export type UploadStatus = (typeof UploadStatus)[keyof typeof UploadStatus];
 

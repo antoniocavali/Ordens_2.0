@@ -14,7 +14,7 @@ export async function fiscalChecklists(
   const ids = target.map((r) => r.id);
   const [uploads, invoices] = await Promise.all([
     tx.fileUpload.findMany({
-      where: { entityType: 'load', entityId: { in: ids }, kind: { in: ['PDF', 'NFE_XML'] }, status: { notIn: ['ABORTED', 'EXPIRED'] } },
+      where: { entityType: 'load', entityId: { in: ids }, kind: { in: ['PDF', 'NFE_XML'] }, status: { notIn: ['ABORTED', 'EXPIRED', 'REMOVED'] } },
       select: { id: true, entityId: true, kind: true, status: true, createdAt: true },
     }),
     tx.invoice.findMany({ where: { loadId: { in: ids }, fileUploadId: { not: null } }, select: { loadId: true, fileUploadId: true, status: true } }),
@@ -51,7 +51,7 @@ export async function matrizChecklists(
       orderBy: { occurredAt: 'asc' },
     }),
     tx.fileUpload.findMany({
-      where: { entityType: 'load', entityId: { in: ids }, kind: { in: ['PDF', 'NFE_XML'] }, status: { notIn: ['ABORTED', 'EXPIRED'] } },
+      where: { entityType: 'load', entityId: { in: ids }, kind: { in: ['PDF', 'NFE_XML'] }, status: { notIn: ['ABORTED', 'EXPIRED', 'REMOVED'] } },
       select: { id: true, entityId: true, kind: true, status: true, createdAt: true },
     }),
     tx.invoice.findMany({ where: { loadId: { in: ids }, origin: 'MATRIZ', fileUploadId: { not: null } }, select: { loadId: true, fileUploadId: true, status: true } }),

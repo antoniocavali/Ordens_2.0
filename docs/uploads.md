@@ -50,7 +50,14 @@ sequenceDiagram
 
 ## Estados
 
-`PENDING → UPLOADING → UPLOADED → PROCESSING → AVAILABLE`; ramificações `REJECTED` (tipo/tamanho/checksum), `INFECTED`, `ABORTED`, `EXPIRED`.
+`PENDING → UPLOADING → UPLOADED → PROCESSING → AVAILABLE`; ramificações `REJECTED` (tipo/tamanho/checksum), `INFECTED`, `ABORTED`, `EXPIRED`, `REMOVED`.
+
+`REMOVED` é a correção de quem anexou o arquivo errado: `POST /uploads/:id/remove` com motivo obrigatório. O
+registro e o objeto no storage **continuam existindo** — documento fiscal não some do histórico —, mas o arquivo
+sai da conferência (o checklist da carga ignora removidos) e aparece na lista riscado, com autor e motivo. Se o XML
+já tinha virado NF-e, ela é cancelada junto. Fora da Matriz, a remoção só vale até a documentação fiscal ser
+validada (mesma régua do cancelamento da NF-e); depois disso, e até a carga ser encerrada, só a Matriz remove.
+Envio ainda em andamento não se remove: cancela-se (`abort`), que também libera o multipart no storage.
 
 `scan_status`: `PENDING | CLEAN | INFECTED | ERROR | SKIPPED_DEV`. Em produção, `SKIPPED_DEV` é proibido por configuração (API recusa iniciar se `NODE_ENV=production` e `SCANNER=noop`).
 

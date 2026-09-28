@@ -80,5 +80,15 @@ export interface UploadDto {
   scanStatus: ScanStatus;
   sha256: string | null;
   createdAt: string;
+  /** Preenchidos quando o arquivo foi removido da conferência (o registro fica para auditoria). */
+  removedAt: string | null;
+  removedBy: string | null;
+  removeReason: string | null;
   uploadedParts?: { partNumber: number; etag: string }[];
 }
+
+/** Remoção de anexo: o motivo fica no histórico da carga, então é obrigatório. */
+export const removeUploadSchema = z.object({
+  reason: z.string().trim().min(3, 'Informe o motivo da remoção').max(500),
+});
+export type RemoveUploadInput = z.infer<typeof removeUploadSchema>;
