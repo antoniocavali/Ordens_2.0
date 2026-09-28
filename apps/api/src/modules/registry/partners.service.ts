@@ -82,7 +82,6 @@ const toItem = (r: PartnerRow): PartnerListItem => ({
 const ROLE_GUARDS: Partial<Record<PartnerRole, (tx: Tx, id: string) => Promise<number>>> = {
   SELLER: (tx, id) => tx.loadingOrder.count({ where: { sellerPartnerId: id, status: { not: 'CANCELLED' } } }),
   BUYER: (tx, id) => tx.loadingOrder.count({ where: { buyerPartnerId: id, status: { not: 'CANCELLED' } } }),
-  CARRIER: async (tx, id) => (await tx.driver.count({ where: { carrierPartnerId: id, archivedAt: null } })) + (await tx.vehicle.count({ where: { carrierPartnerId: id, archivedAt: null } })),
 };
 
 @Injectable()
@@ -254,11 +253,7 @@ export class PartnersService {
         farms: { where: { archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, city: true, state: true, status: true } },
       },
     });
-    const [contractsCount, driversCount, vehiclesCount] = await Promise.all([
-      tx.contract.count({ where: { OR: [{ sellerPartnerId: id }, { buyerPartnerId: id }] } }),
-      tx.driver.count({ where: { carrierPartnerId: id, archivedAt: null } }),
-      tx.vehicle.count({ where: { carrierPartnerId: id, archivedAt: null } }),
-    ]);
+    const contractsCount = await tx.contract.count({ where: { OR: [{ sellerPartnerId: id }, { buyerPartnerId: id }] } });
     const cp = p.carrierProfile;
     return {
       ...toItem(row),
@@ -278,8 +273,6 @@ export class PartnersService {
         : null,
       farms: p.farms,
       contractsCount,
-      driversCount,
-      vehiclesCount,
       createdAt: p.createdAt.toISOString(),
     };
   }

@@ -11,7 +11,7 @@ Cada requisição autenticada possui **uma membership ativa** (tenant + organiza
 | `PLATFORM` | — | tabela `tenants`; dados de tenant só ao entrar explicitamente em um tenant (auditado) |
 | `MATRIZ` | org `MATRIZ` | todos os dados do tenant |
 | `FARM` | org `FARM` | OCs **publicadas** (nunca `DRAFT`/`PENDING_BILLING`) com fazenda definida e `seller_org_id ∈ org_ids`, suas fazendas, cargas/agendamentos dessas OCs, documentos com visibilidade `FARM`/`PARTIES` |
-| `BUYER` | org `BUYER` | OCs da organização (`buyer_org_id ∈ org_ids`) a partir de `PENDING_BILLING`, os **próprios** rascunhos do portal, cargas dessas OCs, documentos `BUYER`/`PARTIES`, transportadoras (para escolher a preferencial) |
+| `BUYER` | org `BUYER` | OCs da organização (`buyer_org_id ∈ org_ids`) a partir de `PENDING_BILLING`, os **próprios** rascunhos do portal, cargas dessas OCs, documentos `BUYER`/`PARTIES` |
 | `CARRIER` | org `CARRIER` | futuro: agendamentos/cargas atribuídos |
 
 ## Papéis
@@ -77,8 +77,6 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `commodity.manage` | — | ● | ● | — | — | — | — | — |
 | `contract.read` | — | ● | ● | ● | ● | ○ | — | ○ |
 | `contract.manage` | — | ● | ● | — | — | — | — | — |
-| `carrier.read` | — | ● | ● | ● | ● | ● | ● | — |
-| `carrier.manage` | — | ● | ● | ● | — | — | — | — |
 | `order.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
 | `order.create` | — | ● | ● | ● | — | — | — | — |
 | `order.update` | — | ● | ● | ● | — | — | — | — |

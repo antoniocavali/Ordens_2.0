@@ -25,8 +25,6 @@ test.describe('Solicitação do Comprador', () => {
     const commodities = (await apiOk(page, 'GET', '/lookups/commodities')).items as any[];
     const commodity = commodities.find((c) => /milho/i.test(c.label)) ?? commodities[0];
     const unit = ((await apiOk(page, 'GET', '/lookups/units')) as any[]).find((u) => u.label === 't');
-    const carriers = (await apiOk(page, 'GET', '/lookups/partners?role=CARRIER&limit=5')).items as any[];
-    expect(carriers.length, 'Comprador enxerga transportadoras para escolher a preferencial').toBeGreaterThan(0);
     const base = {
       commodityId: commodity.id,
       quantity: '60',
@@ -37,7 +35,11 @@ test.describe('Solicitação do Comprador', () => {
       destinationCity: 'Castro',
       destinationState: 'PR',
       freightMode: 'FOB',
-      preferredCarrierId: carriers[0].id,
+      // O transporte é digitado pelo próprio Comprador na solicitação (ADR-010).
+      carrierName: 'Trans Agro Logística',
+      driverName: 'Antônio Pereira',
+      driverCpf: '39053344705',
+      vehicles: [{ plate: 'RVG1A23', type: 'TRUCK_TRACTOR' }],
       buyerNotes: 'Recebimento até 17h',
     };
 
@@ -52,6 +54,9 @@ test.describe('Solicitação do Comprador', () => {
     const draft = await apiOk(page, 'POST', '/orders/buyer', base);
     expect(draft).toMatchObject({ status: 'DRAFT', origin: 'BUYER', farm: null, seller: null });
     expect(draft.buyer?.name).toBeTruthy();
+    expect(draft.transport.carrierName).toBe('Trans Agro Logística');
+    expect(draft.transport.driverCpf).toBe('39053344705');
+    expect(draft.transport.plates).toEqual(['RVG1A23']);
     expect(draft.allowedActions).toEqual(expect.arrayContaining(['buyer_edit', 'submit']));
     const edited = await apiOk(page, 'PATCH', `/orders/buyer/${draft.id}`, { expectedUpdatedAt: draft.updatedAt, data: { quantity: '70' } });
     expect(edited.quantities.total).toBe('70');
@@ -130,20 +135,11 @@ test.describe('Solicitação do Comprador', () => {
     await apiOk(admin.page, 'POST', `/orders/${draft.id}/releases`, { quantity: '40', expectedVersion: withVersion.version });
 
     // ─── Fazenda: chegada do veículo, carga e carregamento ───
-    const drivers = ((await apiOk(admin.page, 'GET', '/lookups/drivers')).items as any[]).filter((d) => d.meta.expired === 'false' && d.meta.carrierId);
-    const tractors = (await apiOk(admin.page, 'GET', '/lookups/vehicles?kind=tractor')).items as any[];
-    const driver = drivers.find((d) => tractors.some((t) => t.meta.carrierId === d.meta.carrierId));
-    const tractor = tractors.find((t) => t.meta.carrierId === driver?.meta.carrierId);
     await admin.context.close();
 
-    const appointment = await apiOk(farm.page, 'POST', '/appointments', {
-      orderId: draft.id,
-      scheduledOn: addDays(1),
-      expectedQty: '12',
-      carrierPartnerId: driver.meta.carrierId,
-      driverId: driver.id,
-      tractorVehicleId: tractor.id,
-    });
+    // Sem repetir o transporte: o agendamento nasce com o que o Comprador digitou na ordem.
+    const appointment = await apiOk(farm.page, 'POST', '/appointments', { orderId: draft.id, scheduledOn: addDays(1), expectedQty: '12' });
+    expect(appointment.driverCpf, 'agendamento herda o transporte digitado na ordem').toBe('39053344705');
     await apiOk(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONFIRMED' });
     expect((await api(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONVERTED' })).status).toBe(422);
     await apiOk(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CHECKED_IN' });

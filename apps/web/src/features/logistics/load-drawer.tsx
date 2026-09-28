@@ -5,14 +5,14 @@ import { Button, Card, cn, Drawer, Field, Input, Skeleton, Textarea } from '@ord
 import { AlertTriangle, ArrowRight, Check, CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { FormSection, handleSaveError, span, Stat } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { subDec } from '@/lib/decimal';
 import { formatDate, formatDateTime, formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { useCan } from '@/lib/session';
-import { FLEET_API_TO_FORM, FleetFields, fleetFromDto, fleetPayload, type FleetValues } from './fleet-fields';
+import { TransportFields, transportFromDto, transportPayload, type TransportValues } from './transport-fields';
 import { LoadStatusBadge, LoadStepper } from './load-status';
 import { useLoad, useLoadMutations } from './logistics-api';
 import { InvoiceList } from '@/features/fiscal/invoices-page';
@@ -21,7 +21,7 @@ import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ConfirmDialog } from '@/features/orders/confirm-dialog';
 import { ReasonDialog } from './reason-dialog';
 
-interface Values extends FleetValues {
+interface Values extends TransportValues {
   loadingDate: string;
   grossKg: string;
   tareKg: string;
@@ -108,7 +108,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const errors = form.formState.errors;
   const l = load.data;
   const canManage = can('load.manage') && l && !['COMPLETED', 'CANCELLED'].includes(l.status);
-  const fleetEditable = Boolean(canManage && l && PRE_LOADED.includes(l.status));
+  const transportEditable = Boolean(canManage && l && PRE_LOADED.includes(l.status));
   const [gross, tare] = useWatch({ control: form.control, name: ['grossKg', 'tareKg'] });
   const grossN = parseDecimalInput(gross ?? '');
   const tareN = parseDecimalInput(tare ?? '');
@@ -117,7 +117,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   useEffect(() => {
     if (!l) return;
     form.reset({
-      ...fleetFromDto(l),
+      ...transportFromDto(l),
       loadingDate: l.loadingDate ?? '',
       grossKg: toDecimalInput(l.grossKg),
       tareKg: toDecimalInput(l.tareKg),
@@ -130,7 +130,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const payload = (v: Values) => ({
     expectedUpdatedAt: l!.updatedAt,
     loadingDate: v.loadingDate,
-    ...(fleetEditable ? fleetPayload(v) : {}),
+    ...(transportEditable ? transportPayload(v) : {}),
     grossKg: v.grossKg ? parseDecimalInput(v.grossKg) : undefined,
     tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : undefined,
     receivedQty: v.receivedQty ? parseDecimalInput(v.receivedQty) : undefined,
@@ -142,7 +142,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
       await update.mutateAsync({ id: l!.id, data: payload(v) });
       toast.success('Carga atualizada');
     } catch (err) {
-      handleSaveError(err, (name, e) => form.setError((FLEET_API_TO_FORM[String(name)] ?? name) as keyof Values, e));
+      handleSaveError(err, (name, e) => form.setError(String(name) as keyof Values, e));
     }
   });
 
@@ -155,7 +155,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
     }
     const v = form.getValues();
     try {
-      // Salva frota/pesagem pendentes antes de avançar.
+      // Salva transporte/pesagem pendentes antes de avançar.
       let current = l;
       if (form.formState.isDirty) current = { ...l, ...(await update.mutateAsync({ id: l.id, data: payload(v) })) };
       const moved = await transition.mutateAsync({
@@ -173,7 +173,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
     } catch (err) {
       if (err instanceof ApiRequestError) {
         if (err.code === 'FISCAL_DOCUMENTS_REQUIRED' || err.code === 'MATRIZ_INVOICE_MISSING') toast.error(err.message);
-        handleSaveError(err, (name, e) => form.setError((FLEET_API_TO_FORM[String(name)] ?? name) as keyof Values, e));
+        handleSaveError(err, (name, e) => form.setError(String(name) as keyof Values, e));
       } else toast.error('Não foi possível atualizar a carga.');
     }
   };
@@ -229,6 +229,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
             <Skeleton className="h-72" />
           </div>
         ) : (
+          <FormProvider {...form}>
           <form onSubmit={save} noValidate>
             <div className="space-y-4 px-5 pt-5 sm:px-7">
               <Card className="p-4">
@@ -255,12 +256,19 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
             </div>
 
             <fieldset disabled={!canManage} className="contents">
-              <FormSection title="Transporte" description={fleetEditable ? 'Obrigatório informar motorista e cavalo antes do carregamento.' : 'Frota travada após a confirmação do carregamento.'}>
+              <FormSection
+                title="Transporte"
+                description={
+                  transportEditable
+                    ? 'Informe o motorista e ao menos um veículo antes do carregamento. Nomes, CPFs e placas já usados antes preenchem o resto.'
+                    : 'Transporte travado após a confirmação do carregamento.'
+                }
+              >
                 <Field label="Data de carregamento" className={span[3]}>
                   {(a) => <Input {...a} type="date" {...form.register('loadingDate')} />}
                 </Field>
                 <div className="hidden sm:col-span-3 sm:block" />
-                <FleetFields control={form.control} setValue={form.setValue} errors={errors} disabled={!fleetEditable} />
+                <TransportFields disabled={!transportEditable} />
               </FormSection>
 
               <FormSection title="Pesagem" description="Peso líquido = bruto − tara. Peso bruto e tara são obrigatórios para confirmar o carregamento.">
@@ -361,6 +369,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
               {l.loadingDate ? <p className="text-xs text-subtle sm:col-span-6">Carregamento previsto para {formatDate(l.loadingDate)}.</p> : null}
             </FormSection>
           </form>
+          </FormProvider>
         )}
       </Drawer>
       <ConfirmDialog

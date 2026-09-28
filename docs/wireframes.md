@@ -75,7 +75,7 @@ Seleção múltipla → barra flutuante de ações em lote. Clique na linha → 
 │ [ 500,000 ]  [ t ▼ ]    [ 1.250 ]    R$ 625.000,00           │
 │                                                              │
 │ LOGÍSTICA                                                    │
-│ Período carregamento        Transportadora preferencial      │
+│ Período carregamento        Transporte digitado               │
 │ [ 15/09 — 30/09 ]           [ 🔍 Pesquisar...            ]  │
 │ Quantidade inicial liberada                                  │
 │ [ 150,000 t ]                                                │

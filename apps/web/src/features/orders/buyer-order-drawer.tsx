@@ -4,15 +4,16 @@ import { FREIGHT_MODES, type OrderDetail } from '@ordens/contracts';
 import { AsyncCombobox, Button, Drawer, Field, Input, Select, Textarea, type ComboOption } from '@ordens/ui';
 import { Check, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, FormProvider, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { FormSection, span } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { createBuyerOrder, lookups, submitOrder, updateBuyerOrder, useInvalidateOrders, useUnits } from './orders-api';
 import { useNoDestinationConfirm } from '@/features/orders/destination-guard';
+import { emptyTransport, TransportFields, transportFromDto, transportPayload, type TransportValues } from '@/features/logistics/transport-fields';
 
-interface Values {
+interface Values extends TransportValues {
   commodity: ComboOption | null;
   quantity: string;
   unitId: string;
@@ -24,13 +25,12 @@ interface Values {
   destinationState: string;
   destinationAddress: string;
   freightMode: string;
-  carrier: ComboOption | null;
   externalNumber: string;
   buyerNotes: string;
 }
 
 const FREIGHT_LABELS: Record<string, string> = { FOB: 'FOB (retira na origem)', CIF: 'CIF (entregue no destino)', TO_DEFINE: 'A definir' };
-const API_TO_FORM: Record<string, keyof Values> = { commodityId: 'commodity', preferredCarrierId: 'carrier' };
+const API_TO_FORM: Record<string, keyof Values> = { commodityId: 'commodity' };
 
 const fromDetail = (o: OrderDetail | null): Values => ({
   commodity: o?.commodity ? { id: o.commodity.id, label: o.commodity.name } : null,
@@ -44,7 +44,7 @@ const fromDetail = (o: OrderDetail | null): Values => ({
   destinationState: o?.destinationState ?? '',
   destinationAddress: o?.destinationAddress ?? '',
   freightMode: o?.freightMode ?? '',
-  carrier: o?.preferredCarrier ? { id: o.preferredCarrier.id, label: o.preferredCarrier.name } : null,
+  ...(o ? transportFromDto(o.transport) : emptyTransport()),
   externalNumber: o?.externalNumber ?? '',
   buyerNotes: o?.buyerNotes ?? '',
 });
@@ -64,7 +64,7 @@ const toPayload = (v: Values) => ({
   destinationState: v.destinationState.trim() ? v.destinationState.trim().toUpperCase() : null,
   destinationAddress: txt(v.destinationAddress),
   freightMode: v.freightMode || null,
-  preferredCarrierId: v.carrier?.id ?? null,
+  ...transportPayload(v),
   externalNumber: txt(v.externalNumber),
   buyerNotes: txt(v.buyerNotes),
 });
@@ -128,6 +128,7 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
         </div>
       }
     >
+      <FormProvider {...form}>
       <form onSubmit={(e) => e.preventDefault()} noValidate>
         <FormSection title="Produto e quantidade">
           <Field label="Commodity" required className={span[4]} error={errors.commodity?.message}>
@@ -178,15 +179,10 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
           <Field label="Modalidade de frete" className={span[3]} error={errors.freightMode?.message}>
             {(a) => <Select {...a} {...form.register('freightMode')} placeholder="Selecione" options={FREIGHT_MODES.map((m) => ({ value: m, label: FREIGHT_LABELS[m] ?? m }))} />}
           </Field>
-          <Field label="Transportadora preferencial" className={span[3]} error={errors.carrier?.message}>
-            {(a) => (
-              <Controller
-                control={form.control}
-                name="carrier"
-                render={({ field }) => <AsyncCombobox {...a} value={field.value} onChange={field.onChange} queryKey={['lookup', 'carriers', null]} fetchPage={lookups.carriers()} placeholder="Opcional" />}
-              />
-            )}
-          </Field>
+        </FormSection>
+
+        <FormSection title="Transporte" description="Dados como no documento do motorista. O agendamento de cada carga nasce com eles e pode corrigi-los na portaria.">
+          <TransportFields />
         </FormSection>
 
         <FormSection title="Observações">
@@ -195,6 +191,7 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
           </Field>
         </FormSection>
       </form>
+      </FormProvider>
     </Drawer>
     </>
   );

@@ -342,7 +342,7 @@ export function DashboardPage() {
                     </thead>
                     <tbody>
                       {d.carriers.map((c) => (
-                        <tr key={c.id} className="border-t border-border/60">
+                        <tr key={c.name} className="border-t border-border/60">
                           <td className="py-2.5 pr-3 font-medium">{c.name}</td>
                           <td className="py-2.5 text-right tabular">{c.loads}</td>
                           <td className="py-2.5 text-right tabular">{formatQtyCompact(c.loadedT, 't')}</td>

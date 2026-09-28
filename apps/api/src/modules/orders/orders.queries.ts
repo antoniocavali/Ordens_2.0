@@ -38,8 +38,22 @@ export interface OrderRow {
   currency: string;
   freight_mode: string | null;
   freight_estimate: Prisma.Decimal | null;
-  preferred_carrier_id: string | null;
   carrier_name: string | null;
+  driver_name: string | null;
+  driver_cpf: string | null;
+  driver_rg: string | null;
+  driver_phone: string | null;
+  driver_birth_date: Date | null;
+  driver_cnh: string | null;
+  driver_cnh_category: string | null;
+  driver_cnh_expires_at: Date | null;
+  driver_cnh_restrictions: string | null;
+  vehicles: Prisma.JsonValue;
+  plates: string[];
+  loading_location_name: string | null;
+  loading_location_address: string | null;
+  loading_location_city: string | null;
+  loading_location_state: string | null;
   loading_starts_on: Date | null;
   loading_ends_on: Date | null;
   tolerance_pct: Prisma.Decimal;
@@ -125,7 +139,10 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.quantity, lo.unit_id, u.code as unit_code, u.name as unit_name,
         lo.released_qty, lo.scheduled_qty, lo.loaded_qty, lo.in_transit_qty, lo.received_qty, lo.cancelled_qty,
         lo.initial_release_qty, lo.unit_price, lo.currency, lo.freight_mode::text as freight_mode, lo.freight_estimate,
-        lo.preferred_carrier_id, coalesce(cr.trade_name, cr.legal_name) as carrier_name,
+        lo.carrier_name, lo.driver_name, lo.driver_cpf, lo.driver_rg, lo.driver_phone, lo.driver_birth_date,
+        lo.driver_cnh, lo.driver_cnh_category, lo.driver_cnh_expires_at, lo.driver_cnh_restrictions, lo.vehicles,
+        coalesce((select array_agg(v->>'plate' order by ord) from jsonb_array_elements(lo.vehicles) with ordinality as t(v, ord)), '{}') as plates,
+        lo.loading_location_name, lo.loading_location_address, lo.loading_location_city, lo.loading_location_state,
         lo.loading_starts_on, lo.loading_ends_on, lo.tolerance_pct, lo.requires_receipt,
         lo.destination_name, lo.destination_address, lo.destination_city, lo.destination_state,
         lo.commercial_terms, lo.loading_instructions, lo.internal_notes, lo.farm_notes, lo.buyer_notes,
@@ -142,7 +159,6 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
       left join contracts ct on ct.id = lo.contract_id
       left join business_partners sp on sp.id = lo.seller_partner_id
       left join business_partners bp on bp.id = lo.buyer_partner_id
-      left join business_partners cr on cr.id = lo.preferred_carrier_id
       left join farms f on f.id = lo.farm_id
       left join commodities c on c.id = lo.commodity_id
       left join units u on u.id = lo.unit_id

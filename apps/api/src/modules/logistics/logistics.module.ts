@@ -3,14 +3,12 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   appointmentInputSchema,
   appointmentTransitionSchema,
-  cursorQuery,
   loadInputSchema,
   loadTransitionSchema,
   loadUpdateSchema,
   logisticsListQuery,
-  type CursorPage,
   type LogisticsListQuery,
-  type LookupOption,
+  type TransportSuggestions,
 } from '@ordens/contracts';
 import { Prisma } from '@ordens/db';
 import { z } from 'zod';
@@ -18,6 +16,7 @@ import { RequirePermission } from '../../common/decorators.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { AppointmentsService } from './appointments.service.js';
+import { readVehicles } from './logistics.util.js';
 import { LoadsService } from './loads.service.js';
 
 const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
@@ -91,64 +90,82 @@ export class LoadsController {
   }
 }
 
-const fleetLookupQuery = cursorQuery.extend({ carrierId: z.uuid().optional(), kind: z.enum(['tractor', 'trailer']).optional() });
+const suggestionsQuery = z.object({ q: z.string().trim().max(120).optional() });
 
-/** Buscas de frota para comboboxes de agendamento/carga. */
+/**
+ * Sugestões para os campos digitáveis de transporte: tudo o que já foi digitado nos agendamentos
+ * visíveis a quem pergunta. Como a leitura passa pelo RLS, cada grupo só recebe o que é dele — não
+ * há cadastro compartilhado nem risco de um comprador ver os motoristas de outro.
+ */
 @ApiTags('logística')
-@Controller('lookups')
-export class FleetLookupsController {
+@Controller('transport')
+export class TransportSuggestionsController {
   constructor(private readonly db: TenantDb) {}
 
-  @Get('drivers')
-  @RequirePermission('carrier.read')
-  drivers(@Query(new ZodPipe(fleetLookupQuery)) q: z.infer<typeof fleetLookupQuery>): Promise<CursorPage<LookupOption>> {
+  @Get('suggestions')
+  @RequirePermission('appointment.read')
+  suggestions(@Query(new ZodPipe(suggestionsQuery)) q: z.infer<typeof suggestionsQuery>): Promise<TransportSuggestions> {
+    const like = q.q ? `%${q.q.replace(/[%_]/g, (m) => `\\${m}`)}%` : null;
     return this.db.read(async (tx) => {
-      const rows = await tx.driver.findMany({
-        where: {
-          archivedAt: null,
-          status: 'ACTIVE',
-          ...(q.carrierId ? { OR: [{ carrierPartnerId: q.carrierId }, { carrierPartnerId: null }] } : {}),
-          ...(q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {}),
-        },
-        orderBy: { name: 'asc' },
-        take: 50,
-      });
+      const [carriers, drivers, vehicles] = await Promise.all([
+        tx.$queryRaw<{ carrier_name: string }[]>(Prisma.sql`
+          select distinct carrier_name from appointments
+          where carrier_name is not null ${like ? Prisma.sql`and carrier_name ilike ${like}` : Prisma.empty}
+          order by carrier_name limit 50
+        `),
+        // Uma linha por CPF, com o que foi digitado mais recentemente para aquele motorista.
+        tx.$queryRaw<DriverSuggestionRow[]>(Prisma.sql`
+          select distinct on (driver_cpf)
+            driver_name, driver_cpf, driver_rg, driver_phone, driver_birth_date,
+            driver_cnh, driver_cnh_category, driver_cnh_expires_at, driver_cnh_restrictions, carrier_name
+          from appointments
+          where driver_cpf is not null
+            ${like ? Prisma.sql`and (driver_name ilike ${like} or driver_cpf like ${like})` : Prisma.empty}
+          order by driver_cpf, created_at desc limit 50
+        `),
+        tx.$queryRaw<{ vehicle: Prisma.JsonValue }[]>(Prisma.sql`
+          select distinct on (vehicle->>'plate') vehicle
+          from appointments a, jsonb_array_elements(a.vehicles) as vehicle
+          where ${like ? Prisma.sql`vehicle->>'plate' ilike ${like}` : Prisma.sql`true`}
+          order by vehicle->>'plate', a.created_at desc limit 50
+        `),
+      ]);
+      const day = (v: Date | null) => (v ? v.toISOString().slice(0, 10) : null);
       return {
-        nextCursor: null,
-        items: rows.map((d) => {
-          const expired = d.cnhExpiresAt ? d.cnhExpiresAt.getTime() < Date.now() : false;
-          return { id: d.id, label: d.name, description: `CNH ${d.cnhCategory ?? '—'}${expired ? ' · VENCIDA' : ''}`, meta: { carrierId: d.carrierPartnerId, expired: String(expired) } };
-        }),
-      };
-    });
-  }
-
-  @Get('vehicles')
-  @RequirePermission('carrier.read')
-  vehicles(@Query(new ZodPipe(fleetLookupQuery)) q: z.infer<typeof fleetLookupQuery>): Promise<CursorPage<LookupOption>> {
-    return this.db.read(async (tx) => {
-      const types = q.kind === 'tractor' ? ['TRUCK_TRACTOR', 'TRUCK'] : q.kind === 'trailer' ? ['TRAILER', 'SEMI_TRAILER', 'BITRAIN', 'ROAD_TRAIN'] : undefined;
-      const rows = await tx.vehicle.findMany({
-        where: {
-          archivedAt: null,
-          status: 'ACTIVE',
-          ...(types ? { type: { in: types as Prisma.EnumVehicleTypeFilter['in'] } } : {}),
-          ...(q.carrierId ? { carrierPartnerId: q.carrierId } : {}),
-          ...(q.q ? { plate: { contains: q.q.toUpperCase().replace(/[^A-Z0-9]/g, '') } } : {}),
-        },
-        orderBy: { plate: 'asc' },
-        take: 50,
-      });
-      return {
-        nextCursor: null,
-        items: rows.map((v) => ({ id: v.id, label: v.plate, description: [v.brand, v.model].filter(Boolean).join(' ') || v.type, meta: { carrierId: v.carrierPartnerId, type: v.type } })),
+        carriers: carriers.map((c) => c.carrier_name),
+        drivers: drivers.map((d) => ({
+          driverName: d.driver_name,
+          driverCpf: d.driver_cpf,
+          driverRg: d.driver_rg,
+          driverPhone: d.driver_phone,
+          driverBirthDate: day(d.driver_birth_date),
+          driverCnh: d.driver_cnh,
+          driverCnhCategory: d.driver_cnh_category,
+          driverCnhExpiresAt: day(d.driver_cnh_expires_at),
+          driverCnhRestrictions: d.driver_cnh_restrictions,
+          carrierName: d.carrier_name,
+        })),
+        vehicles: vehicles.flatMap((v) => readVehicles([v.vehicle])),
       };
     });
   }
 }
 
+interface DriverSuggestionRow {
+  driver_name: string | null;
+  driver_cpf: string | null;
+  driver_rg: string | null;
+  driver_phone: string | null;
+  driver_birth_date: Date | null;
+  driver_cnh: string | null;
+  driver_cnh_category: string | null;
+  driver_cnh_expires_at: Date | null;
+  driver_cnh_restrictions: string | null;
+  carrier_name: string | null;
+}
+
 @Module({
-  controllers: [AppointmentsController, LoadsController, FleetLookupsController],
+  controllers: [AppointmentsController, LoadsController, TransportSuggestionsController],
   providers: [AppointmentsService, LoadsService],
 })
 export class LogisticsModule {}

@@ -63,15 +63,11 @@ test.describe('Suspensão e cancelamento de ordens', () => {
     await expect.poll(async () => (await apiOk(page, 'GET', `/orders/${order.id}`)).status).toBe('PUBLISHED');
 
     // ─── Carga ativa bloqueia o cancelamento ───
-    const drivers = ((await apiOk(page, 'GET', '/lookups/drivers')).items as any[]).filter((d) => d.meta.expired === 'false' && d.meta.carrierId);
-    const tractors = (await apiOk(page, 'GET', '/lookups/vehicles?kind=tractor')).items as any[];
-    const driver = drivers.find((d) => tractors.some((t) => t.meta.carrierId === d.meta.carrierId));
-    const tractor = tractors.find((t) => t.meta.carrierId === driver?.meta.carrierId);
-    const fleet = { carrierPartnerId: driver.meta.carrierId, driverId: driver.id, tractorVehicleId: tractor.id };
-    const withLoad = await apiOk(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(2), expectedQty: '10', ...fleet });
+    const transport = { carrierName: 'Trans Agro Logística', driverName: 'Antônio Pereira', driverCpf: '39053344705', vehicles: [{ plate: 'RVG1A23', type: 'TRUCK_TRACTOR' }] };
+    const withLoad = await apiOk(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(2), expectedQty: '10', ...transport });
     for (const to of ['CONFIRMED', 'CHECKED_IN']) await apiOk(page, 'POST', `/appointments/${withLoad.id}/transition`, { to });
     const converted = await apiOk(page, 'POST', `/appointments/${withLoad.id}/transition`, { to: 'CONVERTED' });
-    const pendingAppointment = await apiOk(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(3), expectedQty: '10', ...fleet });
+    const pendingAppointment = await apiOk(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(3), expectedQty: '10', ...transport });
 
     order = await apiOk(page, 'GET', `/orders/${order.id}`);
     const blocked = await api(page, 'POST', `/orders/${order.id}/cancel`, { expectedUpdatedAt: order.updatedAt, reason: 'Contrato rescindido' });

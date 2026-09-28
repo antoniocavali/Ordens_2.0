@@ -4,19 +4,19 @@ import type { AppointmentDto, AppointmentStatus } from '@ordens/contracts';
 import { AsyncCombobox, Button, Drawer, Field, Input, Textarea, type ComboOption } from '@ordens/ui';
 import { CalendarCheck, Check, LogIn, Truck, UserX, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Controller, useForm, useWatch } from 'react-hook-form';
+import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { FormSection, handleSaveError, span, Stat } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { subDec } from '@/lib/decimal';
 import { formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { useCan } from '@/lib/session';
-import { emptyFleet, FLEET_API_TO_FORM, FleetFields, fleetFromDto, fleetPayload, type FleetValues } from './fleet-fields';
 import { AppointmentStatusBadge } from './load-status';
 import { fleetLookups, useAppointmentMutations } from './logistics-api';
 import { ReasonDialog } from './reason-dialog';
+import { emptyTransport, TransportFields, transportFromDto, transportPayload, type TransportValues } from './transport-fields';
 
-interface Values extends FleetValues {
+interface Values extends TransportValues {
   order: ComboOption | null;
   scheduledOn: string;
   windowStart: string;
@@ -65,9 +65,9 @@ export function AppointmentDrawer({
             windowEnd: appointment.windowEnd ?? '',
             expectedQty: toDecimalInput(appointment.expectedQty),
             notes: appointment.notes ?? '',
-            ...fleetFromDto(appointment),
+            ...transportFromDto(appointment),
           }
-        : { order: defaultOrder ?? null, scheduledOn: defaultDate ?? new Date().toISOString().slice(0, 10), windowStart: '07:00', windowEnd: '11:00', expectedQty: '', notes: '', ...emptyFleet() },
+        : { order: defaultOrder ?? null, scheduledOn: defaultDate ?? new Date().toISOString().slice(0, 10), windowStart: '07:00', windowEnd: '11:00', expectedQty: '', notes: '', ...emptyTransport() },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, appointment?.id, appointment?.updatedAt]);
@@ -88,13 +88,13 @@ export function AppointmentDrawer({
           windowEnd: v.windowEnd,
           expectedQty: parseDecimalInput(v.expectedQty),
           notes: v.notes,
-          ...fleetPayload(v),
+          ...transportPayload(v),
         },
       });
       toast.success(appointment ? 'Agendamento atualizado' : 'Agendamento criado', { description: `${v.order.label} · ${v.scheduledOn.split('-').reverse().join('/')}` });
       onClose();
     } catch (err) {
-      handleSaveError(err, (name, e) => form.setError((FLEET_API_TO_FORM[String(name)] ?? (name === 'orderId' ? 'order' : name)) as keyof Values, e));
+      handleSaveError(err, (name, e) => form.setError((name === 'orderId' ? 'order' : String(name)) as keyof Values, e));
     }
   });
 
@@ -118,7 +118,7 @@ export function AppointmentDrawer({
         size="md"
         onRequestClose={onClose}
         title={appointment ? `Agendamento · ${appointment.order.number}` : 'Novo agendamento'}
-        subtitle={appointment ? <AppointmentStatusBadge status={appointment.status} /> : 'Motorista e veículo podem ser informados agora ou na confirmação.'}
+        subtitle={appointment ? <AppointmentStatusBadge status={appointment.status} /> : 'Os dados do motorista e dos veículos podem ser informados agora ou na confirmação.'}
         footer={
           <div className="flex flex-wrap items-center gap-2">
             {appointment
@@ -145,8 +145,9 @@ export function AppointmentDrawer({
           </div>
         }
       >
-        <form onSubmit={submit} noValidate>
-          <fieldset disabled={!editable} className="contents">
+        <FormProvider {...form}>
+          <form onSubmit={submit} noValidate>
+            <fieldset disabled={!editable} className="contents">
             <FormSection title="Ordem e data">
               <Field label="Ordem de carregamento" required className={span[6]} error={errors.order?.message}>
                 {(a) => (
@@ -179,16 +180,17 @@ export function AppointmentDrawer({
                 {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...form.register('expectedQty')} placeholder="0,000" />}
               </Field>
             </FormSection>
-            <FormSection title="Transporte" description="Motorista com CNH vencida é bloqueado. Veículos precisam ser da transportadora escolhida.">
-              <FleetFields control={form.control} setValue={form.setValue} errors={errors} disabled={!editable} />
+            <FormSection title="Transporte" description="Dados como no documento do motorista. Ao digitar um nome, CPF ou placa já usados antes, o restante é preenchido.">
+              <TransportFields disabled={!editable} />
             </FormSection>
             <FormSection title="Observações">
               <Field label="Observações" className={span[6]}>
                 {(a) => <Textarea {...a} rows={3} {...form.register('notes')} />}
               </Field>
             </FormSection>
-          </fieldset>
-        </form>
+            </fieldset>
+          </form>
+        </FormProvider>
       </Drawer>
       <ReasonDialog
         open={reasonFor !== null}

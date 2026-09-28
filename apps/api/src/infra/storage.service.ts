@@ -35,7 +35,11 @@ export class StorageService {
       credentials: { accessKeyId: env.S3_ACCESS_KEY, secretAccessKey: env.S3_SECRET_KEY },
     };
     this.internal = new S3Client({ ...common, endpoint: env.S3_ENDPOINT });
-    this.presigner = new S3Client({ ...common, endpoint: env.S3_PUBLIC_ENDPOINT });
+    // O SDK acrescenta um checksum (CRC32) por padrão. Quem envia é o navegador, com um PUT simples,
+    // e ele não calcula esse checksum: a URL assinada acabaria pedindo algo que o upload não manda.
+    // Alguns servidores S3 ignoram, outros respondem 400 InvalidRequest. A integridade do arquivo já
+    // é conferida pelo SHA-256 declarado e recalculado no worker.
+    this.presigner = new S3Client({ ...common, endpoint: env.S3_PUBLIC_ENDPOINT, requestChecksumCalculation: 'WHEN_REQUIRED' });
     this.quarantineBucket = env.S3_BUCKET_QUARANTINE;
     this.documentsBucket = env.S3_BUCKET_DOCUMENTS;
   }

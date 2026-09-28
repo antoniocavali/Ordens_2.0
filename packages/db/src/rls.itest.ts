@@ -199,14 +199,31 @@ describe('cadastros', () => {
     ).rejects.toThrow(/row-level security/);
   });
 
-  it('Comprador não lê motoristas nem veículos', async () => {
-    const drivers = await db.run(buyer(A, 0), (tx) => tx.driver.findMany());
-    expect(drivers).toHaveLength(0);
-  });
 });
 
 describe('logística', () => {
   const appointmentData = (f: TenantFixture) => ({ tenantId: f.tenantId, orderId: f.published[0], scheduledOn: new Date('2026-09-20T00:00:00Z'), expectedQty: '30' });
+
+  it('transporte digitado fica no agendamento e não atravessa grupos', async () => {
+    const created = await db.run(farm(A, 0), (tx) =>
+      tx.appointment.create({
+        data: {
+          ...appointmentData(A),
+          carrierName: 'Trans Agro Logística',
+          driverName: 'Antônio Pereira',
+          driverCpf: '39053344705',
+          driverCnhExpiresAt: new Date('2027-01-31T00:00:00Z'),
+          vehicles: [{ plate: 'RVG1A23', type: 'TRUCK_TRACTOR', axles: 3 }],
+          plates: ['RVG1A23'],
+        },
+      }),
+    );
+    // A Matriz e a própria Fazenda leem o CPF; a outra Fazenda e o outro tenant não veem a linha.
+    const byMatriz = await db.run(matriz(A), (tx) => tx.appointment.findUniqueOrThrow({ where: { id: created.id } }));
+    expect(byMatriz.driverCpf).toBe('39053344705');
+    expect(await db.run(farm(A, 1), (tx) => tx.appointment.count({ where: { id: created.id } }))).toBe(0);
+    expect(await db.run(matriz(B), (tx) => tx.appointment.count({ where: { id: created.id } }))).toBe(0);
+  });
 
   it('Fazenda da ordem cria agendamento; organizações são herdadas da ordem', async () => {
     const a = await db.run(farm(A, 0), (tx) => tx.appointment.create({ data: appointmentData(A) }));
@@ -636,32 +653,6 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
       db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'contract', 2099, 1)`),
     ).rejects.toThrow(/row-level security/);
     await db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'loading_order', 2099, 1) on conflict do nothing`);
-  });
-});
-
-describe('locais', () => {
-  it('Matriz cadastra; comprador lê só os próprios; Fazenda e outro tenant não gravam nem leem', async () => {
-    const suffix = randomUUID().slice(0, 6);
-    const ownBuyer = await db.run(matriz(A), (tx) =>
-      tx.location.create({ data: { tenantId: A.tenantId, name: `Unidade Comprador A ${suffix}`, partnerId: A.buyers[0] } }),
-    );
-    const general = await db.run(matriz(A), (tx) => tx.location.create({ data: { tenantId: A.tenantId, name: `Porto geral ${suffix}`, kind: 'PORT' } }));
-
-    // Comprador A lê o local vinculado a ele, mas não o de uso geral nem o do Comprador B.
-    const seen = await db.run(buyer(A, 0), (tx) => tx.location.findMany({ where: { id: { in: [ownBuyer.id, general.id] } }, select: { id: true } }));
-    expect(seen.map((l) => l.id)).toEqual([ownBuyer.id]);
-    expect(await db.run(buyer(A, 1), (tx) => tx.location.count({ where: { id: ownBuyer.id } }))).toBe(0);
-
-    // Fazenda não cria nem altera.
-    await expect(db.run(farm(A, 0), (tx) => tx.location.create({ data: { tenantId: A.tenantId, name: `Fazenda tenta ${suffix}` } }))).rejects.toThrow();
-    const byBuyer = await db.run(buyer(A, 0), (tx) => tx.location.updateMany({ where: { id: ownBuyer.id }, data: { name: 'Alterado pelo comprador' } }));
-    expect(byBuyer.count).toBe(0);
-
-    // Outro tenant não enxerga; parceiro de outro tenant é recusado (trigger).
-    expect(await db.run(matriz(B), (tx) => tx.location.count({ where: { id: { in: [ownBuyer.id, general.id] } } }))).toBe(0);
-    await expect(
-      db.run(matriz(A), (tx) => tx.location.create({ data: { tenantId: A.tenantId, name: `Cruzado ${suffix}`, partnerId: B.buyers[0] } })),
-    ).rejects.toThrow();
   });
 });
 

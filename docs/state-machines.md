@@ -86,7 +86,7 @@ stateDiagram-v2
 | SCHEDULED | Agendada | MATRIZ, FARM | +scheduled |
 | CONFIRMED | Confirmada | MATRIZ, FARM | — |
 | AWAITING_LOADING | Aguardando carregamento | MATRIZ, FARM | — |
-| LOADING | Em carregamento | FARM, MATRIZ | — (motorista e cavalo obrigatórios) |
+| LOADING | Em carregamento | FARM, MATRIZ | — (motorista e ao menos um veículo digitados) |
 | LOADED | Carregada | FARM, MATRIZ (peso bruto e tara obrigatórios; saldo liberado validado) | −scheduled, +loaded (peso líquido) |
 | AWAITING_FARM_INVOICE | Aguardando documentação fiscal | automático após LOADED | — |
 | FARM_INVOICED | Documentação fiscal validada | FARM, MATRIZ (checklist fiscal) | — |

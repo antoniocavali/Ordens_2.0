@@ -11,7 +11,6 @@ const partnerQuery = cursorQuery.extend({
   contractId: z.uuid().optional(),
 });
 const farmQuery = cursorQuery.extend({ sellerId: z.uuid({ message: 'Selecione o vendedor primeiro' }) });
-const locationQuery = cursorQuery.extend({ buyerId: z.uuid().optional() });
 const commodityQuery =z.object({ q: z.string().trim().max(120).optional(), contractId: z.uuid().optional() });
 const contractQuery = cursorQuery.extend({
   sellerId: z.uuid().optional(),
@@ -35,12 +34,6 @@ export class LookupsController {
   @RequirePermission('farm.read')
   farms(@Query(new ZodPipe(farmQuery)) q: z.infer<typeof farmQuery>) {
     return this.lookups.farms(q);
-  }
-
-  @Get('locations')
-  @RequirePermission('partner.read')
-  locations(@Query(new ZodPipe(locationQuery)) q: z.infer<typeof locationQuery>) {
-    return this.lookups.locations(q);
   }
 
   @Get('commodities')

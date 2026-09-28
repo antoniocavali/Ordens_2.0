@@ -18,7 +18,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  A[+ Nova solicitação: formulário do portal] --> B[Commodity, quantidade, unidade, janela,<br/>destino, frete, transportadora preferencial, observações]
+  A[+ Nova solicitação: formulário do portal] --> B[Commodity, quantidade, unidade, janela,<br/>destino, frete, transporte digitado, observações]
   B --> C{Salvar rascunho}
   C -->|editar| B
   C --> D[Enviar ao Faturamento]
@@ -30,7 +30,7 @@ flowchart TD
 
 - O comprador da ordem é **derivado da organização ativa** (`organizations.partner_id`); o payload do portal é estrito e recusa vendedor, fazenda, contrato, preço e campos internos.
 - Rascunho é visível e editável **só por quem criou**; após o envio, o Comprador apenas acompanha.
-- Transportadora preferencial é **opcional**; exigidos para enviar: commodity, quantidade, unidade e janela.
+- O transporte (transportadora, motorista e veículos) é digitado pelo próprio Comprador e é **opcional** no envio; exigidos para enviar: commodity, quantidade, unidade e janela. O agendamento de cada carga nasce com esse transporte e pode corrigi-lo na portaria.
 - **Devolvida pelo Faturamento**: volta a rascunho com o motivo em destaque (notificação a quem criou); o Comprador ajusta e reenvia.
 - **Cancelar solicitação** (motivo obrigatório): no rascunho ou depois de enviada, **enquanto a fazenda não foi definida**; depois disso, só a Matriz. `POST /orders/:id/buyer-cancel`.
 - Endpoints próprios: `POST /orders/buyer`, `PATCH /orders/buyer/:id`, `POST /orders/:id/submit` (permissão `order.submit`).
@@ -61,7 +61,7 @@ flowchart TD
   B --> C{Autosave rascunho}
   C --> D[Selecionar contrato → filtra vendedor, comprador, commodity]
   D --> E[Vendedor → filtra fazendas]
-  E --> F[Quantidade, preço, janela, transportadora preferencial]
+  E --> F[Quantidade, preço, janela, transporte digitado]
   F --> G[Liberação inicial opcional]
   G --> H[Publicar ou Solicitar publicação Q40]
   H --> I[Versão 1 + audit + outbox order.published]
