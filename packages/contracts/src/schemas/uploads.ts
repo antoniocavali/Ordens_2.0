@@ -25,7 +25,18 @@ export const UPLOAD_RULES: Record<DocumentKind, { mimes: string[]; extensions: s
   },
 };
 
-export const UPLOAD_ENTITY_TYPES = ['loading_order', 'load', 'contract', 'partner', 'farm', 'occurrence', 'user'] as const;
+export const UPLOAD_ENTITY_TYPES = ['loading_order', 'load', 'contract', 'partner', 'farm', 'occurrence', 'user', 'support_conversation'] as const;
+
+/**
+ * Imagem no chat de Atendimento (captura de tela ou foto): limite menor que o de imagem em geral,
+ * porque a tela inteira em PNG passa fácil de 10 MB e o chat não é lugar de arquivo grande.
+ */
+export const SUPPORT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const SUPPORT_ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+/** Quantas imagens cabem numa mensagem. */
+export const SUPPORT_ATTACHMENTS_PER_MESSAGE = 3;
+/** Dias que a imagem fica guardada antes de o worker apagar o objeto (dado de tela de terceiros). */
+export const SUPPORT_ATTACHMENT_RETENTION_DAYS = 90;
 
 export const initiateUploadSchema = z.object({
   entityType: z.enum(UPLOAD_ENTITY_TYPES),

@@ -115,7 +115,7 @@ export function ChatWidget() {
                     conversation={detail}
                     mode="customer"
                     sending={send.isPending}
-                    onSend={(body) => send.mutateAsync({ id: detail.id, body }).catch((err) => {
+                    onSend={(body, _internal, attachmentIds) => send.mutateAsync({ id: detail.id, body, attachmentIds }).catch((err) => {
                       toast.error(errorMessage(err));
                       throw err;
                     })}

@@ -86,3 +86,51 @@ Eventos `support.*` saem pela outbox. O worker publica invalidação `['support'
 | POST/PATCH | `/support/conversations/:id/assign`, `/transition`, `PATCH /:id` | atendente da fila da conversa |
 
 Regras provisórias: Q26–Q32 em [decisions/open-questions.md](decisions/open-questions.md).
+
+## Imagens e captura de tela no chat
+
+O compositor (chat do cliente e painel do atendente) tem **Capturar tela** e **Anexar imagem**; o
+Print Screen também pode ser colado direto na caixa de texto.
+
+A captura usa `getDisplayMedia`: quem escolhe a aba, janela ou monitor é a pessoa, no diálogo do
+próprio navegador — o sistema nunca captura sozinho. Lido o quadro, o compartilhamento é encerrado na
+hora, inclusive se algo falhar no meio. A imagem é reduzida para 1920 px de largura e salva em WebP,
+baixando a qualidade até caber em 10 MB.
+
+**Nem todo navegador captura tela**: iOS e Android não têm `getDisplayMedia`. Nesses casos o botão
+avisa e a pessoa anexa ou cola uma imagem — o fluxo continua o mesmo.
+
+| Regra | Valor |
+|---|---|
+| Formatos | PNG, JPEG, WebP |
+| Tamanho | 10 MB por imagem |
+| Por mensagem | até 3 imagens |
+| Permissão | `support.use` (não `document.upload`) |
+| Remoção | `support.manage`, com motivo |
+| Retenção | 90 dias, depois o objeto é apagado do storage |
+
+### Quem enxerga
+
+Diferente do resto do sistema, onde o documento é da organização, **a imagem do atendimento é do
+usuário que abriu a conversa**: um colega da mesma empresa não vê o print de outro. A regra está na
+RLS (`file_uploads_scope_read` e `support_message_attachments_read`), não só na tela.
+
+- Quem abriu a conversa vê as imagens das mensagens públicas dela.
+- O atendimento vê tudo da conversa, inclusive imagem de nota interna.
+- **Nota interna com imagem não chega ao cliente**: nem na conversa, nem pelo endereço de download.
+- O download passa por `GET /support/attachments/:id/download`, que confere o acesso à conversa antes
+  de gerar uma URL temporária. A URL do storage nunca é exposta.
+
+### Processamento e privacidade
+
+A imagem usa o mesmo pipeline dos demais anexos (quarentena, checksum, tipo real por magic bytes,
+antivírus, promoção). Enquanto não termina, a miniatura mostra **"Verificando captura"** e não há o
+que abrir; rejeitada ou bloqueada, aparece marcada.
+
+O compositor avisa antes do envio: *"Revise a imagem antes de enviar. Não compartilhe senhas, tokens
+ou dados pessoais desnecessários."* Ainda assim, a tela inteira pode trazer o que estava aberto, por
+isso a Matriz pode apagar uma imagem (`POST /support/attachments/:id/remove`, com motivo) e a varredura
+do worker apaga o objeto depois de 90 dias. Os dois casos ficam na auditoria; o registro continua no
+histórico, marcado como removido, para a conversa não perder o sentido.
+
+A triagem do assistente continua exigindo texto: imagem sozinha não classifica o atendimento.

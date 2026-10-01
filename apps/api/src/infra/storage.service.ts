@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   ListPartsCommand,
@@ -86,6 +87,11 @@ export class StorageService {
 
   async abortMultipart(bucket: string, key: string, uploadId: string): Promise<void> {
     await this.internal.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }));
+  }
+
+  /** Apaga o objeto de verdade (retenção de anexos do atendimento). */
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    await this.internal.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 
   /** Retorna tamanho do objeto ou null se não existir. */

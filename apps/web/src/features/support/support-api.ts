@@ -6,6 +6,9 @@ import {
   type Page,
   type SupportAnalytics,
   type SupportAnalyticsPeriod,
+  type InitiateUploadResponse,
+  type SupportAttachmentDto,
+  type UploadDto,
   type SupportBotAction,
   type SupportConversationDetail,
   type SupportConversationDto,
@@ -82,7 +85,7 @@ export function useSupportMutations() {
   return {
     start: useMutation({ mutationFn: (body: { message?: string; orderId?: string }) => post<SupportConversationDetail>('/support/conversations', body), onSuccess: onDetail }),
     send: useMutation({
-      mutationFn: ({ id, ...body }: { id: string; body?: string; quickReply?: SupportBotAction; internal?: boolean }) =>
+      mutationFn: ({ id, ...body }: { id: string; body?: string; quickReply?: SupportBotAction; internal?: boolean; attachmentIds?: string[] }) =>
         post<SupportConversationDetail>(`/support/conversations/${id}/messages`, body),
       onSuccess: onDetail,
     }),
@@ -122,3 +125,33 @@ export const agentLookup =
   (queue?: SupportQueue | null) =>
   ({ q }: { q: string; cursor: string | null }) =>
     get<CursorPage<LookupOption>>('/support/agents', { q, queue: queue ?? undefined });
+
+/**
+ * Envia uma imagem do atendimento direto ao storage e devolve o id a vincular na mensagem. Usa o
+ * mesmo caminho seguro dos demais anexos (URL assinada), mas autorizado pela conversa, não pela
+ * permissão de documentos: Comprador e Transportadora também anexam no próprio atendimento.
+ */
+export async function uploadSupportAttachment(conversationId: string, file: File, signal?: AbortSignal): Promise<SupportAttachmentDto> {
+  const init = await post<InitiateUploadResponse>(`/support/conversations/${conversationId}/attachments`, {
+    fileName: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
+    idempotencyKey: `${conversationId}:${file.name}:${file.size}:${file.lastModified}`.slice(0, 100),
+  });
+  if (init.url) {
+    const res = await fetch(init.url, { method: 'PUT', body: file, headers: init.headers ?? {}, signal });
+    if (!res.ok) throw new Error('Falha ao enviar a imagem.');
+  }
+  const upload = await post<UploadDto>(`/support/conversations/${conversationId}/attachments/${init.uploadId}/complete`, {});
+  return {
+    id: upload.id,
+    fileName: upload.fileName,
+    mimeType: upload.mimeType,
+    sizeBytes: upload.sizeBytes,
+    status: upload.status,
+    url: null,
+  };
+}
+
+/** URL temporária da imagem, gerada pelo atendimento depois de conferir o acesso à conversa. */
+export const supportAttachmentUrl = (uploadId: string) => get<{ url: string }>(`/support/attachments/${uploadId}/download`).then((r) => r.url);

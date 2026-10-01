@@ -65,6 +65,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'upload.infected': 'Arquivo bloqueado (malware)',
   'upload.aborted': 'Envio cancelado',
   'upload.removed': 'Arquivo removido da conferência',
+  'upload.purged': 'Arquivo apagado do armazenamento',
+  'support.attachment_removed': 'Imagem do atendimento removida',
   'partner.created': 'Parceiro cadastrado',
   'partner.updated': 'Parceiro alterado',
   'location.created': 'Local cadastrado',

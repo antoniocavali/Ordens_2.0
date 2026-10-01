@@ -18,6 +18,9 @@ import {
   supportAgentsQuery,
   supportAnalyticsQuery,
   supportAssignSchema,
+  SUPPORT_ATTACHMENTS_PER_MESSAGE,
+  supportAttachmentRemoveSchema,
+  supportAttachmentSchema,
   supportMessageSchema,
   supportQueueQuery,
   supportSlaState,
@@ -33,6 +36,8 @@ import {
   type SupportAnalytics,
   type SupportAnalyticsQuery,
   type SupportBotAction,
+  type SupportAttachmentDto,
+  type SupportAttachmentInput,
   type SupportBotOption,
   type SupportConversationDetail,
   type SupportConversationDto,
@@ -51,6 +56,8 @@ import { AppError } from '../../common/errors.js';
 import { currentAuth, type AuthState } from '../../common/request-context.js';
 import { ZodPipe } from '../../common/zod.pipe.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
+import { UploadsModule } from '../uploads/uploads.module.js';
+import { UploadsService } from '../uploads/uploads.service.js';
 import { oneOf, uniq } from '../fiscal/fiscal.util.js';
 
 type ConversationRow = NonNullable<Awaited<ReturnType<Tx['supportConversation']['findUnique']>>>;
@@ -112,7 +119,10 @@ export class SupportService {
   /** Acesso calculado uma vez por requisição. */
   private readonly accessCache = new WeakMap<AuthState, Promise<Access>>();
 
-  constructor(private readonly db: TenantDb) {}
+  constructor(
+    private readonly db: TenantDb,
+    private readonly uploads: UploadsService,
+  ) {}
 
   // ───────────────────────────── Cliente ─────────────────────────────
 
@@ -175,8 +185,8 @@ export class SupportService {
 
       if (agent) {
         if (conv.status === 'BOT') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A conversa ainda está com o assistente de triagem.');
-        if (!text) throw AppError.validation({ fields: { body: ['Escreva uma mensagem'] } });
-        await this.addMessage(tx, conv, { authorType: 'AGENT', authorUserId: auth.userId, body: text, internal: input.internal });
+        if (!text && !input.attachmentIds.length) throw AppError.validation({ fields: { body: ['Escreva uma mensagem'] } });
+        await this.addMessage(tx, conv, { authorType: 'AGENT', authorUserId: auth.userId, body: text, internal: input.internal, attachmentIds: input.attachmentIds });
         const assigneeUserId = conv.assigneeUserId ?? auth.userId;
         if (!input.internal) {
           const now = new Date();
@@ -205,7 +215,9 @@ export class SupportService {
       }
       // Botão do assistente vira mensagem do cliente com o rótulo escolhido (o histórico mostra a escolha).
       const quickLabel = !text && input.quickReply ? BOT_MENU.find((o) => o.action === input.quickReply)?.label : undefined;
-      if (text || quickLabel) await this.addMessage(tx, conv, { authorType: 'CUSTOMER', authorUserId: auth.userId, body: text || quickLabel! });
+      if (text || quickLabel || input.attachmentIds.length) {
+        await this.addMessage(tx, conv, { authorType: 'CUSTOMER', authorUserId: auth.userId, body: text || quickLabel || '', attachmentIds: input.attachmentIds });
+      }
 
       if (conv.status === 'BOT') {
         await this.runBot(scope, conv, text, input.quickReply, auth.userName.split(' ')[0] ?? '');
@@ -756,9 +768,16 @@ export class SupportService {
   private async addMessage(
     tx: Tx,
     conv: ConversationRow,
-    m: { authorType: 'CUSTOMER' | 'AGENT' | 'BOT' | 'SYSTEM'; authorUserId?: string; body: string; internal?: boolean; options?: SupportBotOption[] },
+    m: {
+      authorType: 'CUSTOMER' | 'AGENT' | 'BOT' | 'SYSTEM';
+      authorUserId?: string;
+      body: string;
+      internal?: boolean;
+      options?: SupportBotOption[];
+      attachmentIds?: string[];
+    },
   ) {
-    await tx.supportMessage.create({
+    const message = await tx.supportMessage.create({
       data: {
         tenantId: conv.tenantId,
         conversationId: conv.id,
@@ -769,12 +788,127 @@ export class SupportService {
         metadata: (m.options ? { options: m.options } : {}) as unknown as Prisma.InputJsonValue,
       },
     });
+    if (m.attachmentIds?.length) await this.linkAttachments(tx, conv, message.id, m.attachmentIds, m.authorUserId ?? null);
+    return message;
+  }
+
+  /**
+   * Prende as imagens à mensagem. Só vale imagem enviada nesta conversa, por quem está escrevendo e
+   * ainda não usada em outra mensagem — a RLS cuida de quem enxerga depois.
+   */
+  private async linkAttachments(tx: Tx, conv: ConversationRow, messageId: string, uploadIds: string[], authorUserId: string | null) {
+    const unique = [...new Set(uploadIds)];
+    if (unique.length > SUPPORT_ATTACHMENTS_PER_MESSAGE) {
+      throw AppError.validation({ fields: { attachmentIds: ['No máximo 3 imagens por mensagem'] } }, 'No máximo 3 imagens por mensagem.');
+    }
+    const uploads = await tx.fileUpload.findMany({
+      where: { id: { in: unique }, entityType: 'support_conversation', entityId: conv.id, createdBy: authorUserId ?? undefined },
+      select: { id: true, status: true },
+    });
+    if (uploads.length !== unique.length) throw AppError.notFound('Imagem não encontrada nesta conversa.');
+    if (uploads.some((u) => ['REMOVED', 'REJECTED', 'INFECTED', 'ABORTED', 'EXPIRED'].includes(u.status))) {
+      throw AppError.domain(ErrorCode.UPLOAD_REJECTED, 'Uma das imagens foi recusada na verificação. Envie outra.');
+    }
+    const used = await tx.supportMessageAttachment.findMany({ where: { fileUploadId: { in: unique } }, select: { fileUploadId: true } });
+    if (used.length) throw AppError.conflict('Esta imagem já foi enviada em outra mensagem.');
+    await tx.supportMessageAttachment.createMany({
+      data: unique.map((fileUploadId) => ({
+        tenantId: conv.tenantId,
+        conversationId: conv.id,
+        messageId,
+        fileUploadId,
+        createdBy: authorUserId ?? conv.requesterUserId,
+      })),
+    });
   }
 
   private async lock(tx: Tx, id: string): Promise<ConversationRow> {
     const locked = await tx.$queryRaw<{ id: string }[]>`select id from support_conversations where id = ${id}::uuid for update`;
     if (!locked.length) throw AppError.notFound('Conversa não encontrada.');
     return tx.supportConversation.findUniqueOrThrow({ where: { id } });
+  }
+
+  /**
+   * Imagens de cada mensagem. A URL só é gerada quando o arquivo já passou pela verificação; enquanto
+   * isso a tela mostra "Verificando captura" e não há como abrir o conteúdo.
+   */
+  private async attachmentsByMessage(tx: Tx, messageIds: string[]): Promise<Map<string, SupportAttachmentDto[]>> {
+    const map = new Map<string, SupportAttachmentDto[]>();
+    if (!messageIds.length) return map;
+    const links = await tx.supportMessageAttachment.findMany({ where: { messageId: { in: messageIds } }, orderBy: { createdAt: 'asc' } });
+    if (!links.length) return map;
+    const uploads = await tx.fileUpload.findMany({
+      where: { id: { in: links.map((l) => l.fileUploadId) } },
+      select: { id: true, originalName: true, declaredMime: true, sizeBytes: true, status: true },
+    });
+    const byId = new Map(uploads.map((u) => [u.id, u]));
+    for (const link of links) {
+      const upload = byId.get(link.fileUploadId);
+      if (!upload) continue;
+      const list = map.get(link.messageId) ?? [];
+      list.push({
+        id: upload.id,
+        fileName: upload.originalName,
+        mimeType: upload.declaredMime,
+        sizeBytes: upload.sizeBytes.toString(),
+        status: upload.status,
+        // O endereço é do próprio atendimento: nunca a URL do storage.
+        url: upload.status === 'AVAILABLE' ? `/support/attachments/${upload.id}/download` : null,
+      });
+      map.set(link.messageId, list);
+    }
+    return map;
+  }
+
+  /** Conversa que o usuário pode ver: quem abriu ou o atendimento da fila. */
+  private async conversationFor(tx: Tx, id: string): Promise<ConversationRow> {
+    const auth = currentAuth();
+    const conv = await tx.supportConversation.findUnique({ where: { id } });
+    if (!conv) throw AppError.notFound('Conversa não encontrada.');
+    if (conv.requesterUserId !== auth.userId && !this.handles(await this.access(tx), conv)) throw AppError.notFound('Conversa não encontrada.');
+    return conv;
+  }
+
+  /** Autoriza o envio e devolve a URL assinada; o arquivo vai do navegador direto ao storage. */
+  async startAttachment(conversationId: string, input: SupportAttachmentInput) {
+    await this.db.read((tx) => this.conversationFor(tx, conversationId));
+    return this.uploads.initiate({
+      entityType: 'support_conversation',
+      entityId: conversationId,
+      kind: 'IMAGE',
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+
+  finishAttachment(conversationId: string, uploadId: string) {
+    return this.db
+      .read((tx) => this.conversationFor(tx, conversationId))
+      .then(() => this.uploads.complete(uploadId));
+  }
+
+  /** URL temporária, conferindo o acesso à conversa e a visibilidade da mensagem (nota interna). */
+  async attachmentUrl(uploadId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    await this.db.read(async (tx) => {
+      // A RLS de support_message_attachments já esconde o anexo de nota interna de quem abriu a conversa.
+      const link = await tx.supportMessageAttachment.findUnique({ where: { fileUploadId: uploadId } });
+      if (!link) throw AppError.notFound('Anexo não encontrado.');
+      await this.conversationFor(tx, link.conversationId);
+    });
+    return this.uploads.downloadUrl(uploadId);
+  }
+
+  /** Remoção pela Matriz: o objeto sai do storage (a imagem pode conter dado de terceiro). */
+  async removeAttachment(uploadId: string, reason: string): Promise<void> {
+    const auth = currentAuth();
+    const link = await this.db.read((tx) => tx.supportMessageAttachment.findUnique({ where: { fileUploadId: uploadId } }));
+    if (!link) throw AppError.notFound('Anexo não encontrado.');
+    await this.uploads.purgeObject(uploadId, reason, auth.userId);
+    await this.db.write(({ audit }) =>
+      audit({ entityType: 'support_conversation', entityId: link.conversationId, action: 'support.attachment_removed', after: { uploadId, reason } }),
+    );
   }
 
   /** Ações do painel: conversa de fila que o usuário não atende é tratada como inexistente. */
@@ -797,6 +931,7 @@ export class SupportService {
     });
     const users = await tx.user.findMany({ where: { id: { in: uniq(rows.map((r) => r.authorUserId)) } }, select: { id: true, name: true } });
     const names = new Map(users.map((u) => [u.id, u.name]));
+    const attachments = await this.attachmentsByMessage(tx, rows.map((r) => r.id));
     const last = rows.at(-1);
     const [dto] = await this.toDtos(tx, [conv]);
     return {
@@ -811,6 +946,7 @@ export class SupportService {
           r.authorType === 'BOT' && r.id === last?.id && conv.status === 'BOT'
             ? ((r.metadata as { options?: SupportBotOption[] } | null)?.options ?? null)
             : null,
+        attachments: attachments.get(r.id) ?? [],
         createdAt: r.createdAt.toISOString(),
       })),
     };
@@ -926,6 +1062,37 @@ export class SupportController {
     return this.support.post(id, body);
   }
 
+  /**
+   * Anexo de imagem do atendimento. Depende de `support.use` (não de `document.upload`): Comprador e
+   * Transportadora usam o chat sem nunca anexar documento de ordem.
+   */
+  @Post('conversations/:id/attachments')
+  @RequirePermission('support.use')
+  startAttachment(@Param('id', uuid) id: string, @Body(new ZodPipe(supportAttachmentSchema)) body: SupportAttachmentInput) {
+    return this.support.startAttachment(id, body);
+  }
+
+  @Post('conversations/:id/attachments/:uploadId/complete')
+  @HttpCode(200)
+  @RequirePermission('support.use')
+  finishAttachment(@Param('id', uuid) id: string, @Param('uploadId', uuid) uploadId: string) {
+    return this.support.finishAttachment(id, uploadId);
+  }
+
+  @Get('attachments/:uploadId/download')
+  @RequirePermission('support.use')
+  downloadAttachment(@Param('uploadId', uuid) uploadId: string) {
+    return this.support.attachmentUrl(uploadId);
+  }
+
+  /** Remoção pela Matriz: apaga o objeto no storage, com motivo registrado. */
+  @Post('attachments/:uploadId/remove')
+  @HttpCode(204)
+  @RequirePermission('support.manage')
+  removeAttachment(@Param('uploadId', uuid) uploadId: string, @Body(new ZodPipe(supportAttachmentRemoveSchema)) body: { reason: string }) {
+    return this.support.removeAttachment(uploadId, body.reason);
+  }
+
   @Post('conversations/:id/close')
   @HttpCode(200)
   @RequirePermission('support.use')
@@ -956,6 +1123,7 @@ export class SupportController {
 }
 
 @Module({
+  imports: [UploadsModule],
   controllers: [SupportController],
   providers: [SupportService],
 })

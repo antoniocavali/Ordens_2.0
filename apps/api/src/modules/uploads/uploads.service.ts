@@ -5,6 +5,8 @@ import {
   ErrorCode,
   MULTIPART_PART_SIZE,
   SINGLE_UPLOAD_MAX_BYTES,
+  SUPPORT_ATTACHMENT_MAX_BYTES,
+  SUPPORT_ATTACHMENT_MIMES,
   UPLOAD_RULES,
   type InitiateUploadInput,
   type InitiateUploadResponse,
@@ -66,6 +68,14 @@ export class UploadsService {
     const auth = currentAuth();
     const m = auth.membership!;
     this.validateFile(input);
+    if (input.entityType === 'support_conversation') {
+      if (input.kind !== 'IMAGE' || !SUPPORT_ATTACHMENT_MIMES.includes(input.mimeType as (typeof SUPPORT_ATTACHMENT_MIMES)[number])) {
+        throw AppError.domain(ErrorCode.UPLOAD_REJECTED, 'No atendimento só é possível anexar imagem PNG, JPEG ou WebP.', { fields: { mimeType: ['Imagem PNG, JPEG ou WebP'] } });
+      }
+      if (input.sizeBytes > SUPPORT_ATTACHMENT_MAX_BYTES) {
+        throw AppError.domain(ErrorCode.UPLOAD_REJECTED, 'A imagem do atendimento deve ter no máximo 10 MB.', { fields: { sizeBytes: ['Máximo de 10 MB'] } });
+      }
+    }
     if (input.kind === 'NFE_XML') {
       if (input.entityType !== 'load') {
         throw AppError.domain(ErrorCode.UPLOAD_REJECTED, 'A NF-e (XML) deve ser anexada a uma carga.', { fields: { entityType: ['Anexe na carga'] } });
@@ -330,6 +340,10 @@ export class UploadsService {
       case 'user':
         found = entityId === auth.userId ? { id: entityId } : null;
         break;
+      case 'support_conversation':
+        // A RLS de support_conversations já limita ao solicitante ou ao atendimento.
+        found = await tx.supportConversation.findUnique({ where: { id: entityId }, select: { id: true } });
+        break;
       default:
         throw AppError.domain(ErrorCode.UPLOAD_REJECTED, 'Tipo de vínculo ainda não suportado.');
     }
@@ -350,6 +364,20 @@ export class UploadsService {
     if (upload.status !== 'PENDING') return { uploadId: upload.id, strategy: 'SINGLE', expiresAt };
     const url = await this.storage.presignPut(upload.bucket, upload.objectKey, upload.declaredMime, Number(upload.sizeBytes));
     return { uploadId: upload.id, strategy: 'SINGLE', url, headers: { 'Content-Type': upload.declaredMime }, expiresAt };
+  }
+
+  /**
+   * Apaga o arquivo do storage e marca o registro. Diferente de `remove`, que preserva o objeto: aqui o
+   * conteúdo precisa sumir mesmo (captura de tela pode trazer dado pessoal de terceiros).
+   */
+  async purgeObject(id: string, reason: string, actorUserId: string | null): Promise<void> {
+    const upload = await this.get(id);
+    if (upload.status === 'REMOVED') return;
+    await this.storage.deleteObject(upload.bucket, upload.objectKey).catch(() => undefined);
+    await this.db.write(async ({ tx, audit }) => {
+      await tx.fileUpload.update({ where: { id }, data: { status: 'REMOVED', removedAt: new Date(), removedBy: actorUserId, removeReason: reason } });
+      await audit({ entityType: 'file_upload', entityId: id, action: 'upload.purged', before: { status: upload.status }, after: { reason, fileName: upload.originalName } });
+    });
   }
 
   private async get(id: string): Promise<UploadRecord> {

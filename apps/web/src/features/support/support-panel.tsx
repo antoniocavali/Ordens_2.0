@@ -419,8 +419,8 @@ export function SupportPanel({ team }: { team?: SupportQueue }) {
                 conversation={d}
                 mode="agent"
                 sending={send.isPending}
-                onSend={(body, internal) =>
-                  send.mutateAsync({ id: d.id, body, internal }).catch((err) => {
+                onSend={(body, internal, attachmentIds) =>
+                  send.mutateAsync({ id: d.id, body, internal, attachmentIds }).catch((err) => {
                     toast.error(errorMessage(err));
                     throw err;
                   })
