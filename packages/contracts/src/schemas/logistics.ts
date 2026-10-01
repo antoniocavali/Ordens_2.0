@@ -117,6 +117,7 @@ export function evaluateFiscalDocuments(input: FiscalDocumentsInput): LoadFiscal
   return { weighed, pdf, xml, ready: weighed && pdf === 'OK' && xml === 'OK', issues };
 }
 export const LOAD_IN_TRANSIT: readonly LoadStatus[] = ['IN_TRANSIT', 'ARRIVED'];
+/** Da chegada ao destino em diante. RECEIVED e CHECKED só existem no histórico de cargas antigas. */
 export const LOAD_RECEIVED: readonly LoadStatus[] = ['RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'];
 
 /** Macro-etapas para visualização (kanban/stepper). */
@@ -124,8 +125,9 @@ export const LOAD_STAGES = [
   { key: 'scheduling', label: 'Agendamento', statuses: ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING'] },
   { key: 'loading', label: 'Carregamento', statuses: ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'] },
   { key: 'transit', label: 'Transporte', statuses: ['IN_TRANSIT', 'ARRIVED'] },
-  { key: 'receiving', label: 'Recebimento', statuses: ['RECEIVED', 'CHECKED'] },
-  { key: 'billing', label: 'Faturamento', statuses: ['AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'] },
+  // Não há etapa de recebimento: do transporte a carga vai direto ao faturamento. RECEIVED e CHECKED
+  // aparecem aqui só para que cargas antigas continuem visíveis em alguma etapa.
+  { key: 'billing', label: 'Faturamento', statuses: ['RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'] },
 ] as const satisfies readonly { key: string; label: string; statuses: readonly LoadStatus[] }[];
 
 const text = (max: number) =>
@@ -277,7 +279,6 @@ export const loadUpdateSchema = z
     grossKg: optQty,
     tareKg: optQty,
     invoicedQty: optQty,
-    receivedQty: optQty,
     notes: text(2000),
   })
   .superRefine(checkTransport);
@@ -287,10 +288,9 @@ export const loadTransitionSchema = z.object({
   to: z.enum(LOAD_STATUSES),
   expectedUpdatedAt: z.iso.datetime(),
   notes: text(500),
-  /** Pesagem/recebimento podem ser informados na própria transição. */
+  /** A pesagem pode ser informada na própria transição. */
   grossKg: optQty,
   tareKg: optQty,
-  receivedQty: optQty,
   /**
    * Q47: faturar ou concluir sem PDF/XML da nota da Matriz (há vendas sem essa nota). Os dois documentos
    * continuam sendo o padrão; sem eles, a Matriz confirma e o aceite fica na auditoria.
@@ -361,7 +361,7 @@ export interface AppointmentDto extends TransportDto {
 export interface LoadDto extends TransportDto {
   id: string;
   number: string;
-  order: { id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string; requiresReceipt: boolean };
+  order: { id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string };
   appointmentId: string | null;
   loadingDate: string | null;
   expectedQty: string;
@@ -369,8 +369,6 @@ export interface LoadDto extends TransportDto {
   tareKg: string | null;
   netKg: string | null;
   invoicedQty: string | null;
-  receivedQty: string | null;
-  divergenceKg: string | null;
   status: LoadStatus;
   notes: string | null;
   updatedAt: string;

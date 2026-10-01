@@ -497,10 +497,10 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     const transportData = { ...transportFields, plates: transport.vehicles.map((v) => v.plate) };
     const loadedTarget = status === 'IN_PROGRESS' ? Math.round((released * r.int(20, 70)) / 100) : status === 'COMPLETED' ? qty : 0;
     const trucks = split(loadedTarget);
-    const receivedTrucks = status === 'COMPLETED' ? trucks.length : Math.floor((trucks.length * r.int(30, 80)) / 100);
+    const deliveredTrucks = status === 'COMPLETED' ? trucks.length : Math.floor((trucks.length * r.int(30, 80)) / 100);
     // Histórico real: a carga só vira "Carregada" depois da NF-e da Fazenda (um evento a cada 3 h).
     // Fluxo Q41: pesagem confirmada antes da documentação fiscal; transporte só com documentação validada.
-    const path = ['SCHEDULED', 'AWAITING_LOADING', 'LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'COMPLETED'] as const;
+    const path = ['SCHEDULED', 'AWAITING_LOADING', 'LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED', 'IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'] as const;
     const stepAt = (base: Date, step: (typeof path)[number]) => new Date(base.getTime() + path.indexOf(step) * 3 * 3_600_000);
     const sellerPartner = trucks.length
       ? await tx.businessPartner.findUniqueOrThrow({ where: { id: seller }, select: { legalName: true, document: true } })
@@ -509,11 +509,12 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     let sequence = 0;
     for (const [t, tons] of trucks.entries()) {
       sequence++;
-      const finalStatus = t < receivedTrucks ? 'COMPLETED' : r.pick(['AWAITING_FARM_INVOICE', 'IN_TRANSIT', 'ARRIVED'] as const);
+      const finalStatus = t < deliveredTrucks ? 'COMPLETED' : r.pick(['AWAITING_FARM_INVOICE', 'IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE'] as const);
       const loadingDate = addDays(createdAt, 2 + t);
       const netKg = tons * 1000;
       const tareKg = 16_000 + r.int(0, 3000);
-      const reachedReceipt = (['RECEIVED', 'COMPLETED'] as string[]).includes(finalStatus);
+      // Entregue: do trânsito em diante a carga já chegou ao destino (não há etapa de recebimento).
+      const delivered = (['AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'] as string[]).includes(finalStatus);
       const load = await tx.load.create({
         data: {
           tenantId,
@@ -526,11 +527,10 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           tareKg: String(tareKg),
           grossKg: String(tareKg + netKg),
           netKg: String(netKg),
-          receivedQty: finalStatus === 'COMPLETED' ? (tons - r.int(0, 60) / 1000).toFixed(3) : null,
           status: finalStatus,
           // Coerentes com o histórico gerado abaixo.
           loadedAt: stepAt(loadingDate, 'LOADED'),
-          receivedAt: reachedReceipt ? stepAt(loadingDate, 'RECEIVED') : null,
+          receivedAt: delivered ? stepAt(loadingDate, 'AWAITING_MATRIZ_INVOICE') : null,
           createdBy: creator.userId,
           createdAt: loadingDate,
         },

@@ -66,11 +66,7 @@ stateDiagram-v2
   LOADED --> AWAITING_FARM_INVOICE: automático
   AWAITING_FARM_INVOICE --> FARM_INVOICED: PDF + XML válidos
   FARM_INVOICED --> IN_TRANSIT: liberar para transporte (reconfere documentos)
-  IN_TRANSIT --> ARRIVED: ordem exige recebimento (padrão)
-  IN_TRANSIT --> AWAITING_MATRIZ_INVOICE: encerrar transporte (ordem dispensa recebimento)
-  ARRIVED --> RECEIVED
-  RECEIVED --> CHECKED
-  CHECKED --> AWAITING_MATRIZ_INVOICE
+  IN_TRANSIT --> AWAITING_MATRIZ_INVOICE: encerrar transporte
   AWAITING_MATRIZ_INVOICE --> MATRIZ_INVOICED: PDF + XML da nota da Matriz (Q47)
   MATRIZ_INVOICED --> COMPLETED: nota da Matriz validada
   SCHEDULED --> CANCELLED
@@ -91,10 +87,7 @@ stateDiagram-v2
 | AWAITING_FARM_INVOICE | Aguardando documentação fiscal | automático após LOADED | — |
 | FARM_INVOICED | Documentação fiscal validada | FARM, MATRIZ (checklist fiscal) | — |
 | IN_TRANSIT | Em trânsito | MATRIZ, FARM (checklist fiscal reconferido) | +in_transit |
-| ARRIVED | Chegada ao destino (só se a ordem exige recebimento) | MATRIZ | — |
-| RECEIVED | Recebida | MATRIZ | −in_transit, +received |
-| CHECKED | Conferida | MATRIZ | divergência gera ocorrência |
-| AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | MATRIZ | — |
+| AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | MATRIZ | −in_transit, +received |
 | MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ | PDF e XML da nota da Matriz validados (Q47) |
 | COMPLETED | Concluída | MATRIZ | — |
 | CANCELLED | Cancelada | MATRIZ (FARM antes de LOADING) | estorna scheduled; +cancelled |
@@ -133,6 +126,9 @@ stateDiagram-v2
 
 Numeração `OCR-AAAA-NNNN` por tenant. Visibilidade por ocorrência (`INTERNAL`, `FARM`, `BUYER`, `PARTIES`); Fazenda só grava ocorrências visíveis a ela e não encerra (Q14, trigger `occurrences_farm_guard`).
 
-Em `CHECKED`, recebido (convertido para kg) fora da tolerância do peso líquido abre ocorrência automática "Divergência de peso", visível à Fazenda (Q17).
+**Não há recebimento no destino**: do trânsito a carga vai direto ao faturamento da Matriz, e o que chegou é o
+peso líquido registrado no carregamento. Os status `ARRIVED`, `RECEIVED` e `CHECKED` continuam no enum apenas
+pelo histórico de cargas anteriores — nenhuma carga nova entra neles, e a única saída deles é o faturamento.
+Com isso saiu também a ocorrência automática de divergência de peso, que comparava o recebido com o carregado.
 
 Guardas: carregamento que ultrapasse `released_qty × (1 + tolerance_pct)` é bloqueado com erro de domínio `QUANTITY_EXCEEDS_RELEASED` (sem regra silenciosa). O workflow é configurável no futuro por tabela de transições por tenant; no MVP a tabela é código versionado.

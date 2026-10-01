@@ -2,11 +2,12 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, CheckCircle2, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, PauseCircle, Pencil, PlayCircle, Send, Sprout, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, CheckCircle2, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
+import { NewLoadDrawer } from '@/features/logistics/new-load-drawer';
 import { LoadsPage } from '@/features/logistics/loads-page';
 import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
@@ -83,7 +84,6 @@ const FIELD_LABEL: Record<string, string> = {
   buyerNotes: 'Observação para o Comprador',
   loadingInstructions: 'Instruções de carregamento',
   tolerancePct: 'Tolerância',
-  requiresReceipt: 'Recebimento no destino',
 };
 
 const fieldValue = (v: unknown) => (v === true ? 'Sim' : v === false ? 'Não' : String(v ?? '—'));
@@ -98,6 +98,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [editing, setEditing] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [scheduling, setScheduling] = useState(false);
+  const [creatingLoad, setCreatingLoad] = useState(false);
   const [cancelling, setCancelling] = useState<CancelReleaseTarget | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [buyerEditing, setBuyerEditing] = useState(false);
@@ -166,6 +167,16 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           {o.allowedActions.includes('release') ? (
             <Button variant="soft" onClick={() => setReleasing(true)}>
               <PackageCheck /> Nova liberação
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('schedule') ? (
+            <Button variant="soft" onClick={() => setScheduling(true)}>
+              <CalendarPlus /> Novo agendamento
+            </Button>
+          ) : null}
+          {o.allowedActions.includes('create_load') ? (
+            <Button variant="soft" onClick={() => setCreatingLoad(true)}>
+              <Truck /> Nova carga
             </Button>
           ) : null}
           {o.allowedActions.includes('update') ? (
@@ -378,7 +389,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <Row label="Frete" value={o.freightMode ? `${o.freightMode}${o.freightEstimate ? ` · ${formatMoney(o.freightEstimate)}` : ''}` : null} />
                 {o.completedAt ? <Row label="Concluída em" value={`${formatDateTime(o.completedAt)}${o.completedBy ? ` · ${o.completedBy}` : ''}`} /> : null}
                 {o.completionReason ? <Row label="Motivo da conclusão" value={o.completionReason} /> : null}
-                <Row label="Recebimento no destino" value={o.requiresReceipt ? 'Exigido' : 'Dispensado'} />
                 <Row label="Destino" value={[o.destinationName, o.destinationCity && `${o.destinationCity}/${o.destinationState ?? ''}`].filter(Boolean).join(' · ') || null} />
               </Group>
               <Group title="Controle">
@@ -458,13 +468,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             </Tabs.Content>
 
             <Tabs.Content value="cargas" className="space-y-4 p-5 sm:p-6">
-              {can('appointment.manage') && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status) ? (
-                <div className="flex justify-end">
-                  <Button variant="soft" size="sm" onClick={() => setScheduling(true)}>
-                    <CalendarPlus /> Agendar carregamento
-                  </Button>
-                </div>
-              ) : null}
               <Suspense>
                 <LoadsPage orderId={o.id} embedded />
               </Suspense>
@@ -593,6 +596,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           meta: { released: o.quantities.released, scheduled: o.quantities.scheduled, loaded: o.quantities.loaded, unit },
         }}
       />
+      <NewLoadDrawer orderId={o.id} open={creatingLoad} onClose={() => setCreatingLoad(false)} />
     </div>
   );
 }

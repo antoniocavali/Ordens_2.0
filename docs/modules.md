@@ -19,8 +19,7 @@ flowchart TD
   AG --> CG[Carga]
   CG --> NF[NF-e]
   CG --> DOC[Documentos]
-  CG --> RC[Recebimento]
-  RC --> CO[Conclusão]
+  CG --> CO[Conclusão]
 ```
 
 A ordem evita o problema da aplicação anterior, em que praticamente tudo era um campo solto do formulário da OC.

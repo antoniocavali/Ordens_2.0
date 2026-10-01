@@ -11,7 +11,7 @@ flowchart LR
   P --> A[Fazenda agenda e registra chegada<br/>CHECKED_IN]
   A --> C[Carga criada → carregamento → pesagem]
   C --> D[PDF + XML da NF-e<br/>documentação validada]
-  D --> T[Trânsito → recebimento → conferência<br/>faturamento Matriz → conclusão]
+  D --> T[Trânsito → faturamento Matriz → conclusão]
 ```
 
 ## Comprador
@@ -69,7 +69,7 @@ flowchart TD
   J --> K[Acompanhar faróis e exceções]
   K --> L[Novas liberações parciais]
   L --> M[Agendamentos / Cargas]
-  M --> N[Recebimento, conferência, faturamento Matriz]
+  M --> N[Faturamento da Matriz e conclusão]
   N --> O[Conclusão da OC]
   K -->|alteração material| P[Nova versão → faróis amarelos]
 ```

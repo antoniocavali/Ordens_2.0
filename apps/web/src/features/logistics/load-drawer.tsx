@@ -2,7 +2,7 @@
 
 import { FISCAL_DOC_STATE_LABELS, LOAD_STATUS_LABELS, type FiscalDocState, type LoadFiscalChecklist, type LoadStatus } from '@ordens/contracts';
 import { Button, Card, cn, Drawer, Field, Input, Skeleton, Textarea } from '@ordens/ui';
-import { AlertTriangle, ArrowRight, Check, CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
@@ -25,7 +25,6 @@ interface Values extends TransportValues {
   loadingDate: string;
   grossKg: string;
   tareKg: string;
-  receivedQty: string;
   notes: string;
 }
 
@@ -121,7 +120,6 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
       loadingDate: l.loadingDate ?? '',
       grossKg: toDecimalInput(l.grossKg),
       tareKg: toDecimalInput(l.tareKg),
-      receivedQty: toDecimalInput(l.receivedQty),
       notes: l.notes ?? '',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,7 +131,6 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
     ...(transportEditable ? transportPayload(v) : {}),
     grossKg: v.grossKg ? parseDecimalInput(v.grossKg) : undefined,
     tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : undefined,
-    receivedQty: v.receivedQty ? parseDecimalInput(v.receivedQty) : undefined,
     notes: v.notes,
   });
 
@@ -165,7 +162,6 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         notes: notes ?? null,
         grossKg: v.grossKg ? parseDecimalInput(v.grossKg) : null,
         tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : null,
-        receivedQty: v.receivedQty ? parseDecimalInput(v.receivedQty) : null,
         ...(acceptMissingMatrizInvoice ? { acceptMissingMatrizInvoice: true } : {}),
       });
       toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
@@ -235,23 +231,10 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
               <Card className="p-4">
                 <LoadStepper status={l.status} />
               </Card>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <Stat label="Previsto" value={formatQty(l.expectedQty, l.order.unit)} />
+                <Stat label="Peso bruto" value={l.grossKg ? formatQty(l.grossKg, 'kg') : '—'} />
                 <Stat label="Peso líquido" value={l.netKg ? formatQty(l.netKg, 'kg') : '—'} />
-                <Stat label="Recebido" value={l.receivedQty ? formatQty(l.receivedQty, l.order.unit) : '—'} />
-                <Stat
-                  label="Divergência"
-                  value={
-                    l.divergenceKg ? (
-                      <span className={Math.abs(Number(l.divergenceKg)) > 100 ? 'text-danger' : ''}>
-                        {Math.abs(Number(l.divergenceKg)) > 100 ? <AlertTriangle className="mr-1 inline size-3.5" /> : null}
-                        {formatQty(l.divergenceKg, 'kg')}
-                      </span>
-                    ) : (
-                      '—'
-                    )
-                  }
-                />
               </div>
             </div>
 
@@ -286,12 +269,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 </div>
               </FormSection>
 
-              <FormSection title="Recebimento" description={l.order.requiresReceipt ? undefined : 'Esta ordem dispensa o recebimento no destino.'}>
-                {l.order.requiresReceipt ? (
-                  <Field label={`Quantidade recebida (${l.order.unit})`} className={span[3]} error={errors.receivedQty?.message} hint="Informe na chegada ao destino">
-                    {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...form.register('receivedQty')} />}
-                  </Field>
-                ) : null}
+              <FormSection title="Observações">
                 <Field label="Observações" className={span[6]}>
                   {(a) => <Textarea {...a} rows={2} {...form.register('notes')} />}
                 </Field>

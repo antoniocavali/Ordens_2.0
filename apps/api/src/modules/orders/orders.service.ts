@@ -128,7 +128,7 @@ function normalize(field: string, value: unknown): unknown {
 }
 
 /** Colunas NOT NULL com default: "limpar" no formulário significa voltar ao padrão. */
-const NON_NULLABLE_DEFAULTS: Record<string, unknown> = { tolerancePct: '0', requiresReceipt: true, currency: 'BRL', priority: 'NORMAL' };
+const NON_NULLABLE_DEFAULTS: Record<string, unknown> = { tolerancePct: '0', currency: 'BRL', priority: 'NORMAL' };
 
 function toPrismaData(input: OrderDraftInput): Prisma.LoadingOrderUncheckedUpdateInput {
   const data: Record<string, unknown> = {};
@@ -943,7 +943,6 @@ export class OrdersService {
           initialReleaseQty: null,
           operationType: null,
           tolerancePct: '0',
-          requiresReceipt: true,
           updatedBy: auth.userId,
         },
       });
@@ -979,7 +978,6 @@ export class OrdersService {
         if (input[key] !== undefined) data[key] = input[key];
       }
       if (input.tolerancePct !== undefined) data.tolerancePct = input.tolerancePct ?? '0';
-      if (input.requiresReceipt !== undefined) data.requiresReceipt = input.requiresReceipt;
       const merged = { ...order, ...data } as unknown as OrderDraftInput;
       await this.validateRelations(tx, merged);
       await tx.loadingOrder.update({ where: { id }, data: { ...(data as Prisma.LoadingOrderUncheckedUpdateInput), updatedBy: auth.userId } });
@@ -1239,6 +1237,12 @@ export class OrdersService {
       actions.push('request_publish');
     }
     if (perms.has('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(status)) actions.push('release');
+    // Agendar e criar carga partem da própria ordem: a etapa é a mesma da liberação (publicada ou em
+    // execução), e cada perfil vê o que a permissão dele permite — Fazenda, Comprador e Matriz.
+    if (['PUBLISHED', 'IN_PROGRESS'].includes(status)) {
+      if (perms.has('appointment.manage')) actions.push('schedule');
+      if (perms.has('load.manage')) actions.push('create_load');
+    }
     if (internal && status === 'PENDING_BILLING' && perms.has('order.billing.manage')) {
       actions.push('assign_farm', 'return_to_buyer');
       if (row.farm_id && row.seller_partner_id) actions.push('billing_publish');
