@@ -20,7 +20,6 @@ import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
-import { openOccurrence } from '../fiscal/fiscal.util.js';
 import { autoCompleteIfFinished } from '../orders/order-completion.util.js';
 import { fiscalChecklists, matrizChecklists } from './fiscal-checklist.js';
 import { assertWithinReleased, orderForLogistics, readVehicles, recalcOrder, resolveTransport, transportDto } from './logistics.util.js';
@@ -48,8 +47,6 @@ const TRANSPORT_FIELDS = [
 ] as const;
 
 /** Trânsito encerrado sem recebimento (ordem dispensa a etapa). */
-const skipsReceipt = (from: LoadStatus, to: LoadStatus) => from === 'IN_TRANSIT' && to === 'AWAITING_MATRIZ_INVOICE';
-
 @Injectable()
 export class LoadsService {
   constructor(private readonly db: TenantDb) {}
@@ -185,7 +182,6 @@ export class LoadsService {
           ...(input.loadingDate !== undefined ? { loadingDate: toDate(input.loadingDate as string | null) } : {}),
           ...weights,
           ...(input.invoicedQty !== undefined ? { invoicedQty: input.invoicedQty } : {}),
-          ...(input.receivedQty !== undefined ? { receivedQty: input.receivedQty } : {}),
           ...(input.notes !== undefined ? { notes: input.notes } : {}),
         },
       });
@@ -194,8 +190,8 @@ export class LoadsService {
         entityType: 'load',
         entityId: id,
         action: 'load.updated',
-        before: { plates: load.plates, grossKg: load.grossKg?.toString() ?? null, tareKg: load.tareKg?.toString() ?? null, receivedQty: load.receivedQty?.toString() ?? null },
-        after: { plates: 'plates' in transport ? transport.plates : load.plates, ...weights, receivedQty: input.receivedQty ?? null },
+        before: { plates: load.plates, grossKg: load.grossKg?.toString() ?? null, tareKg: load.tareKg?.toString() ?? null },
+        after: { plates: 'plates' in transport ? transport.plates : load.plates, ...weights },
       });
       return this.dto(tx, id);
     });
@@ -208,14 +204,7 @@ export class LoadsService {
       const { tx, audit, outbox } = scope;
       const load = await this.lock(tx, id, input.expectedUpdatedAt);
       const to = input.to as LoadStatus;
-      const { requiresReceipt } = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId }, select: { requiresReceipt: true } });
-      if (!canTransitionLoad(load.status, to, scopeName, { requiresReceipt })) {
-        if (load.status === 'IN_TRANSIT' && LOAD_TRANSITIONS.IN_TRANSIT.includes(to)) {
-          throw AppError.domain(
-            ErrorCode.INVALID_TRANSITION,
-            requiresReceipt ? 'Esta ordem exige o recebimento no destino antes do faturamento.' : 'Esta ordem dispensa o recebimento no destino: encerre o transporte e siga para o faturamento.',
-          );
-        }
+      if (!canTransitionLoad(load.status, to, scopeName)) {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, `Não é possível passar de "${LOAD_STATUS_LABELS[load.status]}" para "${LOAD_STATUS_LABELS[to]}" com seu perfil.`);
       }
       if (to === 'CANCELLED' && !input.notes) throw AppError.validation({ fields: { notes: ['Informe o motivo do cancelamento'] } }, 'Informe o motivo do cancelamento.');
@@ -270,15 +259,8 @@ export class LoadsService {
         assertWithinReleased(fresh, net.dividedBy(factor), load.expectedQty);
         data.loadedAt = new Date();
       }
-      if (skipsReceipt(load.status, to)) {
-        await audit({ entityType: 'load', entityId: id, action: 'load.receipt_skipped', after: { reason: 'Ordem dispensa recebimento no destino' } });
-      }
-      if (to === 'RECEIVED') {
-        const received = input.receivedQty ?? load.receivedQty?.toString();
-        if (!received) throw AppError.domain(ErrorCode.VALIDATION_FAILED, 'Informe a quantidade recebida no destino.', { fields: { receivedQty: ['Obrigatório'] } });
-        data.receivedQty = received;
-        data.receivedAt = new Date();
-      }
+      // Do trânsito a carga vai direto ao faturamento: a entrega no destino é o próprio fim do transporte.
+      if (to === 'AWAITING_MATRIZ_INVOICE') data.receivedAt = new Date();
 
       // Carregamento confirmado segue direto para "Aguardando documentação fiscal da Fazenda".
       const steps: LoadStatus[] = to === 'LOADED' ? ['LOADED', 'AWAITING_FARM_INVOICE'] : [to];
@@ -315,7 +297,6 @@ export class LoadsService {
         await audit({ entityType: 'load', entityId: id, action: 'load.documents_validated', after: { pdf: checklist.pdf, xml: checklist.xml } });
         await audit({ entityType: 'loading_order', entityId: load.orderId, action: 'order.load_documents_validated', after: { loadNumber: load.number, statusLabel: LOAD_STATUS_LABELS.FARM_INVOICED } });
       }
-      if (finalStatus === 'CHECKED') await this.openWeightDivergence(scope, id, auth.userId);
 
       const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId } });
       if (order.status === 'PUBLISHED' && !['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'CANCELLED'].includes(finalStatus)) {
@@ -333,34 +314,6 @@ export class LoadsService {
   }
 
   // ───────────────────────────── Internos ─────────────────────────────
-
-  /** Q17: recebido (em kg) fora da tolerância do peso líquido abre ocorrência automática visível à Fazenda. */
-  private async openWeightDivergence(scope: UnitOfWorkScope, loadId: string, userId: string) {
-    const { tx } = scope;
-    const load = await tx.load.findUniqueOrThrow({ where: { id: loadId } });
-    if (!load.netKg || !load.receivedQty) return;
-    const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id: load.orderId }, select: { tenantId: true, tolerancePct: true, unitId: true } });
-    const unit = order.unitId ? await tx.unit.findUnique({ where: { id: order.unitId }, select: { factorToKg: true } }) : null;
-    const receivedKg = new D(load.receivedQty).times(unit?.factorToKg ?? 1);
-    const diff = receivedKg.minus(load.netKg);
-    const limit = new D(load.netKg).times(D.max(order.tolerancePct, new D('0.5'))).dividedBy(100);
-    if (diff.abs().lessThanOrEqualTo(limit)) return;
-    const kg = (v: Prisma.Decimal) => v.toDecimalPlaces(0).toString();
-    await openOccurrence(scope, {
-      tenantId: order.tenantId,
-      orderId: load.orderId,
-      loadId,
-      type: 'WEIGHT_DIVERGENCE',
-      severity: 'MEDIUM',
-      title: `Divergência de ${kg(diff)} kg na carga ${load.number}`,
-      description: `Peso líquido carregado: ${kg(new D(load.netKg))} kg. Recebido: ${kg(receivedKg)} kg. Limite pela tolerância: ${kg(limit)} kg.`,
-      visibility: 'FARM',
-      responsibleUserId: null,
-      dueOn: null,
-      source: 'SYSTEM',
-      createdBy: userId,
-    });
-  }
 
   private weights(gross: string | null, tare: string | null) {
     if (gross && tare && new D(gross).lessThan(tare)) {
@@ -394,8 +347,8 @@ export class LoadsService {
     const checklists = await fiscalChecklists(tx, rows);
     const matriz = await matrizChecklists(tx, rows);
     const orderIds = [...new Set(rows.map((r) => r.orderId))];
-    const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string | null; factor: Prisma.Decimal | null; requires_receipt: boolean }[]>(Prisma.sql`
-      select lo.id, lo.requires_receipt, lo.number, c.name as commodity, f.name as farm, coalesce(bp.trade_name, bp.legal_name) as buyer, u.code as unit, u.factor_to_kg as factor
+    const orders = await tx.$queryRaw<{ id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string | null; factor: Prisma.Decimal | null }[]>(Prisma.sql`
+      select lo.id, lo.number, c.name as commodity, f.name as farm, coalesce(bp.trade_name, bp.legal_name) as buyer, u.code as unit, u.factor_to_kg as factor
       from loading_orders lo
       left join commodities c on c.id = lo.commodity_id
       left join farms f on f.id = lo.farm_id
@@ -410,13 +363,10 @@ export class LoadsService {
 
     return rows.map((r) => {
       const o = orderMap.get(r.orderId);
-      const factor = o?.factor ? new D(o.factor) : new D(1);
-      const netInUnit = r.netKg ? new D(r.netKg).dividedBy(factor) : null;
-      const divergence = r.receivedQty && netInUnit ? new D(r.receivedQty).minus(netInUnit).times(factor) : null;
       return {
         id: r.id,
         number: r.number,
-        order: { id: r.orderId, number: o?.number ?? '', requiresReceipt: o?.requires_receipt ?? true, commodity: o?.commodity ?? null, farm: o?.farm ?? null, buyer: o?.buyer ?? null, unit: o?.unit === 'T' ? 't' : (o?.unit?.toLowerCase() ?? '') },
+        order: { id: r.orderId, number: o?.number ?? '', commodity: o?.commodity ?? null, farm: o?.farm ?? null, buyer: o?.buyer ?? null, unit: o?.unit === 'T' ? 't' : (o?.unit?.toLowerCase() ?? '') },
         appointmentId: r.appointmentId,
         loadingDate: fromDate(r.loadingDate),
         expectedQty: r.expectedQty.toString(),
@@ -424,12 +374,10 @@ export class LoadsService {
         tareKg: r.tareKg?.toString() ?? null,
         netKg: r.netKg?.toString() ?? null,
         invoicedQty: r.invoicedQty?.toString() ?? null,
-        receivedQty: r.receivedQty?.toString() ?? null,
-        divergenceKg: divergence ? divergence.toDecimalPlaces(2).toString() : null,
         status: r.status,
         notes: r.notes,
         updatedAt: r.updatedAt.toISOString(),
-        allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName, { requiresReceipt: o?.requires_receipt ?? true })) : [],
+        allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName)) : [],
         fiscalChecklist: checklists.get(r.id) ?? null,
         matrizChecklist: matriz.get(r.id) ?? null,
         ...transportDto(r),

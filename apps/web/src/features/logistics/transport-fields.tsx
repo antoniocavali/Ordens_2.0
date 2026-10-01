@@ -101,34 +101,49 @@ const CNH_OPTIONS = CNH_CATEGORIES.map((c) => ({ value: c, label: c }));
  * dos campos — ninguém redigita um motorista recorrente, e o relatório continua agrupando pelo nome.
  */
 export function TransportFields({ disabled }: { disabled?: boolean }) {
-  const { register, control, setValue, formState } = useFormContext<TransportValues>();
+  const { register, control, getValues, setValue, formState } = useFormContext<TransportValues>();
   const { fields, append, remove } = useFieldArray({ control, name: 'vehicles' });
   const errors = formState.errors as FieldErrors<TransportValues>;
   const suggestions = useTransportSuggestions();
   const listId = useId();
 
+  /** A sugestão completa o que está em branco; o que a pessoa digitou nunca é sobrescrito. */
   const applyDriver = (value: string) => {
     const digits = onlyDigits(value);
     const match = suggestions.data?.drivers.find((d) => d.driverCpf === digits || d.driverName === value);
     if (!match) return;
-    const set = (k: keyof TransportValues, v: string | null | undefined) => setValue(k, (v ?? '') as never, { shouldDirty: true });
-    set('driverName', match.driverName);
-    set('driverCpf', match.driverCpf);
-    set('driverRg', match.driverRg);
-    set('driverPhone', match.driverPhone);
-    set('driverBirthDate', match.driverBirthDate);
-    set('driverCnh', match.driverCnh);
-    set('driverCnhCategory', match.driverCnhCategory);
-    set('driverCnhExpiresAt', match.driverCnhExpiresAt);
-    set('driverCnhRestrictions', match.driverCnhRestrictions);
-    if (match.carrierName) set('carrierName', match.carrierName);
+    const fill = (k: keyof TransportValues, v: string | null | undefined) => {
+      if (!v || String(getValues(k) ?? '').trim()) return;
+      setValue(k, v as never, { shouldDirty: true });
+    };
+    fill('driverName', match.driverName);
+    fill('driverCpf', match.driverCpf);
+    fill('driverRg', match.driverRg);
+    fill('driverPhone', match.driverPhone);
+    fill('driverBirthDate', match.driverBirthDate);
+    fill('driverCnh', match.driverCnh);
+    fill('driverCnhCategory', match.driverCnhCategory);
+    fill('driverCnhExpiresAt', match.driverCnhExpiresAt);
+    fill('driverCnhRestrictions', match.driverCnhRestrictions);
+    fill('carrierName', match.carrierName);
   };
 
   const applyVehicle = (index: number, plate: string) => {
     const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const match = suggestions.data?.vehicles.find((v) => v.plate === normalized);
     if (!match) return;
-    setValue(`vehicles.${index}`, { plate: match.plate, description: match.description ?? '', type: match.type, axles: match.axles?.toString() ?? '', renavam: match.renavam ?? '' }, { shouldDirty: true });
+    const current = getValues(`vehicles.${index}`);
+    setValue(
+      `vehicles.${index}`,
+      {
+        plate: match.plate,
+        description: current?.description?.trim() ? current.description : (match.description ?? ''),
+        type: match.type,
+        axles: current?.axles?.trim() ? current.axles : (match.axles?.toString() ?? ''),
+        renavam: current?.renavam?.trim() ? current.renavam : (match.renavam ?? ''),
+      },
+      { shouldDirty: true },
+    );
   };
 
   return (

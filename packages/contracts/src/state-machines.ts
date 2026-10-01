@@ -23,7 +23,12 @@ export function canTransitionOrder(from: OrderStatus, to: OrderStatus): boolean 
 
 /**
  * Carga: chegada do veículo (agendamento CHECKED_IN) → carga criada → carregamento → carregada (pesagem)
- * → aguardando documentação fiscal da Fazenda (PDF + XML) → documentação validada → trânsito → recebimento.
+ * → aguardando documentação fiscal da Fazenda (PDF + XML) → documentação validada → trânsito → faturamento
+ * da Matriz → concluída.
+ *
+ * Não há etapa de recebimento no destino: do trânsito a carga vai direto para o faturamento. Os status
+ * ARRIVED, RECEIVED e CHECKED continuam no enum por causa do histórico de cargas antigas, e a única saída
+ * deles é o faturamento da Matriz — nenhuma carga nova entra nesses estados.
  */
 export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   SCHEDULED: ['CONFIRMED', 'CANCELLED'],
@@ -33,10 +38,10 @@ export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   LOADED: ['AWAITING_FARM_INVOICE'],
   AWAITING_FARM_INVOICE: ['FARM_INVOICED'],
   FARM_INVOICED: ['IN_TRANSIT'],
-  // Sem recebimento exigido pela ordem, o trânsito segue direto para o faturamento da Matriz.
-  IN_TRANSIT: ['ARRIVED', 'AWAITING_MATRIZ_INVOICE'],
-  ARRIVED: ['RECEIVED'],
-  RECEIVED: ['CHECKED'],
+  IN_TRANSIT: ['AWAITING_MATRIZ_INVOICE'],
+  // Saídas só para cargas antigas, anteriores à remoção do recebimento.
+  ARRIVED: ['AWAITING_MATRIZ_INVOICE'],
+  RECEIVED: ['AWAITING_MATRIZ_INVOICE'],
   CHECKED: ['AWAITING_MATRIZ_INVOICE'],
   AWAITING_MATRIZ_INVOICE: ['MATRIZ_INVOICED'],
   MATRIZ_INVOICED: ['COMPLETED'],
@@ -63,17 +68,8 @@ export const LOAD_TRANSITION_SCOPES: Record<LoadStatus, readonly Scope[]> = {
   CANCELLED: ['MATRIZ', 'FARM'],
 };
 
-export interface LoadTransitionContext {
-  /** Ordem exige recebimento no destino (padrão true). */
-  requiresReceipt?: boolean;
-}
-
-export function canTransitionLoad(from: LoadStatus, to: LoadStatus, scope: Scope, ctx: LoadTransitionContext = {}): boolean {
+export function canTransitionLoad(from: LoadStatus, to: LoadStatus, scope: Scope): boolean {
   if (!LOAD_TRANSITIONS[from].includes(to)) return false;
-  if (from === 'IN_TRANSIT') {
-    const requiresReceipt = ctx.requiresReceipt ?? true;
-    if (requiresReceipt ? to === 'AWAITING_MATRIZ_INVOICE' : to === 'ARRIVED') return false;
-  }
   if (!LOAD_TRANSITION_SCOPES[to].includes(scope)) return false;
   // Fazenda só cancela antes do carregamento começar.
   if (to === 'CANCELLED' && scope === 'FARM') {
@@ -101,6 +97,7 @@ export const LOAD_STATUS_LABELS: Record<LoadStatus, string> = {
   AWAITING_FARM_INVOICE: 'Aguardando documentação fiscal',
   FARM_INVOICED: 'Documentação fiscal validada',
   IN_TRANSIT: 'Em trânsito',
+  // Etapas descontinuadas: só aparecem no histórico de cargas anteriores.
   ARRIVED: 'Chegada ao destino',
   RECEIVED: 'Recebida',
   CHECKED: 'Conferida',

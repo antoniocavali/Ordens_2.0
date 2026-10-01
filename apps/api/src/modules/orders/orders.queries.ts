@@ -57,7 +57,6 @@ export interface OrderRow {
   loading_starts_on: Date | null;
   loading_ends_on: Date | null;
   tolerance_pct: Prisma.Decimal;
-  requires_receipt: boolean;
   destination_name: string | null;
   destination_address: string | null;
   destination_city: string | null;
@@ -143,7 +142,7 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.driver_cnh, lo.driver_cnh_category, lo.driver_cnh_expires_at, lo.driver_cnh_restrictions, lo.vehicles,
         coalesce((select array_agg(v->>'plate' order by ord) from jsonb_array_elements(lo.vehicles) with ordinality as t(v, ord)), '{}') as plates,
         lo.loading_location_name, lo.loading_location_address, lo.loading_location_city, lo.loading_location_state,
-        lo.loading_starts_on, lo.loading_ends_on, lo.tolerance_pct, lo.requires_receipt,
+        lo.loading_starts_on, lo.loading_ends_on, lo.tolerance_pct,
         lo.destination_name, lo.destination_address, lo.destination_city, lo.destination_state,
         lo.commercial_terms, lo.loading_instructions, lo.internal_notes, lo.farm_notes, lo.buyer_notes,
         lo.published_at, lo.created_at, cu.name as created_by_name, lo.updated_at, uu.name as updated_by_name,

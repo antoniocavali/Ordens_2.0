@@ -3,13 +3,14 @@
 import type { AppointmentDto, AppointmentStatus } from '@ordens/contracts';
 import { AsyncCombobox, Button, Drawer, Field, Input, Textarea, type ComboOption } from '@ordens/ui';
 import { CalendarCheck, Check, LogIn, Truck, UserX, XCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { FormSection, handleSaveError, span, Stat } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { subDec } from '@/lib/decimal';
 import { formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
+import { useOrder } from '@/features/orders/orders-api';
 import { useCan } from '@/lib/session';
 import { AppointmentStatusBadge } from './load-status';
 import { fleetLookups, useAppointmentMutations } from './logistics-api';
@@ -71,6 +72,26 @@ export function AppointmentDrawer({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, appointment?.id, appointment?.updatedAt]);
+
+  // O transporte é o que o Comprador informou na ordem: ao escolher a ordem, o agendamento já abre
+  // com esses dados. Quem recebe o caminhão corrige se o que chegou for outro.
+  const orderDetail = useOrder(!appointment && order?.id ? order.id : null);
+  const prefilled = useRef<string | null>(null);
+  useEffect(() => {
+    const transport = orderDetail.data?.transport;
+    if (!open || appointment || !transport || prefilled.current === orderDetail.data?.id) return;
+    prefilled.current = orderDetail.data!.id;
+    const current = form.getValues();
+    // Não sobrescreve o que a pessoa já digitou neste agendamento.
+    if (current.driverName || current.carrierName || current.vehicles.some((v) => v.plate.trim())) return;
+    // reset (e não setValue) porque a lista de veículos é um field array: setValue deixaria as linhas
+    // dessincronizadas com o que está na tela.
+    form.reset({ ...current, ...transportFromDto(transport) });
+  }, [open, appointment, orderDetail.data, form]);
+
+  useEffect(() => {
+    if (!open) prefilled.current = null;
+  }, [open]);
 
   const meta = order?.meta;
   const available = meta?.released ? subDec(subDec(meta.released, meta.scheduled ?? '0'), meta.loaded ?? '0') : null;

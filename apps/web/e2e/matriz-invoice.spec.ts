@@ -12,21 +12,16 @@ test.describe('Faturamento da Matriz na carga', () => {
   test('Sem a nota da Matriz o faturamento é recusado; com PDF e XML válidos a carga conclui', async ({ page }) => {
     await login(page, 'admin@graoforte.demo');
     const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
-    const chosen = loads.find((l) => !l.order.requiresReceipt) ?? loads[0];
+    const chosen = loads[0];
     expect(chosen, 'carga em trânsito no seed').toBeTruthy();
     const getLoad = () => apiOk(page, 'GET', `/loads/${chosen.id}`);
 
-    // Trânsito → chegada → recebimento (quantidade obrigatória) → conferência → faturamento.
+    // Do trânsito a carga vai direto ao faturamento: não há recebimento no destino.
     const move = async (to: string, extra: Record<string, unknown> = {}) => {
       const current = await getLoad();
       return api(page, 'POST', `/loads/${chosen.id}/transition`, { to, expectedUpdatedAt: current.updatedAt, ...extra });
     };
-    if (chosen.order.requiresReceipt) {
-      expect((await move('ARRIVED')).status).toBeLessThan(300);
-      expect((await move('RECEIVED', { receivedQty: '10' })).status).toBeLessThan(300);
-      expect((await move('CHECKED')).status).toBeLessThan(300);
-    }
-    // Ordem que dispensa o recebimento vai do trânsito direto ao faturamento (Q42).
+    expect((await move('ARRIVED')).status, 'chegada ao destino não existe mais').toBe(422);
     expect((await move('AWAITING_MATRIZ_INVOICE')).status).toBeLessThan(300);
 
     let load = await getLoad();

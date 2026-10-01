@@ -44,7 +44,6 @@ interface FormValues extends TransportValues {
   loadingStartsOn: string;
   loadingEndsOn: string;
   tolerancePct: string;
-  requiresReceipt: boolean;
   initialReleaseQty: string;
   destinationName: string;
   destinationAddress: string;
@@ -87,7 +86,6 @@ function fromDetail(o: OrderDetail | null): FormValues {
     loadingStartsOn: o?.loadingStartsOn ?? '',
     loadingEndsOn: o?.loadingEndsOn ?? '',
     tolerancePct: toDecimalInput(o?.tolerancePct && o.tolerancePct !== '0' ? o.tolerancePct : ''),
-    requiresReceipt: o?.requiresReceipt ?? true,
     initialReleaseQty: toDecimalInput(o?.initialReleaseQty),
     destinationName: o?.destinationName ?? '',
     destinationAddress: o?.destinationAddress ?? '',
@@ -130,7 +128,6 @@ function toPayload(v: FormValues): OrderDraftPayload {
     loadingStartsOn: v.loadingStartsOn || null,
     loadingEndsOn: v.loadingEndsOn || null,
     tolerancePct: dec(v.tolerancePct),
-    requiresReceipt: v.requiresReceipt,
     initialReleaseQty: dec(v.initialReleaseQty),
     destinationName: txt(v.destinationName),
     destinationAddress: txt(v.destinationAddress),
@@ -820,15 +817,6 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
           {(a) => <Input {...a} inputMode="decimal" disabled={!isDraft} className="text-right tabular" {...register('initialReleaseQty')} placeholder="0,000" />}
         </Field>
         <TransportFields />
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5 ring-1 ring-border hover:bg-surface-2 sm:col-span-6">
-          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-primary)]" {...register('requiresReceipt')} />
-          <span className="min-w-0 text-sm">
-            <span className="block font-medium">Exigir recebimento no destino</span>
-            <span className="block text-xs text-muted">
-              Desmarcado, a carga segue do trânsito direto para o faturamento da Matriz, sem registrar chegada, quantidade recebida e conferência.
-            </span>
-          </span>
-        </label>
       </Section>
 
       <Section id="documentos" title="Documentos e instruções">
