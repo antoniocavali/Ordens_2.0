@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { ApiRequestError, get, post, put } from '@/lib/api';
 import { formatDateTime, formatRelative } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
+import { ConfirmDialog } from '@/features/orders/confirm-dialog';
 import { Switch } from './workflow-page';
 
 const KEY = ['settings', 'xml-archive'];
@@ -66,6 +67,7 @@ export function ParametersPage() {
 function XmlArchiveCard() {
   const qc = useQueryClient();
   const [testing, setTesting] = useState(false);
+  const [resyncOpen, setResyncOpen] = useState(false);
   const settings = useQuery({
     queryKey: KEY,
     queryFn: () => get<XmlArchiveSettingsDto>('/settings/xml-archive'),
@@ -125,6 +127,16 @@ function XmlArchiveCard() {
     onError: (err) => toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível reenviar.'),
   });
 
+  const resync = useMutation({
+    mutationFn: () => post<{ queued: number }>('/settings/xml-archive/resync'),
+    onSuccess: (r) => {
+      toast.success(r.queued ? `${r.queued.toLocaleString('pt-BR')} XML serão copiados para a pasta atual` : 'Nenhum XML para sincronizar');
+      void qc.invalidateQueries({ queryKey: KEY });
+      setTimeout(() => void qc.invalidateQueries({ queryKey: KEY }), 4000);
+    },
+    onError: (err) => toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível sincronizar.'),
+  });
+
   if (!data) return <Skeleton className="h-72" />;
 
   const dirty =
@@ -141,6 +153,7 @@ function XmlArchiveCard() {
   const preview = templateOk ? [base, ...renderFolderTemplate(normalized, SAMPLE), '29260952998224725000550010000012341000012345-nfe.xml'].join('\\') : '—';
 
   return (
+    <>
     <Card className="overflow-hidden">
       <div className="flex items-start justify-between gap-4 p-5">
         <div className="flex gap-3">
@@ -255,10 +268,34 @@ function XmlArchiveCard() {
               </Button>
             ) : null}
           </div>
+          {data.enabled && data.path ? (
+            <div className="mt-2">
+              <Button size="sm" variant="outline" onClick={() => setResyncOpen(true)} loading={resync.isPending} disabled={dirty}>
+                <FolderSync /> Sincronizar XML já copiados
+              </Button>
+              <p className="mt-1 text-xs text-subtle">
+                {dirty ? 'Salve as alterações antes de sincronizar.' : 'Use depois de trocar a pasta ou o modelo de subpastas: copia tudo de novo para o destino atual.'}
+              </p>
+            </div>
+          ) : null}
           {data.stats.lastError ? <p className="mt-1.5 text-xs text-danger">Último erro: {data.stats.lastError}</p> : null}
           {data.updatedAt ? <p className="mt-1.5 text-xs text-subtle">Configuração alterada {formatRelative(data.updatedAt)}.</p> : null}
         </div>
       </div>
     </Card>
+    <ConfirmDialog
+      open={resyncOpen}
+      tone="primary"
+      title="Sincronizar os XML já copiados?"
+      description={`Os ${data.stats.copied.toLocaleString('pt-BR')} XML já copiados voltam para a fila e são gravados de novo em ${data.path}, seguindo o modelo de subpastas atual. Arquivos que já existem no destino não são sobrescritos, e nada é apagado da pasta antiga.`}
+      confirmLabel="Sincronizar"
+      cancelLabel="Cancelar"
+      onCancel={() => setResyncOpen(false)}
+      onConfirm={() => {
+        setResyncOpen(false);
+        resync.mutate();
+      }}
+    />
+    </>
   );
 }

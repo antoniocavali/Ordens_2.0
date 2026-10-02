@@ -124,12 +124,14 @@ describe('máquinas de estado', () => {
   });
 
   it('do trânsito a carga vai direto ao faturamento da Matriz: não há recebimento no destino', () => {
-    expect(canTransitionLoad('IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ')).toBe(true);
+    expect(canTransitionLoad('IN_TRANSIT', 'MATRIZ_INVOICED', 'MATRIZ')).toBe(true);
+    expect(canTransitionLoad('IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ')).toBe(false);
     expect(canTransitionLoad('IN_TRANSIT', 'ARRIVED', 'MATRIZ')).toBe(false);
-    expect(canTransitionLoad('IN_TRANSIT', 'AWAITING_MATRIZ_INVOICE', 'FARM')).toBe(false);
+    expect(canTransitionLoad('IN_TRANSIT', 'MATRIZ_INVOICED', 'FARM')).toBe(false);
     // Cargas antigas, paradas nas etapas descontinuadas, ainda seguem para o faturamento.
-    expect(canTransitionLoad('ARRIVED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ')).toBe(true);
-    expect(canTransitionLoad('CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ')).toBe(true);
+    expect(canTransitionLoad('ARRIVED', 'MATRIZ_INVOICED', 'MATRIZ')).toBe(true);
+    expect(canTransitionLoad('CHECKED', 'MATRIZ_INVOICED', 'MATRIZ')).toBe(true);
+    expect(canTransitionLoad('AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'MATRIZ')).toBe(true);
     expect(canTransitionLoad('ARRIVED', 'RECEIVED', 'MATRIZ')).toBe(false);
   });
 });

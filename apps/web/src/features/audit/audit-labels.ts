@@ -21,6 +21,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'tenant.xml_archive_tested': 'Teste da pasta de rede pedido',
   'tenant.xml_archive_test_result': 'Resultado do teste da pasta de rede',
   'tenant.xml_archive_retried': 'Cópias de XML reenviadas',
+  'tenant.xml_archive_resynced': 'XML já copiados sincronizados com a pasta atual',
   'invoice.xml_archived': 'XML copiado para a pasta de rede',
   'report.requested': 'Relatório pedido em segundo plano',
   'report.downloaded': 'Relatório baixado',

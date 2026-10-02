@@ -259,8 +259,8 @@ export class LoadsService {
         assertWithinReleased(fresh, net.dividedBy(factor), load.expectedQty);
         data.loadedAt = new Date();
       }
-      // Do trânsito a carga vai direto ao faturamento: a entrega no destino é o próprio fim do transporte.
-      if (to === 'AWAITING_MATRIZ_INVOICE') data.receivedAt = new Date();
+      // Do trânsito a carga vai direto ao faturamento: faturar na Matriz é o próprio fim do transporte.
+      if (to === 'MATRIZ_INVOICED' && !load.receivedAt) data.receivedAt = new Date();
 
       // Carregamento confirmado segue direto para "Aguardando documentação fiscal da Fazenda".
       const steps: LoadStatus[] = to === 'LOADED' ? ['LOADED', 'AWAITING_FARM_INVOICE'] : [to];

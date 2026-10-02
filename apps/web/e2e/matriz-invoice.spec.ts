@@ -16,16 +16,17 @@ test.describe('Faturamento da Matriz na carga', () => {
     expect(chosen, 'carga em trânsito no seed').toBeTruthy();
     const getLoad = () => apiOk(page, 'GET', `/loads/${chosen.id}`);
 
-    // Do trânsito a carga vai direto ao faturamento: não há recebimento no destino.
+    // Do trânsito a Matriz fatura direto: não há recebimento nem "encerrar transporte".
     const move = async (to: string, extra: Record<string, unknown> = {}) => {
       const current = await getLoad();
       return api(page, 'POST', `/loads/${chosen.id}/transition`, { to, expectedUpdatedAt: current.updatedAt, ...extra });
     };
     expect((await move('ARRIVED')).status, 'chegada ao destino não existe mais').toBe(422);
-    expect((await move('AWAITING_MATRIZ_INVOICE')).status).toBeLessThan(300);
+    expect((await move('AWAITING_MATRIZ_INVOICE')).status, 'a etapa de encerrar transporte não existe mais').toBe(422);
 
     let load = await getLoad();
-    expect(load.status).toBe('AWAITING_MATRIZ_INVOICE');
+    expect(load.status).toBe('IN_TRANSIT');
+    expect(load.allowedTransitions).toContain('MATRIZ_INVOICED');
     expect(load.matrizChecklist).toMatchObject({ pdf: 'MISSING', xml: 'MISSING', ready: false });
 
     // Sem a nota da Matriz: faturar e concluir são recusados.
@@ -58,7 +59,8 @@ test.describe('Faturamento da Matriz na carga', () => {
     expect((await move('COMPLETED')).status).toBeLessThan(300);
     load = await getLoad();
     expect(load.status).toBe('COMPLETED');
-    expect(load.history.map((h: any) => h.to)).toEqual(expect.arrayContaining(['AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED']));
+    expect(load.history.map((h: any) => h.to)).toEqual(expect.arrayContaining(['MATRIZ_INVOICED', 'COMPLETED']));
+    expect(load.history.map((h: any) => h.to)).not.toContain('AWAITING_MATRIZ_INVOICE');
 
     const audit = await apiOk(page, 'GET', '/audit?action=load.matriz_invoice_validated&pageSize=5');
     expect((audit.items as any[]).some((e) => e.entityId === chosen.id)).toBe(true);

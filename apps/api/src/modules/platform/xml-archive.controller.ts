@@ -115,6 +115,32 @@ export class XmlArchiveController {
     });
   }
 
+  /**
+   * Copia de novo os XML que já tinham sido copiados — para quando a pasta de destino ou o modelo de
+   * subpastas mudou e a pasta nova precisa ficar completa. Arquivos que já existem no destino não são
+   * sobrescritos, então repetir na mesma pasta não duplica nada.
+   */
+  @Post('resync')
+  @RequirePermission('settings.manage')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(202)
+  async resync(): Promise<{ queued: number }> {
+    const tenantId = currentAuth().membership!.tenantId;
+    return this.db.write(async (scope) => {
+      const s = await scope.tx.xmlArchiveSettings.findUnique({ where: { tenantId } });
+      if (!s?.enabled || !s.path) throw AppError.domain('VALIDATION_FAILED', 'Ative a cópia e salve a pasta antes de sincronizar.');
+      const { count } = await scope.tx.invoice.updateMany({
+        where: { origin: 'FARM', status: { in: ['VALID', 'DIVERGENT'] }, archivedAt: { not: null } },
+        data: { archivedAt: null, archivePath: null, archiveError: null, archiveAttempts: 0 },
+      });
+      await scope.tx.invoice.updateMany({ where: { ...PENDING_WHERE, archiveAttempts: { gt: 0 } }, data: { archiveAttempts: 0, archiveError: null } });
+      const queued = await scope.tx.invoice.count({ where: PENDING_WHERE });
+      await scope.audit({ entityType: 'tenant', entityId: tenantId, action: 'tenant.xml_archive_resynced', metadata: { path: s.path, recopied: count, queued } });
+      await scope.outbox({ type: 'xml_archive.retry_requested', aggregateType: 'tenant', aggregateId: tenantId, payload: { reason: 'resync' } });
+      return { queued };
+    });
+  }
+
   private async dto(tx: Tx): Promise<XmlArchiveSettingsDto> {
     const tenantId = currentAuth().membership!.tenantId;
     const [s, copied, pending, failed, lastFailed] = await Promise.all([

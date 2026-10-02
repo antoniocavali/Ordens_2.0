@@ -38,11 +38,12 @@ export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   LOADED: ['AWAITING_FARM_INVOICE'],
   AWAITING_FARM_INVOICE: ['FARM_INVOICED'],
   FARM_INVOICED: ['IN_TRANSIT'],
-  IN_TRANSIT: ['AWAITING_MATRIZ_INVOICE'],
-  // Saídas só para cargas antigas, anteriores à remoção do recebimento.
-  ARRIVED: ['AWAITING_MATRIZ_INVOICE'],
-  RECEIVED: ['AWAITING_MATRIZ_INVOICE'],
-  CHECKED: ['AWAITING_MATRIZ_INVOICE'],
+  // Do trânsito a Matriz fatura direto: não há um passo de "encerrar transporte" no meio.
+  IN_TRANSIT: ['MATRIZ_INVOICED'],
+  // Saídas só para cargas antigas, que pararam em etapas que não existem mais.
+  ARRIVED: ['MATRIZ_INVOICED'],
+  RECEIVED: ['MATRIZ_INVOICED'],
+  CHECKED: ['MATRIZ_INVOICED'],
   AWAITING_MATRIZ_INVOICE: ['MATRIZ_INVOICED'],
   MATRIZ_INVOICED: ['COMPLETED'],
   COMPLETED: [],
