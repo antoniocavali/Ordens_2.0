@@ -23,7 +23,7 @@ export function ChatWidget() {
   const [activeId, setActiveId] = useState<string | null>(null);
   // Quem atende enxerga a fila aqui mesmo; a aba só existe para quem está em alguma equipe.
   const access = useSupportAccess();
-  const attends = access.queues.length > 0;
+  const attends = access.canAttend;
   const [tab, setTab] = useState<'mine' | 'queue' | 'working'>('mine');
   // Conversa aberta pela fila é respondida como atendente (nota interna, sem respostas rápidas).
   const [asAgent, setAsAgent] = useState(false);

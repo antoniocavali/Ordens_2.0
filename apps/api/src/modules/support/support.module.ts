@@ -66,7 +66,7 @@ type MessageInput = z.output<typeof supportMessageSchema>;
 /** Recorte de filas de uma consulta do atendimento; `includeNoQueue` = conversas ainda com o assistente (supervisão). */
 type QueueScope = { queues: SupportQueue[]; includeNoQueue: boolean };
 /** Filas atendidas pelo usuário da requisição (Q31). */
-type Access = { queues: SupportQueue[]; supervisor: boolean };
+type Access = { queues: SupportQueue[]; supervisor: boolean; canAttend: boolean };
 type SqlRow = Record<string, bigint | Prisma.Decimal | number | string | null>;
 
 const uuid = new ParseUUIDPipe({ errorHttpStatusCode: 404 });
@@ -481,18 +481,21 @@ export class SupportService {
 
   agents(q: SupportAgentsQuery): Promise<CursorPage<LookupOption>> {
     return this.db.read(async (tx) => {
-      const scope = this.scopeFor(await this.access(tx), q.queue);
-      const eligible = await this.eligibleAgents(tx, q.queue ?? null, scope.queues);
-      const users = await tx.user.findMany({
-        where: {
-          id: { in: eligible },
-          ...(q.q ? { OR: [{ name: { contains: q.q, mode: 'insensitive' } }, { email: { contains: q.q, mode: 'insensitive' } }] } : {}),
-        },
-        orderBy: { name: 'asc' },
-        take: 50,
-        select: { id: true, name: true, email: true },
-      });
-      return { nextCursor: null, items: users.map((u) => ({ id: u.id, label: u.name, description: u.email })) };
+      this.scopeFor(await this.access(tx), q.queue);
+      const eligible = await this.eligibleAgents(tx);
+      const term = q.q?.trim().toLowerCase();
+      const matches = eligible.filter((m) => !term || m.name.toLowerCase().includes(term) || m.email.toLowerCase().includes(term));
+      // Quem já recebe a fila aparece primeiro; os demais seguem selecionáveis, com o papel à mostra.
+      const inQueue = (m: SupportTeamMember) => (q.queue ? m.queues.includes(q.queue) : m.queues.length > 0);
+      const sorted = [...matches].sort((a, b) => Number(inQueue(b)) - Number(inQueue(a)) || a.name.localeCompare(b.name));
+      return {
+        nextCursor: null,
+        items: sorted.slice(0, 50).map((m) => ({
+          id: m.userId,
+          label: m.name,
+          description: [m.roles[0], inQueue(m) ? null : 'fora da equipe desta fila'].filter(Boolean).join(' · ') || m.email,
+        })),
+      };
     });
   }
 
@@ -503,10 +506,10 @@ export class SupportService {
       if (conv.status === 'CLOSED') throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Conversa encerrada.');
       let name: string | null = null;
       if (assigneeUserId) {
-        // Responsável precisa atender a fila da conversa (Q31).
-        const eligible = await this.eligibleAgents(tx, conv.queue, [...SUPPORT_QUEUES]);
-        if (!eligible.includes(assigneeUserId)) {
-          throw AppError.validation({ fields: { assigneeUserId: [conv.queue ? `Selecione alguém da fila de ${SUPPORT_QUEUE_LABELS[conv.queue]}` : 'Selecione um atendente da Matriz'] } });
+        // Responsável precisa poder atender; a fila dele na equipe não limita o direcionamento.
+        const eligible = await this.eligibleAgents(tx);
+        if (!eligible.some((m) => m.userId === assigneeUserId)) {
+          throw AppError.validation({ fields: { assigneeUserId: ['Selecione alguém da Matriz que atenda o suporte'] } });
         }
         name = (await tx.user.findUnique({ where: { id: assigneeUserId }, select: { name: true } }))?.name ?? null;
       }
@@ -717,11 +720,12 @@ export class SupportService {
     let cached = this.accessCache.get(auth);
     if (!cached) {
       cached = (async () => {
-        if (auth.membership?.scope !== 'MATRIZ') return { queues: [], supervisor: false };
-        if (auth.permissions.has('support.manage')) return { queues: [...SUPPORT_QUEUES], supervisor: true };
-        if (!auth.permissions.has('support.attend')) return { queues: [], supervisor: false };
+        if (auth.membership?.scope !== 'MATRIZ') return { queues: [], supervisor: false, canAttend: false };
+        if (auth.permissions.has('support.manage')) return { queues: [...SUPPORT_QUEUES], supervisor: true, canAttend: true };
+        if (!auth.permissions.has('support.attend')) return { queues: [], supervisor: false, canAttend: false };
         const rows = await tx.supportQueueMember.findMany({ where: { membershipId: auth.membership.id }, select: { queue: true } });
-        return { queues: SUPPORT_QUEUES.filter((q) => rows.some((r) => r.queue === q)), supervisor: false };
+        // A equipe define de quais filas a pessoa recebe; o que for atribuído a ela chega de qualquer forma.
+        return { queues: SUPPORT_QUEUES.filter((q) => rows.some((r) => r.queue === q)), supervisor: false, canAttend: true };
       })();
       this.accessCache.set(auth, cached);
     }
@@ -729,13 +733,19 @@ export class SupportService {
   }
 
   private scopeFor(access: Access, requested?: SupportQueue): QueueScope {
+    // Sem fila na equipe, mas podendo atender: a pessoa ainda vê o que foi atribuído a ela (scopeWhere).
+    if (!access.queues.length && access.canAttend) return { queues: [], includeNoQueue: false };
     if (!access.queues.length) throw AppError.forbidden('Você não está em nenhuma fila do atendimento. Peça à supervisão para incluir você na equipe.');
     if (requested && !access.queues.includes(requested)) throw AppError.forbidden(`Você não atende a fila de ${SUPPORT_QUEUE_LABELS[requested]}.`);
     return { queues: requested ? [requested] : access.queues, includeNoQueue: !requested && access.supervisor };
   }
 
   private scopeWhere(scope: QueueScope): Prisma.SupportConversationWhereInput {
-    return scope.includeNoQueue ? { OR: [{ queue: { in: scope.queues } }, { queue: null }] } : { queue: { in: scope.queues } };
+    // O que está sob a responsabilidade da pessoa entra sempre, mesmo fora das filas que ela recebe.
+    const mine = { assigneeUserId: currentAuth().userId };
+    return scope.includeNoQueue
+      ? { OR: [{ queue: { in: scope.queues } }, { queue: null }, mine] }
+      : { OR: [{ queue: { in: scope.queues } }, mine] };
   }
 
   /** Filtro SQL equivalente a scopeWhere (alias `c`). */
@@ -745,7 +755,9 @@ export class SupportService {
   }
 
   /** Atende a fila da conversa (sem fila = ainda com o assistente: só supervisão). */
-  private handles(access: Access, conv: { queue: SupportQueue | null }) {
+  private handles(access: Access, conv: { queue: SupportQueue | null; assigneeUserId?: string | null }) {
+    // Atribuição direta vale por si: quem recebeu a conversa consegue abrir e responder.
+    if (access.canAttend && conv.assigneeUserId && conv.assigneeUserId === currentAuth().userId) return true;
     return conv.queue ? access.queues.includes(conv.queue) : access.supervisor;
   }
 
@@ -754,15 +766,15 @@ export class SupportService {
     return this.handles(access, conv) && conv.requesterUserId !== currentAuth().userId;
   }
 
-  /** Usuários da Matriz ativos que atendem `queue` (ou alguma das `within`, quando sem fila). */
-  private async eligibleAgents(tx: Tx, queue: SupportQueue | null, within: SupportQueue[]): Promise<string[]> {
+/**
+   * Quem pode receber uma conversa: qualquer pessoa ativa da Matriz que atenda ou supervisione —
+   * Operador Matriz e Atendente inclusive. A equipe (Q31) define de quais filas a pessoa recebe
+   * automaticamente; direcionar uma conversa para alguém é decisão de quem está atendendo, e quem
+   * recebe consegue abrir mesmo que aquela fila não seja uma das dela.
+   */
+  private async eligibleAgents(tx: Tx): Promise<SupportTeamMember[]> {
     const rows = await tx.membership.findMany({ where: { scope: 'MATRIZ', status: 'ACTIVE', user: { status: 'ACTIVE' } }, select: TEAM_SELECT });
-    return uniq(
-      rows
-        .map(toTeamMember)
-        .filter((m) => (queue ? m.queues.includes(queue) : m.queues.some((x) => within.includes(x))))
-        .map((m) => m.userId),
-    );
+    return rows.map(toTeamMember).filter((m) => m.canAttend);
   }
 
   private async addMessage(
