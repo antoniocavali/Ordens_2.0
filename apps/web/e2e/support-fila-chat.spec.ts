@@ -21,6 +21,7 @@ test.describe('Fila no chat do atendente', () => {
     await page.getByRole('button', { name: /^Abrir atendimento/ }).click();
     const chatCliente = page.getByRole('dialog', { name: 'Atendimento' });
     await expect(chatCliente.getByRole('tab', { name: /Na fila/ })).toHaveCount(0);
+    await expect(chatCliente.getByRole('tab', { name: /Em atendimento/ })).toHaveCount(0);
 
     // ─── Atendente de Faturamento, em qualquer tela do sistema ───
     const agente = await loginAs(browser, 'faturamento@graoforte.demo');
@@ -41,6 +42,14 @@ test.describe('Fila no chat do atendente', () => {
     await chat.getByRole('textbox', { name: 'Mensagem' }).fill('Estou verificando o boleto');
     await chat.getByRole('button', { name: 'Enviar mensagem' }).click();
     await expect(chat.getByText('Estou verificando o boleto')).toBeVisible();
+
+    // Depois de assumir, a conversa passa a aparecer em "Em atendimento".
+    await chat.getByRole('button', { name: 'Voltar para as conversas' }).click();
+    await chat.getByRole('tab', { name: /Em atendimento/ }).click();
+    await expect(chat.locator('li').filter({ hasText: subject })).toBeVisible({ timeout: 15_000 });
+    // E some da fila, que agora está vazia para esta conversa.
+    await chat.getByRole('tab', { name: /Na fila/ }).click();
+    await expect(chat.locator('li').filter({ hasText: subject })).toHaveCount(0);
 
     const detail = await apiOk(agente.page, 'GET', `/support/conversations/${created.id}`);
     expect(detail.assignee?.name, 'assumida pelo atendente').toBeTruthy();
