@@ -111,7 +111,10 @@ async function testConnection(ctx: WorkerContext, tenantId: string, correlationI
   });
 }
 
-/** Copia as notas pendentes da empresa (ou só uma). Para no primeiro erro de conexão. */
+/**
+ * Copia as notas pendentes da empresa (ou só uma). Erro do destino (pasta fora do ar, sem permissão)
+ * interrompe a rodada; erro de uma nota só (arquivo original ausente) fica registrado nela e a fila segue.
+ */
 async function copyPending(ctx: WorkerContext, tenantId: string, correlationId: string | null, invoiceId?: string) {
   const cfg = await loadTarget(ctx, tenantId, true);
   if (!cfg) return;
@@ -131,32 +134,45 @@ async function copyPending(ctx: WorkerContext, tenantId: string, correlationId: 
     if (!rows.length) return;
 
     for (const inv of rows) {
-      const error = 'error' in cfg ? cfg.error : await copyOne(ctx, sys, cfg, inv);
-      if (error === null) {
+      const failure = 'error' in cfg ? { error: cfg.error, destination: true } : await copyOne(ctx, sys, cfg, inv);
+      if (failure === null) {
         continue;
       }
+      const { error } = failure;
       await ctx.db.run(sys, (tx) => tx.invoice.update({ where: { id: inv.id }, data: { archiveError: error, archiveAttempts: { increment: 1 } } }));
       ctx.logger.warn({ tenantId, invoiceId: inv.id, error }, 'Cópia do XML para a pasta de rede falhou');
       // Destino fora do ar: não insiste nas demais agora (a varredura tenta de novo mais tarde).
-      return;
+      // Problema só desta nota: as outras não têm por que esperar.
+      if (failure.destination) return;
     }
     if (invoiceId || rows.length < BATCH) return;
     cursor = rows.at(-1)!.id;
   }
 
-  async function copyOne(ctx: WorkerContext, sysCtx: typeof sys, c: { target: ArchiveTarget; template: string }, inv: InvoiceRow): Promise<string | null> {
+  async function copyOne(
+    ctx: WorkerContext,
+    sysCtx: typeof sys,
+    c: { target: ArchiveTarget; template: string },
+    inv: InvoiceRow,
+  ): Promise<{ error: string; destination: boolean } | null> {
     const upload = inv.fileUploadId ? await ctx.db.run(sysCtx, (tx) => tx.fileUpload.findUnique({ where: { id: inv.fileUploadId! }, select: { bucket: true, objectKey: true } })) : null;
-    if (!upload) return 'Arquivo XML original não encontrado.';
-    let full: string;
+    if (!upload) return { error: 'Arquivo XML original não encontrado.', destination: false };
+    let data: Buffer;
     try {
       const obj = await ctx.s3.send(new GetObjectCommand({ Bucket: upload.bucket, Key: upload.objectKey }));
-      const data = Buffer.from(await (obj.Body as { transformToByteArray(): Promise<Uint8Array> }).transformToByteArray());
+      data = Buffer.from(await (obj.Body as { transformToByteArray(): Promise<Uint8Array> }).transformToByteArray());
+    } catch (err) {
+      ctx.logger.error({ err, invoiceId: inv.id }, 'XML original ilegível no armazenamento');
+      return { error: 'Não foi possível ler o XML original no armazenamento.', destination: false };
+    }
+    let full: string;
+    try {
       const { dirs, name } = archiveLocation(inv, c.template);
       full = await c.target.put(dirs, name, data);
     } catch (err) {
-      if (err instanceof ArchiveError) return err.message;
+      if (err instanceof ArchiveError) return { error: err.message, destination: true };
       ctx.logger.error({ err, invoiceId: inv.id }, 'Falha inesperada ao copiar XML');
-      return 'Falha inesperada ao copiar o XML.';
+      return { error: 'Falha inesperada ao copiar o XML.', destination: true };
     }
     await ctx.db.run(sysCtx, async (tx) => {
       await tx.invoice.update({ where: { id: inv.id }, data: { archivedAt: new Date(), archivePath: full, archiveError: null } });

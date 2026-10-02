@@ -36,8 +36,8 @@ export async function fiscalChecklists(
  * para a etapa do carregamento; aqui contam só os da Matriz:
  * - o arquivo não foi enviado por uma organização Fazenda;
  * - o XML não é uma NF-e de origem FARM (a Matriz pode anexar a nota da Fazenda em nome dela);
- * - o PDF, que não tem conteúdo lido, foi anexado depois que a carga saiu para transporte — até ali a
- *   documentação exigida é a da Fazenda, então o que entra depois é a nota da Matriz.
+ * - o arquivo foi anexado depois que a carga saiu para transporte — até ali a documentação exigida é a
+ *   da Fazenda, então o que entra depois é a nota da Matriz.
  */
 export async function matrizChecklists(
   tx: Tx,
@@ -76,7 +76,7 @@ export async function matrizChecklists(
       const from = since.get(r.id);
       const own = uploads.filter((u) => {
         if (u.entityId !== r.id || farmOrgs.has(u.organizationId)) return false;
-        if (u.kind === 'NFE_XML') return !farmXml.has(u.id);
+        if (u.kind === 'NFE_XML' && farmXml.has(u.id)) return false;
         return !from || u.createdAt >= from;
       });
       return [
