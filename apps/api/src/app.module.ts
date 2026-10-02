@@ -15,7 +15,6 @@ import { HealthController } from './modules/health/health.controller.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PlatformModule } from './modules/platform/platform.module.js';
 import { RegistryModule } from './modules/registry/registry.module.js';
-import { CommercialModule } from './modules/commercial/commercial.module.js';
 import { LogisticsModule } from './modules/logistics/logistics.module.js';
 import { FiscalModule } from './modules/fiscal/fiscal.module.js';
 import { DashboardModule } from './modules/dashboard/dashboard.module.js';
@@ -64,7 +63,6 @@ const prettyLogs = process.env.LOG_PRETTY === 'true';
     UploadsModule,
     OrdersModule,
     RegistryModule,
-    CommercialModule,
     LogisticsModule,
     FiscalModule,
     DashboardModule,

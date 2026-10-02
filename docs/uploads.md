@@ -77,7 +77,7 @@ por mensagem. Ver [support.md](support.md).
 ## Visibilidade e NF-e (Fase 8)
 
 - `file_uploads.visibility`: `INTERNAL` (só Matriz), `FARM`, `BUYER`, `PARTIES`. Organizações da entidade (ordem, carga, ocorrência) são copiadas por trigger e usadas pelo RLS; quem enviou sempre enxerga o próprio arquivo.
-- Padrão (Q18): enviados pela Matriz → `INTERNAL`; pela Fazenda → `FARM`; XML de NF-e → `PARTIES`; cadastros e contratos sempre `INTERNAL`. Só a Matriz altera (`PATCH /documents/:id/visibility`, auditado).
+- Padrão (Q18): enviados pela Matriz → `INTERNAL`; pela Fazenda → `FARM`; XML de NF-e → `PARTIES`; cadastros sempre `INTERNAL`. Só a Matriz altera (`PATCH /documents/:id/visibility`, auditado).
 - `NFE_XML` só pode ser anexado a uma **carga** e exige `invoice.upload`. Após `upload.available`, a fila `invoices` lê o XML (sem DTD/entidades), valida a chave (DV módulo 11) e o protocolo, registra `invoices` com divergências (emitente × vendedor, placa × carga, peso × tolerância) ou rejeição, e grava auditoria + outbox na mesma transação. Idempotente por `file_upload_id`.
 
 ## Idempotência e retentativas

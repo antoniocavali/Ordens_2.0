@@ -395,7 +395,6 @@ export class OrdersService {
       }
       this.assertPublishRequirements(order);
       await this.validateRelations(tx, order as unknown as OrderDraftInput);
-      await this.assertContractBalance(tx, order);
       const fourEyes = await this.fourEyes(tx, order, auth.userId);
       if (fourEyes.blocked) {
         throw AppError.domain(
@@ -933,7 +932,7 @@ export class OrdersService {
           returnReason: input.reason,
           sellerPartnerId: null,
           farmId: null,
-          contractId: null,
+          contractNumber: null,
           unitPrice: null,
           freightEstimate: null,
           internalNotes: null,
@@ -950,7 +949,7 @@ export class OrdersService {
         entityType: 'loading_order',
         entityId: id,
         action: 'order.returned',
-        before: { status: 'PENDING_BILLING', sellerPartnerId: order.sellerPartnerId, farmId: order.farmId, contractId: order.contractId },
+        before: { status: 'PENDING_BILLING', sellerPartnerId: order.sellerPartnerId, farmId: order.farmId, contractNumber: order.contractNumber },
         after: { status: 'DRAFT', reason: input.reason },
       });
       await scope.outbox({
@@ -974,7 +973,7 @@ export class OrdersService {
         throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Vendedor e fazenda são definidos enquanto a solicitação aguarda faturamento.');
       }
       const data: Record<string, unknown> = { sellerPartnerId: input.sellerPartnerId, farmId: input.farmId };
-      for (const key of ['contractId', 'unitPrice', 'loadingInstructions', 'farmNotes', 'internalNotes'] as const) {
+      for (const key of ['contractNumber', 'unitPrice', 'loadingInstructions', 'farmNotes', 'internalNotes'] as const) {
         if (input[key] !== undefined) data[key] = input[key];
       }
       if (input.tolerancePct !== undefined) data.tolerancePct = input.tolerancePct ?? '0';
@@ -985,16 +984,16 @@ export class OrdersService {
         entityType: 'loading_order',
         entityId: id,
         action: 'order.farm_assigned',
-        before: { sellerPartnerId: order.sellerPartnerId, farmId: order.farmId, contractId: order.contractId },
-        after: { sellerPartnerId: input.sellerPartnerId, farmId: input.farmId, contractId: (data.contractId as string | null | undefined) ?? order.contractId },
+        before: { sellerPartnerId: order.sellerPartnerId, farmId: order.farmId, contractNumber: order.contractNumber },
+        after: { sellerPartnerId: input.sellerPartnerId, farmId: input.farmId, contractNumber: (data.contractNumber as string | null | undefined) ?? order.contractNumber },
       });
       return this.loadDetail(tx, id);
     });
   }
 
   /**
-   * Faturamento publica a solicitação para a Fazenda: exige vendedor, fazenda e demais requisitos de publicação,
-   * valida contrato e saldo. Sem dupla checagem: o pedido do Comprador e a análise do Faturamento já são dois olhares.
+   * Faturamento publica a solicitação para a Fazenda: exige vendedor, fazenda e demais requisitos de publicação.
+   * Sem dupla checagem: o pedido do Comprador e a análise do Faturamento já são dois olhares.
    */
   async billingPublish(id: string, expectedUpdatedAt: string): Promise<OrderDetail> {
     this.assertInternal();
@@ -1009,7 +1008,6 @@ export class OrdersService {
       }
       this.assertPublishRequirements(order);
       await this.validateRelations(tx, order as unknown as OrderDraftInput);
-      await this.assertContractBalance(tx, order);
       return this.publishInScope(scope, order, 'BILLING');
     });
   }
@@ -1330,37 +1328,8 @@ export class OrdersService {
       else if (farm.ownerPartnerId !== o.sellerPartnerId) fields.farmId = [`${farm.name} não pertence ao vendedor selecionado`];
     }
 
-    if (o.contractId) {
-      const c = await tx.contract.findUnique({ where: { id: o.contractId } });
-      if (!c) fields.contractId = ['Contrato não encontrado'];
-      else {
-        if (c.status !== 'ACTIVE') fields.contractId = ['Contrato não está ativo'];
-        if (o.sellerPartnerId && o.sellerPartnerId !== c.sellerPartnerId) fields.sellerPartnerId = ['Vendedor diferente do contrato'];
-        if (o.buyerPartnerId && o.buyerPartnerId !== c.buyerPartnerId) fields.buyerPartnerId = ['Comprador diferente do contrato'];
-        if (o.commodityId && o.commodityId !== c.commodityId) fields.commodityId = ['Commodity diferente do contrato'];
-      }
-    }
-
     if (Object.keys(fields).length) {
       throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Há dados incompatíveis entre si.', { fields });
-    }
-  }
-
-  private async assertContractBalance(tx: Tx, order: OrderRecord) {
-    if (!order.contractId || !order.quantity) return;
-    const contract = await tx.contract.findUniqueOrThrow({ where: { id: order.contractId } });
-    const agg = await tx.loadingOrder.aggregate({
-      where: { contractId: order.contractId, id: { not: order.id }, status: { notIn: ['DRAFT', 'CANCELLED'] } },
-      _sum: { quantity: true },
-    });
-    const committed = new Prisma.Decimal(agg._sum.quantity ?? 0);
-    const balance = contract.quantity.minus(committed);
-    if (new Prisma.Decimal(order.quantity).greaterThan(balance)) {
-      // Regra provisória Q1 (docs/decisions/open-questions.md): bloqueia.
-      throw AppError.domain(ErrorCode.CONTRACT_BALANCE_EXCEEDED, `A quantidade excede o saldo do contrato (${balance.toString()}).`, {
-        fields: { quantity: [`Saldo disponível no contrato: ${balance.toString()}`] },
-        balance: balance.toString(),
-      });
     }
   }
 

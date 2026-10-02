@@ -28,7 +28,7 @@ flowchart TD
   G --> H[Acompanha volumes, cargas, NF-e válidas e timeline]
 ```
 
-- O comprador da ordem é **derivado da organização ativa** (`organizations.partner_id`); o payload do portal é estrito e recusa vendedor, fazenda, contrato, preço e campos internos.
+- O comprador da ordem é **derivado da organização ativa** (`organizations.partner_id`); o payload do portal é estrito e recusa vendedor, fazenda, contrato, preço e campos internos (o número do contrato é escrito pelo Faturamento).
 - Rascunho é visível e editável **só por quem criou**; após o envio, o Comprador apenas acompanha.
 - O transporte (transportadora, motorista e veículos) é digitado pelo próprio Comprador e é **opcional** no envio; exigidos para enviar: commodity, quantidade, unidade e janela. O agendamento de cada carga nasce com esse transporte e pode corrigi-lo na portaria.
 - **Devolvida pelo Faturamento**: volta a rascunho com o motivo em destaque (notificação a quem criou); o Comprador ajusta e reenvia.
@@ -40,10 +40,10 @@ flowchart TD
 ```mermaid
 flowchart TD
   A[Notificação / fila Aguardando faturamento] --> B[Abre a solicitação]
-  B --> C[Definir fazenda: contrato opcional → vendedor → fazenda<br/>preço, tolerância, instruções, observações]
+  B --> C[Definir fazenda: vendedor → fazenda<br/>nº do contrato digitado, preço, tolerância, instruções, observações]
   C --> D[audit order.farm_assigned — continua PENDING_BILLING]
   D --> E[Publicar para a Fazenda]
-  E --> F{Valida requisitos, relações, contrato e saldo}
+  E --> F{Valida requisitos e relações}
   F -->|ok| G[Versão 1 + audit order.published via BILLING + outbox]
   G --> H[Notificações Fazenda e Comprador]
 ```
@@ -57,9 +57,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  A[Contrato ativo] --> B[+ Nova Ordem: Drawer]
+  A[Demanda comercial] --> B[+ Nova Ordem: Drawer]
   B --> C{Autosave rascunho}
-  C --> D[Selecionar contrato → filtra vendedor, comprador, commodity]
+  C --> D[Vendedor, comprador e commodity]
   D --> E[Vendedor → filtra fazendas]
   E --> F[Quantidade, preço, janela, transporte digitado]
   F --> G[Liberação inicial opcional]

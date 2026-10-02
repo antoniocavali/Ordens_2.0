@@ -253,7 +253,6 @@ export class PartnersService {
         farms: { where: { archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, city: true, state: true, status: true } },
       },
     });
-    const contractsCount = await tx.contract.count({ where: { OR: [{ sellerPartnerId: id }, { buyerPartnerId: id }] } });
     const cp = p.carrierProfile;
     return {
       ...toItem(row),
@@ -272,7 +271,6 @@ export class PartnersService {
           }
         : null,
       farms: p.farms,
-      contractsCount,
       createdAt: p.createdAt.toISOString(),
     };
   }

@@ -18,7 +18,6 @@ const RESOLVERS: Record<string, Resolver> = {
     (await tx.businessPartner.findMany({ where: { id: { in: ids } }, select: { id: true, legalName: true, tradeName: true } })).map((r) => [r.id, r.tradeName ?? r.legalName]),
   location: async (tx, ids) => (await tx.location.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((r) => [r.id, r.name]),
   farm: async (tx, ids) => (await tx.farm.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((r) => [r.id, r.name]),
-  contract: async (tx, ids) => (await tx.contract.findMany({ where: { id: { in: ids } }, select: { id: true, number: true } })).map((r) => [r.id, `Contrato ${r.number}`]),
   commodity: async (tx, ids) => (await tx.commodity.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((r) => [r.id, r.name]),
   driver: async (tx, ids) => (await tx.driver.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map((r) => [r.id, r.name]),
   vehicle: async (tx, ids) => (await tx.vehicle.findMany({ where: { id: { in: ids } }, select: { id: true, plate: true } })).map((r) => [r.id, r.plate]),

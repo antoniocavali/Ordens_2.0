@@ -62,8 +62,6 @@ Seleção múltipla → barra flutuante de ações em lote. Clique na linha → 
 │ [Automático]      [10/09/2026]     [ Normal ▼ ]             │
 │                                                              │
 │ COMERCIAL                                                    │
-│ Contrato                                                     │
-│ [ 🔍 Pesquisar contrato................................. ]   │
 │ Vendedor                         Comprador                   │
 │ [ 🔍 João Silva              ]  [ 🔍 Cooperativa ABC     ]  │
 │ Fazenda                          Commodity                   │

@@ -66,11 +66,10 @@ export class DocumentsService {
     const canChange = auth.membership!.scope === 'MATRIZ' && auth.permissions.has('document.upload');
     const idsOf = (type: string) => uniq(rows.filter((r) => r.entityType === type).map((r) => r.entityId));
 
-    const [orders, loads, occurrences, contracts, partners, farms, users, orgs, invoices] = await Promise.all([
+    const [orders, loads, occurrences, partners, farms, users, orgs, invoices] = await Promise.all([
       tx.loadingOrder.findMany({ where: { id: { in: idsOf('loading_order') } }, select: { id: true, number: true } }),
       tx.load.findMany({ where: { id: { in: idsOf('load') } }, select: { id: true, number: true, orderId: true } }),
       tx.occurrence.findMany({ where: { id: { in: idsOf('occurrence') } }, select: { id: true, number: true, orderId: true } }),
-      tx.contract.findMany({ where: { id: { in: idsOf('contract') } }, select: { id: true, number: true } }),
       tx.businessPartner.findMany({ where: { id: { in: idsOf('partner') } }, select: { id: true, legalName: true, tradeName: true } }),
       tx.farm.findMany({ where: { id: { in: idsOf('farm') } }, select: { id: true, name: true } }),
       tx.user.findMany({ where: { id: { in: uniq(rows.map((r) => r.createdBy)) } }, select: { id: true, name: true } }),
@@ -86,7 +85,6 @@ export class DocumentsService {
       ...orders.map((o) => [o.id, { label: `OC ${o.number}`, orderId: o.id }] as const),
       ...loads.map((l) => [l.id, { label: `Carga ${l.number}`, orderId: l.orderId }] as const),
       ...occurrences.map((o) => [o.id, { label: `Ocorrência ${o.number}`, orderId: o.orderId }] as const),
-      ...contracts.map((c) => [c.id, { label: `Contrato ${c.number}`, orderId: null }] as const),
       ...partners.map((p) => [p.id, { label: p.tradeName ?? p.legalName, orderId: null }] as const),
       ...farms.map((f) => [f.id, { label: f.name, orderId: null }] as const),
     ]);

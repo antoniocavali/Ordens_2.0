@@ -373,7 +373,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <Row label="Vendedor" value={o.seller?.name} />
                 <Row label="Fazenda" value={o.farm ? `${o.farm.name}${o.farm.city ? ` · ${o.farm.city}/${o.farm.state}` : ''}` : null} />
                 <Row label="Comprador" value={o.buyer?.name} />
-                <Row label="Contrato" value={o.contract?.number} mono />
+                <Row label="Contrato" value={o.contractNumber} mono />
               </Group>
               <Group title="Comercial">
                 <Row label="Commodity" value={o.commodity ? `${o.commodity.name}${o.cropYear ? ` · safra ${o.cropYear}` : ''}` : null} />

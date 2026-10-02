@@ -38,18 +38,12 @@ const like = (q?: string) => (q ? `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%` :
 export class LookupsService {
   constructor(private readonly db: TenantDb) {}
 
-  async partners(params: { role: PartnerLookupRole; q?: string; cursor?: string; limit: number; contractId?: string }): Promise<CursorPage<LookupOption>> {
+  async partners(params: { role: PartnerLookupRole; q?: string; cursor?: string; limit: number }): Promise<CursorPage<LookupOption>> {
     const cursor = decodeCursor(params.cursor);
     const pattern = like(params.q);
     const digits = params.q?.replace(/\D/g, '') ?? '';
     const docPattern = digits.length >= 3 ? `%${digits}%` : null;
     return this.db.read(async (tx) => {
-      let restrictTo: string | null = null;
-      if (params.contractId) {
-        const contract = await tx.contract.findUnique({ where: { id: params.contractId } });
-        if (!contract) throw AppError.notFound('Contrato não encontrado.');
-        restrictTo = params.role === 'SELLER' ? contract.sellerPartnerId : params.role === 'BUYER' ? contract.buyerPartnerId : null;
-      }
       const rows = await tx.$queryRaw<
         { id: string; legal_name: string; trade_name: string | null; document: string; city: string | null; state: string | null; farms: bigint }[]
       >(Prisma.sql`
@@ -58,7 +52,6 @@ export class LookupsService {
         from business_partners p
         where p.archived_at is null and p.status = 'ACTIVE'
           and exists (select 1 from partner_roles r where r.partner_id = p.id and r.role = ${params.role}::partner_role)
-          ${restrictTo ? Prisma.sql`and p.id = ${restrictTo}::uuid` : Prisma.empty}
           ${pattern ? Prisma.sql`and (p.legal_name ilike ${pattern} or p.trade_name ilike ${pattern}${docPattern ? Prisma.sql` or p.document like ${docPattern}` : Prisma.empty})` : Prisma.empty}
           ${cursor ? Prisma.sql`and (p.legal_name, p.id) > (${cursor.n}, ${cursor.i}::uuid)` : Prisma.empty}
         order by p.legal_name, p.id
@@ -99,21 +92,14 @@ export class LookupsService {
     });
   }
 
-  async commodities(params: { q?: string; contractId?: string }): Promise<CursorPage<LookupOption>> {
+  async commodities(params: { q?: string }): Promise<CursorPage<LookupOption>> {
     const pattern = like(params.q);
     return this.db.read(async (tx) => {
-      let onlyId: string | null = null;
-      if (params.contractId) {
-        const c = await tx.contract.findUnique({ where: { id: params.contractId }, select: { commodityId: true } });
-        if (!c) throw AppError.notFound('Contrato não encontrado.');
-        onlyId = c.commodityId;
-      }
       const rows = await tx.$queryRaw<{ id: string; name: string; code: string; category: string | null; unit_id: string | null; unit_code: string | null }[]>(
         Prisma.sql`
           select c.id, c.name, c.code, c.category, u.id as unit_id, u.code as unit_code
           from commodities c left join units u on u.id = c.default_unit_id
           where c.status = 'ACTIVE'
-            ${onlyId ? Prisma.sql`and c.id = ${onlyId}::uuid` : Prisma.empty}
             ${pattern ? Prisma.sql`and (c.name ilike ${pattern} or c.code ilike ${pattern})` : Prisma.empty}
           order by c.name
           limit 100
@@ -133,72 +119,24 @@ export class LookupsService {
     });
   }
 
-  async contracts(params: { q?: string; sellerId?: string; buyerId?: string; commodityId?: string; cursor?: string; limit: number }): Promise<CursorPage<LookupOption>> {
-    const cursor = decodeCursor(params.cursor);
+  /**
+   * Números de contrato já digitados nas ordens visíveis a quem pergunta. Não há cadastro de
+   * contratos: o número é uma referência comercial que o Faturamento escreve, e a sugestão existe
+   * só para evitar que o mesmo contrato apareça escrito de formas diferentes. Como a leitura passa
+   * pelo RLS, cada grupo só recebe o que é dele.
+   */
+  async contractNumbers(params: { q?: string }): Promise<CursorPage<LookupOption>> {
     const pattern = like(params.q);
     return this.db.read(async (tx) => {
-      const rows = await tx.$queryRaw<
-        {
-          id: string;
-          number: string;
-          crop_year: string | null;
-          quantity: Prisma.Decimal;
-          committed: Prisma.Decimal;
-          seller_id: string;
-          seller: string;
-          buyer_id: string;
-          buyer: string;
-          commodity_id: string;
-          commodity: string;
-          unit_id: string;
-          unit_code: string;
-          unit_price: Prisma.Decimal | null;
-          currency: string;
-          freight_mode: string | null;
-        }[]
-      >(Prisma.sql`
-        select ct.id, ct.number, ct.crop_year, ct.quantity,
-               coalesce((select sum(lo.quantity) from loading_orders lo
-                          where lo.contract_id = ct.id and lo.status not in ('DRAFT', 'CANCELLED')), 0) as committed,
-               s.id as seller_id, coalesce(s.trade_name, s.legal_name) as seller,
-               b.id as buyer_id, coalesce(b.trade_name, b.legal_name) as buyer,
-               c.id as commodity_id, c.name as commodity,
-               u.id as unit_id, u.code as unit_code, ct.unit_price, ct.currency, ct.freight_mode::text as freight_mode
-        from contracts ct
-        join business_partners s on s.id = ct.seller_partner_id
-        join business_partners b on b.id = ct.buyer_partner_id
-        join commodities c on c.id = ct.commodity_id
-        join units u on u.id = ct.unit_id
-        where ct.status = 'ACTIVE'
-          ${params.sellerId ? Prisma.sql`and ct.seller_partner_id = ${params.sellerId}::uuid` : Prisma.empty}
-          ${params.buyerId ? Prisma.sql`and ct.buyer_partner_id = ${params.buyerId}::uuid` : Prisma.empty}
-          ${params.commodityId ? Prisma.sql`and ct.commodity_id = ${params.commodityId}::uuid` : Prisma.empty}
-          ${pattern ? Prisma.sql`and (ct.number ilike ${pattern} or s.legal_name ilike ${pattern} or b.legal_name ilike ${pattern} or c.name ilike ${pattern})` : Prisma.empty}
-          ${cursor ? Prisma.sql`and (ct.number, ct.id) > (${cursor.n}, ${cursor.i}::uuid)` : Prisma.empty}
-        order by ct.number, ct.id
-        limit ${params.limit + 1}
+      const rows = await tx.$queryRaw<{ contract_number: string }[]>(Prisma.sql`
+        select distinct contract_number
+        from loading_orders
+        where contract_number is not null
+          ${pattern ? Prisma.sql`and contract_number ilike ${pattern}` : Prisma.empty}
+        order by contract_number
+        limit 50
       `);
-      return this.page(rows, params.limit, (r) => ({
-        id: r.id,
-        label: r.number,
-        description: `${r.seller} → ${r.buyer} · ${r.commodity}${r.crop_year ? ` ${r.crop_year}` : ''}`,
-        meta: {
-          sellerId: r.seller_id,
-          sellerName: r.seller,
-          buyerId: r.buyer_id,
-          buyerName: r.buyer,
-          commodityId: r.commodity_id,
-          commodityName: r.commodity,
-          unitId: r.unit_id,
-          unitCode: r.unit_code,
-          unitPrice: r.unit_price?.toString() ?? null,
-          currency: r.currency,
-          freightMode: r.freight_mode,
-          cropYear: r.crop_year,
-          quantity: r.quantity.toString(),
-          balance: r.quantity.minus(r.committed).toString(),
-        },
-      }), (r) => ({ n: r.number, i: r.id }));
+      return { nextCursor: null, items: rows.map((r) => ({ id: r.contract_number, label: r.contract_number })) };
     });
   }
 

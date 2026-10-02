@@ -75,8 +75,6 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `farm.manage` | — | ● | ● | ● | — | ○ | — | — |
 | `commodity.read` | — | ● | ● | ● | ● | ● | ● | ● |
 | `commodity.manage` | — | ● | ● | — | — | — | — | — |
-| `contract.read` | — | ● | ● | ● | ● | ○ | — | ○ |
-| `contract.manage` | — | ● | ● | — | — | — | — | — |
 | `order.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
 | `order.create` | — | ● | ● | ● | — | — | — | — |
 | `order.update` | — | ● | ● | ● | — | — | — | — |

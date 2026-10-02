@@ -317,7 +317,7 @@ export function OrdersCenter() {
         ),
       },
       { id: 'buyer', header: 'Comprador', size: 160, cell: ({ row: { original: o } }) => <span className="block truncate">{o.buyer?.name ?? <span className="text-subtle">—</span>}</span> },
-      { id: 'contract', header: 'Contrato', size: 120, cell: ({ row: { original: o } }) => <span className="font-mono text-xs">{o.contract?.number ?? '—'}</span> },
+      { id: 'contract', header: 'Contrato', size: 120, cell: ({ row: { original: o } }) => <span className="font-mono text-xs">{o.contractNumber ?? '—'}</span> },
       {
         id: 'quantity',
         header: 'Quantidade · Execução',

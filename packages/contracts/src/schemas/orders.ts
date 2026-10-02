@@ -26,7 +26,7 @@ export const ORDER_MATERIAL_FIELDS = [
   'farmId',
   'sellerPartnerId',
   'buyerPartnerId',
-  'contractId',
+  'contractNumber',
   'cropYear',
   'loadingStartsOn',
   'loadingEndsOn',
@@ -56,6 +56,14 @@ export type OrderMaterialField = (typeof ORDER_MATERIAL_FIELDS)[number];
 const dateOnly = z.iso.date();
 const optionalText = (max: number) => z.string().trim().max(max).nullish();
 
+/** Contrato é digitado pelo Faturamento: referência comercial, sem cadastro por trás. */
+export const contractNumberSchema = z
+  .string()
+  .trim()
+  .max(40, 'Use no máximo 40 caracteres')
+  .transform((v) => (v === '' ? null : v.toUpperCase()))
+  .nullish();
+
 /** Rascunho: tudo opcional; validações de consistência continuam valendo para o que for informado. */
 export const orderDraftSchema = z
   .object({
@@ -63,7 +71,6 @@ export const orderDraftSchema = z
     orderDate: dateOnly.nullish(),
     priority: z.enum(ORDER_PRIORITIES).nullish(),
     operationType: z.enum(OPERATION_TYPES).nullish(),
-    contractId: z.uuid().nullish(),
     sellerPartnerId: z.uuid().nullish(),
     farmId: z.uuid().nullish(),
     buyerPartnerId: z.uuid().nullish(),
@@ -204,7 +211,7 @@ export const assignFarmSchema = z.strictObject({
   expectedUpdatedAt: z.iso.datetime(),
   sellerPartnerId: z.uuid('Selecione o vendedor'),
   farmId: z.uuid('Selecione a fazenda'),
-  contractId: z.uuid().nullish(),
+  contractNumber: contractNumberSchema,
   unitPrice: priceString.nullish(),
   tolerancePct: percentString.nullish(),
   loadingInstructions: optionalText(4000),
@@ -303,7 +310,7 @@ export const orderListQuerySchema = z.object({
   sellerPartnerId: z.uuid().optional(),
   buyerPartnerId: z.uuid().optional(),
   farmId: z.uuid().optional(),
-  contractId: z.uuid().optional(),
+  contractNumber: z.string().trim().max(40).optional(),
   farmSignal: z.enum(['NEVER', 'CURRENT', 'OUTDATED', 'OVERDUE']).optional(),
   buyerSignal: z.enum(['NEVER', 'CURRENT', 'OUTDATED', 'OVERDUE']).optional(),
   from: dateOnly.optional(),
@@ -361,7 +368,7 @@ export interface OrderListItem {
   seller: Ref | null;
   farm: (Ref & { city: string | null; state: string | null }) | null;
   buyer: Ref | null;
-  contract: { id: string; number: string } | null;
+  contractNumber: string | null;
   cropYear: string | null;
   quantities: OrderQuantities;
   totalValue: string | null;

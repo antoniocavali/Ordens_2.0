@@ -283,37 +283,15 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     data: queueMembers.flatMap(([email, queues]) => queues.map((queue) => ({ tenantId, membershipId: userIds[email]!.membershipId, queue }))),
   });
 
-  // ─── Contratos ───
-  // Numeração igual à automática da API (CT-AAAA-NNNN), avançando a sequência do tenant.
-  const contract = async (_label: string, seller: string, buyer: string, commodity: string, quantity: string, unitPrice: string, crop: string) => {
-    const seq = await nextSequence(tx, tenantId, 'contract', now.getUTCFullYear());
-    return tx.contract.create({
-      data: {
-        tenantId,
-        number: `CT-${now.getUTCFullYear()}-${String(seq).padStart(4, '0')}`,
-        sellerPartnerId: seller,
-        buyerPartnerId: buyer,
-        commodityId: commodities[commodity]!.id,
-        cropYear: crop,
-        quantity,
-        unitId: units.T.id,
-        unitPrice,
-        currency: 'BRL',
-        totalValue: (BigInt(quantity) * BigInt(unitPrice.replace('.', ''))).toString().replace(/(\d{2})$/, '.$1'),
-        startsOn: dateOnly(addDays(now, -60)),
-        endsOn: dateOnly(addDays(now, 120)),
-        freightMode: 'FOB',
-        status: 'ACTIVE',
-      },
-    });
-  };
-
-  const contracts = [
-    { c: await contract('CT-2026-001', joao.id, abc.id, 'MILHO', '12000', '1250.00', '25/26'), seller: joao.id, buyer: abc.id, commodity: 'MILHO' },
-    { c: await contract('CT-2026-002', maria.id, nutri.id, 'SOJA', '8000', '2150.00', '25/26'), seller: maria.id, buyer: nutri.id, commodity: 'SOJA' },
-    { c: await contract('CT-2026-003', valeVerde.id, exporta.id, 'ALGODAO', '1500', '9800.00', '25/26'), seller: valeVerde.id, buyer: exporta.id, commodity: 'ALGODAO' },
-    { c: await contract('CT-2026-004', joao.id, nutri.id, 'SORGO', '4000', '990.00', '25/26'), seller: joao.id, buyer: nutri.id, commodity: 'SORGO' },
-    { c: await contract('CT-2026-005', maria.id, abc.id, 'MILHO', '6000', '1240.00', '25/26'), seller: maria.id, buyer: abc.id, commodity: 'MILHO' },
+  // ─── Referências de contrato ───
+  // Contrato não é cadastro: é um número que o Faturamento digita na ordem. Aqui ficam só os pares
+  // comerciais que a demo usa, para as ordens saírem coerentes (mesmo vendedor, comprador e commodity).
+  const contratos = [
+    { numero: 'CT-2026-0001', seller: joao.id, buyer: abc.id, commodity: 'MILHO' },
+    { numero: 'CT-2026-0002', seller: maria.id, buyer: nutri.id, commodity: 'SOJA' },
+    { numero: 'CT-2026-0003', seller: valeVerde.id, buyer: exporta.id, commodity: 'ALGODAO' },
+    { numero: 'CT-2026-0004', seller: joao.id, buyer: nutri.id, commodity: 'SORGO' },
+    { numero: 'CT-2026-0005', seller: maria.id, buyer: abc.id, commodity: 'MILHO' },
   ];
 
   // ─── Ordens de carregamento ───
@@ -340,17 +318,13 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     [orgNutri.id]: userIds['comprador.nutri@graoforte.demo'],
   };
 
-  // Saldo por contrato: ordens não-rascunho só usam contrato enquanto houver saldo (mesma regra da publicação).
-  const committed = new Map<string, number>(contracts.map((k) => [k.c.id, 0]));
-
   for (let i = 0; i < statusPlan.length; i++) {
     const status = statusPlan[i]!;
     const pending = status === 'PENDING_BILLING';
-    const k = r.pick(contracts);
+    const k = r.pick(contratos);
     const qtyPreview = quantities[i % quantities.length]!;
-    const fits = committed.get(k.c.id)! + qtyPreview <= Number(k.c.quantity);
-    const useContract = !pending && r.next() < 0.8 && (status === 'DRAFT' || fits);
-    if (useContract && status !== 'DRAFT' && status !== 'CANCELLED') committed.set(k.c.id, committed.get(k.c.id)! + qtyPreview);
+    // O Faturamento só anota o contrato depois de assumir a solicitação: a do Comprador ainda não tem.
+    const useContract = !pending && r.next() < 0.8;
     const seller = useContract ? k.seller : r.pick([joao.id, maria.id, valeVerde.id]);
     const buyer = pending ? r.pick([abc.id, nutri.id]) : useContract ? k.buyer : r.pick([abc.id, nutri.id, exporta.id]);
     const buyerUser = buyer === abc.id ? userIds['comprador.abc@graoforte.demo']! : userIds['comprador.nutri@graoforte.demo']!;
@@ -378,7 +352,7 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
         priority: r.pick(priorities),
         operationType: 'PURCHASE',
         version,
-        contractId: useContract ? k.c.id : null,
+        contractNumber: useContract ? k.numero : null,
         sellerPartnerId: pending ? null : seller,
         farmId: pending || (status === 'DRAFT' && i === 1) ? null : farmRow.id,
         buyerPartnerId: status === 'DRAFT' && i === 2 ? null : buyer,

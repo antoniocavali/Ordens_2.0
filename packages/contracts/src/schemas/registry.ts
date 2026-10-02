@@ -138,7 +138,6 @@ export interface PartnerDetail extends PartnerListItem {
   contacts: { id: string; name: string; role: string | null; phone: string | null; email: string | null; isPrimary: boolean }[];
   carrierProfile: { rntrc: string | null; rntrcExpiresAt: string | null; opsContactName: string | null; opsContactPhone: string | null; opsContactEmail: string | null } | null;
   farms: { id: string; name: string; city: string | null; state: string | null; status: RecordStatus }[];
-  contractsCount: number;
   createdAt: string;
 }
 

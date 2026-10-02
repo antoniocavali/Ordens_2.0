@@ -512,7 +512,7 @@ describe('atendimento (chat)', () => {
     expect(support).toBeGreaterThan(0);
     expect(occurrence).toBeGreaterThan(0);
     await expect(db.run(farm(A, 0), (tx) => nextSequence(tx, A.tenantId, 'loading_order', year))).rejects.toThrow(/row-level security/);
-    await expect(db.run(buyer(A, 0), (tx) => nextSequence(tx, A.tenantId, 'contract', year))).rejects.toThrow(/row-level security/);
+    await expect(db.run(buyer(A, 0), (tx) => nextSequence(tx, A.tenantId, 'invoice', year))).rejects.toThrow(/row-level security/);
   });
 
   it('mensagens são imutáveis e conversas não são apagadas', async () => {
@@ -642,10 +642,10 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
   });
 
   it('Comprador numera ordens, mas não outras sequências internas', async () => {
-    const seq = () => db.run(buyer(A, 0), (tx) => tx.$queryRaw<{ n: number }[]>`select 1 as n from tenant_sequences where name = 'contract' limit 1`);
+    const seq = () => db.run(buyer(A, 0), (tx) => tx.$queryRaw<{ n: number }[]>`select 1 as n from tenant_sequences where name = 'invoice' limit 1`);
     await expect(seq()).resolves.toEqual([]);
     await expect(
-      db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'contract', 2099, 1)`),
+      db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'invoice', 2099, 1)`),
     ).rejects.toThrow(/row-level security/);
     await db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'loading_order', 2099, 1) on conflict do nothing`);
   });

@@ -206,7 +206,7 @@ export const invoiceCancelSchema = z.object({ reason: z.string().trim().min(3, '
 export const documentListQuery = z.object({
   ...paging,
   kind: many,
-  entityType: z.enum(['loading_order', 'load', 'contract', 'partner', 'farm', 'occurrence']).optional(),
+  entityType: z.enum(['loading_order', 'load', 'partner', 'farm', 'occurrence']).optional(),
   entityId: z.uuid().optional(),
   visibility: z.enum(DOCUMENT_VISIBILITIES).optional(),
 });

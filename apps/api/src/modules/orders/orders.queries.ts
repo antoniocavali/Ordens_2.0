@@ -10,7 +10,6 @@ export interface OrderRow {
   priority: string;
   operation_type: string | null;
   version: number;
-  contract_id: string | null;
   contract_number: string | null;
   seller_partner_id: string | null;
   seller_name: string | null;
@@ -130,7 +129,7 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
       select
         lo.id, lo.number, lo.external_number, lo.order_date, lo.status::text as status, lo.priority::text as priority,
         lo.operation_type::text as operation_type, lo.version,
-        lo.contract_id, ct.number as contract_number,
+        lo.contract_number,
         lo.seller_partner_id, coalesce(sp.trade_name, sp.legal_name) as seller_name,
         lo.farm_id, f.name as farm_name, f.city as farm_city, f.state as farm_state,
         lo.buyer_partner_id, coalesce(bp.trade_name, bp.legal_name) as buyer_name,
@@ -155,7 +154,6 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         bv.version as buyer_viewed_version, bv.last_viewed_at as buyer_viewed_at, bvu.name as buyer_viewed_by
       from loading_orders lo
       left join users cpu on cpu.id = lo.completed_by
-      left join contracts ct on ct.id = lo.contract_id
       left join business_partners sp on sp.id = lo.seller_partner_id
       left join business_partners bp on bp.id = lo.buyer_partner_id
       left join farms f on f.id = lo.farm_id
@@ -186,7 +184,6 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
 }
 
 const SEARCH_JOINS = Prisma.sql`
-  left join contracts ct on ct.id = lo.contract_id
   left join business_partners sp on sp.id = lo.seller_partner_id
   left join business_partners bp on bp.id = lo.buyer_partner_id
   left join farms f on f.id = lo.farm_id
@@ -224,14 +221,14 @@ export function buildListFilters(q: OrderListQuery): {
   if (q.sellerPartnerId) conds.push(Prisma.sql`lo.seller_partner_id = ${q.sellerPartnerId}::uuid`);
   if (q.buyerPartnerId) conds.push(Prisma.sql`lo.buyer_partner_id = ${q.buyerPartnerId}::uuid`);
   if (q.farmId) conds.push(Prisma.sql`lo.farm_id = ${q.farmId}::uuid`);
-  if (q.contractId) conds.push(Prisma.sql`lo.contract_id = ${q.contractId}::uuid`);
+  if (q.contractNumber) conds.push(Prisma.sql`lo.contract_number ilike ${q.contractNumber}`);
   if (q.from) conds.push(Prisma.sql`lo.loading_ends_on >= ${q.from}::date`);
   if (q.to) conds.push(Prisma.sql`lo.loading_starts_on <= ${q.to}::date`);
   if (q.q) {
     const p = `%${q.q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     conds.push(Prisma.sql`(
       lo.number ilike ${p} or lo.external_number ilike ${p} or sp.legal_name ilike ${p} or sp.trade_name ilike ${p}
-      or bp.legal_name ilike ${p} or bp.trade_name ilike ${p} or f.name ilike ${p} or ct.number ilike ${p} or c.name ilike ${p}
+      or bp.legal_name ilike ${p} or bp.trade_name ilike ${p} or f.name ilike ${p} or lo.contract_number ilike ${p} or c.name ilike ${p}
     )`);
   }
 

@@ -2,7 +2,7 @@
 
 ## Visão
 
-Plataforma SaaS/TMS multi-tenant para o ciclo completo de uma **Ordem de Carregamento (OC)** no agronegócio: contrato → ordem → liberações → agendamentos → cargas → NF-e/documentos → recebimento → conclusão, com rastreabilidade total, faróis de visualização e colaboração entre Matriz, Fazenda e Comprador.
+Plataforma SaaS/TMS multi-tenant para o ciclo completo de uma **Ordem de Carregamento (OC)** no agronegócio: ordem → liberações → agendamentos → cargas → NF-e/documentos → conclusão, com rastreabilidade total, faróis de visualização e colaboração entre Matriz, Fazenda e Comprador.
 
 Estilo arquitetural: **monólito modular** (NestJS) + **worker assíncrono** (BullMQ) + **web** (Next.js). Sem microsserviços e sem Kubernetes no MVP (ver [ADR-000](decisions/ADR-000-monolito-modular.md)).
 

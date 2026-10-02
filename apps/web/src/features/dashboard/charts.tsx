@@ -9,18 +9,17 @@ const ease = [0.16, 1, 0.3, 1] as const;
 const num = (v: string) => Number(v) || 0;
 
 /**
- * Funil de volume. Percentuais sempre sobre "Em ordens" (e "Em ordens" sobre "Contratado"):
+ * Funil de volume. Percentuais sempre sobre "Em ordens":
  * comparar com a etapa anterior distorce, pois agendado é só o que ainda não carregou.
  */
 export function FunnelChart({ steps }: { steps: { key: string; label: string; valueT: string }[] }) {
   const max = Math.max(...steps.map((s) => num(s.valueT)), 1);
   const ordered = num(steps.find((s) => s.key === 'ordered')?.valueT ?? '0');
-  const contracted = num(steps.find((s) => s.key === 'contracted')?.valueT ?? '0');
   return (
     <ol className="space-y-2.5" aria-label="Funil de volume em toneladas">
       {steps.map((s, i) => {
         const value = num(s.valueT);
-        const prev = s.key === 'contracted' ? 0 : s.key === 'ordered' ? contracted : ordered;
+        const prev = s.key === 'ordered' ? 0 : ordered;
         return (
           <li key={s.key} className="grid grid-cols-[88px_1fr_auto] items-center gap-3 text-sm">
             <span className="truncate text-muted">{s.label}</span>

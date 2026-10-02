@@ -25,7 +25,6 @@ interface FormValues extends TransportValues {
   orderDate: string;
   priority: string;
   operationType: string;
-  contract: ComboOption | null;
   seller: ComboOption | null;
   farm: ComboOption | null;
   buyer: ComboOption | null;
@@ -66,7 +65,6 @@ function fromDetail(o: OrderDetail | null): FormValues {
     orderDate: o?.orderDate ?? today(),
     priority: o?.priority ?? 'NORMAL',
     operationType: o?.operationType ?? 'PURCHASE',
-    contract: opt(o?.contract?.id, o?.contract?.number),
     seller: opt(o?.seller?.id, o?.seller?.name),
     farm: opt(o?.farm?.id, o?.farm?.name, { sellerId: o?.seller?.id ?? null, city: o?.farm?.city ?? null, state: o?.farm?.state ?? null }),
     buyer: opt(o?.buyer?.id, o?.buyer?.name),
@@ -108,7 +106,6 @@ function toPayload(v: FormValues): OrderDraftPayload {
     orderDate: v.orderDate || null,
     priority: v.priority as OrderDraftInput['priority'],
     operationType: (v.operationType || null) as OrderDraftInput['operationType'],
-    contractId: v.contract?.id ?? null,
     sellerPartnerId: v.seller?.id ?? null,
     farmId: v.farm?.id ?? null,
     buyerPartnerId: v.buyer?.id ?? null,
@@ -143,7 +140,6 @@ function toPayload(v: FormValues): OrderDraftPayload {
 
 /** Mapeia nomes de campos da API para campos do formulário. */
 const API_TO_FORM: Record<string, keyof FormValues> = {
-  contractId: 'contract',
   sellerPartnerId: 'seller',
   farmId: 'farm',
   buyerPartnerId: 'buyer',
@@ -161,7 +157,6 @@ const SECTIONS = [
 ] as const;
 
 const FIELD_SECTION: Partial<Record<keyof FormValues, (typeof SECTIONS)[number]['id']>> = {
-  contract: 'comercial',
   seller: 'comercial',
   buyer: 'comercial',
   commodity: 'comercial',
@@ -230,7 +225,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
         const values = form.getValues();
         const payload = toPayload(values);
         const existing = currentRef.current;
-        if (!existing && reason === 'auto' && !payload.sellerPartnerId && !payload.buyerPartnerId && !payload.contractId && !payload.commodityId) return existing;
+        if (!existing && reason === 'auto' && !payload.sellerPartnerId && !payload.buyerPartnerId && !payload.commodityId) return existing;
         setSave({ status: 'saving' });
         try {
           const saved = existing ? await updateOrder(existing.id, existing.version, existing.updatedAt, payload) : await createOrder(payload);
@@ -547,9 +542,9 @@ const PRIORITY_LABEL: Record<string, string> = { LOW: 'Baixa', NORMAL: 'Normal',
 function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseFormReturn<FormValues>; orderId: string | null; onNotice: (m: string | null) => void; isDraft: boolean }) {
   const { control, register, setValue, formState } = form;
   const errors = formState.errors;
-  const [contract, seller, farm, buyer, quantity, unitPrice, unitId, currency] = useWatch({
+  const [seller, farm, buyer, quantity, unitPrice, unitId, currency] = useWatch({
     control,
-    name: ['contract', 'seller', 'farm', 'buyer', 'quantity', 'unitPrice', 'unitId', 'currency'],
+    name: ['seller', 'farm', 'buyer', 'quantity', 'unitPrice', 'unitId', 'currency'],
   });
   const units = useUnits();
   const unitLabel = units.data?.find((u) => u.id === unitId)?.label ?? '';
@@ -574,35 +569,6 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
     if (currentFarm && currentFarm.meta?.sellerId !== next?.id) {
       setValue('farm', null, dirty);
       onNotice(next ? `${currentFarm.label} não pertence a ${next.label}. Selecione a fazenda novamente.` : `A fazenda ${currentFarm.label} foi removida porque o vendedor foi limpo.`);
-    }
-    const c = form.getValues('contract');
-    if (c && next && c.meta?.sellerId !== next.id) {
-      setValue('contract', null, dirty);
-      onNotice(`O contrato ${c.label} é de outro vendedor e foi removido.`);
-    }
-  };
-
-  /** Contrato define vendedor, comprador, commodity e condições. */
-  const onContractChange = (next: ComboOption | null) => {
-    setValue('contract', next, dirty);
-    form.clearErrors(['contract', 'seller', 'buyer', 'commodity']);
-    if (!next?.meta) return;
-    const m = next.meta;
-    const prevSeller = form.getValues('seller');
-    if (m.sellerId) setValue('seller', { id: m.sellerId, label: m.sellerName ?? '' }, dirty);
-    if (m.buyerId) setValue('buyer', { id: m.buyerId, label: m.buyerName ?? '' }, dirty);
-    if (m.commodityId) setValue('commodity', { id: m.commodityId, label: m.commodityName ?? '' }, dirty);
-    if (m.unitId) setValue('unitId', m.unitId, dirty);
-    if (m.unitPrice && !form.getValues('unitPrice')) setValue('unitPrice', toDecimalInput(m.unitPrice), dirty);
-    if (m.currency) setValue('currency', m.currency, dirty);
-    if (m.cropYear && !form.getValues('cropYear')) setValue('cropYear', m.cropYear, dirty);
-    if (m.freightMode && !form.getValues('freightMode')) setValue('freightMode', m.freightMode, dirty);
-    const f = form.getValues('farm');
-    if (f && f.meta?.sellerId && f.meta.sellerId !== m.sellerId) {
-      setValue('farm', null, dirty);
-      onNotice(`${f.label} não pertence ao vendedor do contrato (${m.sellerName}). Selecione a fazenda novamente.`);
-    } else if (prevSeller && prevSeller.id !== m.sellerId) {
-      onNotice(`Vendedor ajustado para ${m.sellerName} conforme o contrato ${next.label}.`);
     }
   };
 
@@ -631,32 +597,14 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
       </Section>
 
-      <Section id="comercial" title="Comercial" description="Ao escolher um contrato, vendedor, comprador e commodity são preenchidos e travados às partes do contrato.">
-        <Field label="Contrato" className={col[6]} error={err('contract')} hint={contract?.description ?? 'Opcional — sem contrato, informe as partes manualmente'}>
-          {(a) => (
-            <Controller
-              control={control}
-              name="contract"
-              render={({ field }) => (
-                <AsyncCombobox
-                  {...a}
-                  value={field.value}
-                  onChange={onContractChange}
-                  queryKey={['lookup', 'contracts']}
-                  fetchPage={lookups.contracts({})}
-                  placeholder="Pesquisar contrato por número, parte ou commodity…"
-                />
-              )}
-            />
-          )}
-        </Field>
+      <Section id="comercial" title="Comercial" description="Vendedor, comprador e commodity da ordem. O número do contrato é anotado pelo Faturamento ao definir a fazenda.">
         <Field label="Vendedor" required className={col[3]} error={err('seller')}>
           {(a) => (
             <Controller
               control={control}
               name="seller"
               render={({ field }) => (
-                <AsyncCombobox {...a} value={field.value} onChange={onSellerChange} queryKey={['lookup', 'sellers', contract?.id ?? null]} fetchPage={lookups.sellers(contract?.id)} placeholder="Pesquisar vendedor…" />
+                <AsyncCombobox {...a} value={field.value} onChange={onSellerChange} queryKey={['lookup', 'sellers']} fetchPage={lookups.sellers()} placeholder="Pesquisar vendedor…" />
               )}
             />
           )}
@@ -674,8 +622,8 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
                     field.onChange(v);
                     form.clearErrors('buyer');
                   }}
-                  queryKey={['lookup', 'buyers', contract?.id ?? null]}
-                  fetchPage={lookups.buyers(contract?.id)}
+                  queryKey={['lookup', 'buyers']}
+                  fetchPage={lookups.buyers()}
                   placeholder="Pesquisar comprador…"
                 />
               )}
@@ -696,8 +644,8 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
                     form.clearErrors('commodity');
                     if (v?.meta?.defaultUnitId && !form.getValues('unitId')) setValue('unitId', v.meta.defaultUnitId, dirty);
                   }}
-                  queryKey={['lookup', 'commodities', contract?.id ?? null]}
-                  fetchPage={lookups.commodities(contract?.id)}
+                  queryKey={['lookup', 'commodities']}
+                  fetchPage={lookups.commodities()}
                   placeholder="Milho, soja, algodão…"
                 />
               )}

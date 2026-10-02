@@ -43,12 +43,12 @@ test.describe('Ordens de Carregamento', () => {
     const farm = drawer.locator('#secao-origem-destino [role="combobox"]').first();
     await expect(farm).toBeDisabled();
 
-    await drawer.locator('#secao-comercial [role="combobox"]').nth(1).click();
+    await drawer.locator('#secao-comercial [role="combobox"]').nth(0).click();
     await page.keyboard.type('João');
     await page.getByRole('option', { name: /João da Silva/ }).click();
-    await drawer.locator('#secao-comercial [role="combobox"]').nth(2).click();
+    await drawer.locator('#secao-comercial [role="combobox"]').nth(1).click();
     await page.getByRole('option', { name: /Coop\. ABC/ }).click();
-    await drawer.locator('#secao-comercial [role="combobox"]').nth(3).click();
+    await drawer.locator('#secao-comercial [role="combobox"]').nth(2).click();
     await page.getByRole('option', { name: /Milho/ }).click();
 
     await farm.click();

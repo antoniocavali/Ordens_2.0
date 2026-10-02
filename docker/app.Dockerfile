@@ -48,7 +48,9 @@ ENV NODE_ENV=development \
     CHOKIDAR_USEPOLLING=true \
     WATCHPACK_POLLING=true \
     TSC_WATCHFILE=DynamicPriorityPolling
-RUN pnpm --filter @ordens/contracts build && pnpm --filter @ordens/db build
+# A API importa @ordens/reports pelo dist: sem construí-lo aqui, o contêiner de desenvolvimento
+# sobe e morre em ERR_MODULE_NOT_FOUND assim que a imagem é reconstruída.
+RUN pnpm --filter @ordens/contracts build && pnpm --filter @ordens/db build && pnpm --filter @ordens/reports build
 CMD ["pnpm", "dev"]
 
 # ─── Build de produção ───
