@@ -12,6 +12,7 @@ import { PasskeysCard } from '@/features/account/passkeys-card';
 import { ApiRequestError, del, get, post } from '@/lib/api';
 import { formatDateTime, formatRelative } from '@/lib/format';
 import { ME_KEY, useMe } from '@/lib/session';
+import { PageLoading } from '@/components/shell/page-loading';
 
 const RESULT_LABEL: Record<string, { label: string; tone: 'success' | 'danger' | 'warning' | 'neutral' }> = {
   SUCCESS: { label: 'Senha correta', tone: 'success' },
@@ -300,7 +301,7 @@ function HistoryCard() {
 
 export default function SecurityPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<PageLoading />}>
       <SecurityContent />
     </Suspense>
   );

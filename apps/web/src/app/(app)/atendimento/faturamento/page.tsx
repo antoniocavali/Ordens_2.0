@@ -2,10 +2,11 @@
 
 import { Suspense } from 'react';
 import { SupportPanel } from '@/features/support/support-panel';
+import { PageLoading } from '@/components/shell/page-loading';
 
 export default function Page() {
   return (
-    <Suspense>
+    <Suspense fallback={<PageLoading />}>
       <SupportPanel key="BILLING" team="BILLING" />
     </Suspense>
   );

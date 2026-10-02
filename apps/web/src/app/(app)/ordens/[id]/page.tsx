@@ -44,6 +44,7 @@ import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ApiRequestError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney, formatQty } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
+import { PageLoading } from '@/components/shell/page-loading';
 
 type ReasonAction = 'return' | 'cancel' | 'suspend' | 'order_cancel';
 
@@ -468,7 +469,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             </Tabs.Content>
 
             <Tabs.Content value="cargas" className="space-y-4 p-5 sm:p-6">
-              <Suspense>
+              <Suspense fallback={<PageLoading />}>
                 <LoadsPage orderId={o.id} embedded />
               </Suspense>
             </Tabs.Content>

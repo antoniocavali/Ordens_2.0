@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Suspense, use } from 'react';
 import { FarmsPage } from '@/features/registry/farms-page';
 import { PartnersPage } from '@/features/registry/partners-page';
+import { PageLoading } from '@/components/shell/page-loading';
 
 export default function RegistryRoute({ params }: { params: Promise<{ tipo: string }> }) {
   const { tipo } = use(params);
@@ -22,5 +23,5 @@ export default function RegistryRoute({ params }: { params: Promise<{ tipo: stri
     }
   })();
   if (!page) notFound();
-  return <Suspense>{page}</Suspense>;
+  return <Suspense fallback={<PageLoading />}>{page}</Suspense>;
 }
