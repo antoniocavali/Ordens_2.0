@@ -59,6 +59,12 @@ já tinha virado NF-e, ela é cancelada junto. Fora da Matriz, a remoção só v
 validada (mesma régua do cancelamento da NF-e); depois disso, e até a carga ser encerrada, só a Matriz remove.
 Envio ainda em andamento não se remove: cancela-se (`abort`), que também libera o multipart no storage.
 
+**Anexo do atendimento** (`entity_type = 'support_conversation'`): mesma máquina de estados, com três
+diferenças — autorização por `support.use` em vez de `document.upload`, acesso **por usuário** (quem
+abriu a conversa) em vez de por organização, e retenção de 90 dias, após a qual o worker apaga o
+objeto no storage e marca o registro como `REMOVED`. Limite de 10 MB, só PNG/JPEG/WebP, no máximo 3
+por mensagem. Ver [support.md](support.md).
+
 `scan_status`: `PENDING | CLEAN | INFECTED | ERROR | SKIPPED_DEV`. Em produção, `SKIPPED_DEV` é proibido por configuração (API recusa iniciar se `NODE_ENV=production` e `SCANNER=noop`).
 
 ## Validações

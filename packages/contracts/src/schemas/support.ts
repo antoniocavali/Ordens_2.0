@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { UploadStatus } from '../enums.js';
+import { SUPPORT_ATTACHMENT_MAX_BYTES, SUPPORT_ATTACHMENT_MIMES, SUPPORT_ATTACHMENTS_PER_MESSAGE } from './uploads.js';
 
 // ───────────────────────────── Enums e rótulos ─────────────────────────────
 
@@ -121,8 +123,11 @@ export const supportMessageSchema = z
     quickReply: z.enum(SUPPORT_BOT_ACTIONS).optional(),
     /** Nota interna: só atendentes enxergam. */
     internal: z.boolean().default(false),
+    /** Imagens já enviadas ao storage, a vincular a esta mensagem. */
+    attachmentIds: z.array(z.uuid()).max(SUPPORT_ATTACHMENTS_PER_MESSAGE, 'No máximo 3 imagens por mensagem').default([]),
   })
-  .refine((v) => v.body.length > 0 || v.quickReply, { message: 'Escreva uma mensagem', path: ['body'] });
+  // Imagem sozinha não fecha a triagem: o assistente precisa do texto para classificar o atendimento.
+  .refine((v) => v.body.length > 0 || v.quickReply || v.attachmentIds.length > 0, { message: 'Escreva uma mensagem', path: ['body'] });
 export type SupportMessageInput = z.input<typeof supportMessageSchema>;
 
 const many = z
@@ -175,6 +180,18 @@ export const supportUpdateSchema = z
 
 // ───────────────────────────── Saídas ─────────────────────────────
 
+/** Imagem anexada a uma mensagem do atendimento. */
+export interface SupportAttachmentDto {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: string;
+  /** Enquanto não for AVAILABLE, a imagem ainda está em verificação (antivírus, tipo real). */
+  status: UploadStatus;
+  /** Só quando disponível; expira em segundos e é gerada por download do próprio atendimento. */
+  url: string | null;
+}
+
 export interface SupportMessageDto {
   id: string;
   authorType: SupportAuthor;
@@ -183,6 +200,7 @@ export interface SupportMessageDto {
   internal: boolean;
   /** Botões de resposta rápida (somente na última mensagem do assistente). */
   options: SupportBotOption[] | null;
+  attachments: SupportAttachmentDto[];
   createdAt: string;
 }
 
@@ -290,3 +308,22 @@ export interface SupportAnalytics {
   byRequester: { kind: string; label: string; count: number }[];
   agents: { id: string; name: string; openNow: number; resolved: number; replies: number; avgFirstResponseMinutes: number | null }[];
 }
+
+/** Início do envio de uma imagem do atendimento (o arquivo vai direto do navegador ao storage). */
+export const supportAttachmentSchema = z.object({
+  fileName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .refine((n) => !/[\\/\0]/.test(n), 'Nome de arquivo inválido'),
+  mimeType: z.enum(SUPPORT_ATTACHMENT_MIMES, 'Envie uma imagem PNG, JPEG ou WebP'),
+  sizeBytes: z.number().int().positive().max(SUPPORT_ATTACHMENT_MAX_BYTES, 'A imagem deve ter no máximo 10 MB'),
+  idempotencyKey: z.string().trim().min(8).max(100),
+});
+export type SupportAttachmentInput = z.infer<typeof supportAttachmentSchema>;
+
+/** Remoção de anexo pela Matriz: o objeto sai do storage, então o motivo é obrigatório. */
+export const supportAttachmentRemoveSchema = z.object({
+  reason: z.string().trim().min(3, 'Informe o motivo da remoção').max(500),
+});

@@ -1,11 +1,16 @@
 'use client';
 
-import { SUPPORT_STATUS_LABELS, type SupportBotAction, type SupportConversationDetail, type SupportStatus } from '@ordens/contracts';
+import { SUPPORT_ATTACHMENTS_PER_MESSAGE, SUPPORT_STATUS_LABELS, type SupportBotAction, type SupportConversationDetail, type SupportStatus } from '@ordens/contracts';
 import { Badge, Button, cn } from '@ordens/ui';
-import { Bot, CheckCircle2, CircleDot, Clock, Headphones, Lock, MessageCircleQuestion, Send, UserRound, XCircle, type LucideIcon } from 'lucide-react';
+import { Bot, CheckCircle2, CircleDot, Clock, Headphones, ImagePlus, Lock, MessageCircleQuestion, MonitorUp, Send, UserRound, X, XCircle, type LucideIcon } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { toast } from 'sonner';
+import { ApiRequestError } from '@/lib/api';
 import { formatDateTime, formatTime } from '@/lib/format';
+import { MessageAttachments } from './message-attachments';
+import { captureScreen, CaptureCancelled, captureSupported } from './screen-capture';
+import { uploadSupportAttachment } from './support-api';
 
 type Tone = 'neutral' | 'primary' | 'info' | 'warning' | 'success' | 'danger';
 const STATUS_UI: Record<SupportStatus, { tone: Tone; icon: LucideIcon }> = {
@@ -26,6 +31,15 @@ export function SupportStatusBadge({ status }: { status: SupportStatus }) {
   );
 }
 
+/** Imagem em prévia no compositor: ainda sem id enquanto sobe ao storage. */
+interface PendingAttachment {
+  key: string;
+  name: string;
+  preview: string;
+  id?: string;
+  error?: boolean;
+}
+
 /**
  * Conversa de atendimento compartilhada entre o chat (cliente) e o painel (atendente).
  * Cliente: mensagens próprias à direita. Atendente: mensagens da equipe à direita e notas internas destacadas.
@@ -41,13 +55,16 @@ export function ConversationThread({
   conversation: SupportConversationDetail;
   mode: 'customer' | 'agent';
   sending?: boolean;
-  onSend: (body: string, internal: boolean) => Promise<unknown> | void;
+  onSend: (body: string, internal: boolean, attachmentIds: string[]) => Promise<unknown> | void;
   onQuickReply?: (action: SupportBotAction) => void;
   /** Chat do cliente: conversa resolvida não reabre (Q29), oferece abrir outra. */
   onNewConversation?: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [internal, setInternal] = useState(false);
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const [capturing, setCapturing] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const resolvedForCustomer = mode === 'customer' && conversation.status === 'RESOLVED';
@@ -64,14 +81,71 @@ export function ConversationThread({
     inputRef.current?.focus({ preventScroll: true });
   }, [conversation.id]);
 
+  const ready = pending.filter((a) => a.id);
+  const uploading = pending.some((a) => !a.id && !a.error);
+
   const submit = async () => {
     const body = draft.trim();
-    if (!body || sending) return;
+    if ((!body && !ready.length) || sending || uploading) return;
     setDraft('');
+    const ids = ready.map((a) => a.id!);
+    setPending([]);
     try {
-      await onSend(body, mode === 'agent' && internal);
+      await onSend(body, mode === 'agent' && internal, ids);
     } catch {
       setDraft(body);
+      setPending(ready);
+    }
+  };
+
+  /** Captura ou arquivo escolhido: sobe na hora e fica em prévia até a mensagem ser enviada. */
+  const attach = async (file: File) => {
+    if (pending.length >= SUPPORT_ATTACHMENTS_PER_MESSAGE) {
+      toast.error('No máximo 3 imagens por mensagem.');
+      return;
+    }
+    const key = `${file.name}-${Date.now()}`;
+    const preview = URL.createObjectURL(file);
+    setPending((list) => [...list, { key, name: file.name, preview }]);
+    try {
+      const sent = await uploadSupportAttachment(conversation.id, file);
+      setPending((list) => list.map((a) => (a.key === key ? { ...a, id: sent.id } : a)));
+    } catch (err) {
+      setPending((list) => list.map((a) => (a.key === key ? { ...a, error: true } : a)));
+      toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível enviar a imagem.');
+    }
+  };
+
+  const capture = async () => {
+    setCapturing(true);
+    try {
+      await attach(await captureScreen());
+    } catch (err) {
+      // Cancelar ou não ter suporte não é erro: oferece anexar/colar imagem.
+      if (err instanceof CaptureCancelled) {
+        if (!captureSupported()) toast.info('Este navegador não captura tela. Anexe ou cole uma imagem.');
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Não foi possível capturar a tela.');
+      }
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const removePending = (key: string) => {
+    setPending((list) => {
+      const target = list.find((a) => a.key === key);
+      if (target) URL.revokeObjectURL(target.preview);
+      return list.filter((a) => a.key !== key);
+    });
+  };
+
+  /** Colar imagem da área de transferência (Print Screen no Windows cai aqui). */
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = Array.from(e.clipboardData?.files ?? []).find((f) => f.type.startsWith('image/'));
+    if (file) {
+      e.preventDefault();
+      void attach(file);
     }
   };
 
@@ -128,6 +202,7 @@ export function ConversationThread({
                     ) : null}
                     {m.body}
                   </div>
+                  <MessageAttachments attachments={m.attachments} />
                   {m.options?.length && mode === 'customer' ? (
                     <div className="mt-1 flex flex-wrap gap-2" role="group" aria-label="Respostas rápidas">
                       {m.options.map((o) => (
@@ -208,16 +283,58 @@ export function ConversationThread({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onKeyDown}
+                onPaste={onPaste}
                 rows={Math.min(4, Math.max(1, draft.split('\n').length))}
                 maxLength={4000}
                 placeholder={mode === 'agent' ? (internal ? 'Anotação visível só para a equipe…' : 'Responder ao cliente…') : 'Escreva sua mensagem…'}
                 className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-subtle"
               />
-              <Button type="submit" size="icon-sm" aria-label="Enviar mensagem" disabled={!draft.trim() || sending} loading={sending}>
+              <Button type="button" size="icon-sm" variant="ghost" aria-label="Capturar tela" title="Capturar tela" onClick={() => void capture()} loading={capturing}>
+                <MonitorUp />
+              </Button>
+              <Button type="button" size="icon-sm" variant="ghost" aria-label="Anexar imagem" title="Anexar imagem" onClick={() => fileInput.current?.click()}>
+                <ImagePlus />
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void attach(file);
+                }}
+              />
+              <Button type="submit" size="icon-sm" aria-label="Enviar mensagem" disabled={(!draft.trim() && !ready.length) || sending || uploading} loading={sending}>
                 <Send />
               </Button>
             </div>
-            <p className="px-1 text-[11px] text-subtle">Enter envia · Shift+Enter quebra a linha</p>
+            {pending.length ? (
+              <>
+                <ul className="flex flex-wrap gap-2 px-1">
+                  {pending.map((a) => (
+                    <li key={a.key} className={cn('relative overflow-hidden rounded-lg ring-1', a.error ? 'ring-danger/60' : 'ring-border')}>
+                      {/* Prévia local (blob), não vai ao servidor: next/image não se aplica. */}
+                      <img src={a.preview} alt={a.name} className="size-16 object-cover" />
+                      {!a.id && !a.error ? (
+                        <span className="absolute inset-0 grid place-items-center bg-surface/70 text-[10px] text-muted">enviando…</span>
+                      ) : null}
+                      <button
+                        type="button"
+                        aria-label={`Remover ${a.name}`}
+                        onClick={() => removePending(a.key)}
+                        className="absolute right-0 top-0 grid size-5 place-items-center rounded-bl-md bg-surface/90 text-muted hover:text-danger"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="px-1 text-[11px] text-warning">Revise a imagem antes de enviar. Não compartilhe senhas, tokens ou dados pessoais desnecessários.</p>
+              </>
+            ) : null}
+            <p className="px-1 text-[11px] text-subtle">Enter envia · Shift+Enter quebra a linha · Print Screen pode ser colado aqui</p>
           </form>
         )}
       </div>

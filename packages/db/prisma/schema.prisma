@@ -236,19 +236,19 @@ enum DocumentKind {
 // ─────────────────────── Tenancy e identidade ───────────────────────
 
 model Tenant {
-  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug            String       @unique
-  name            String
-  status          TenantStatus @default(ACTIVE)
-  require2fa      Boolean      @default(false) @map("require_2fa")
-  require2faRoles String[]     @default([]) @map("require_2fa_roles")
-  viewSlaHours    Int          @default(24) @map("view_sla_hours")
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                String       @unique
+  name                String
+  status              TenantStatus @default(ACTIVE)
+  require2fa          Boolean      @default(false) @map("require_2fa")
+  require2faRoles     String[]     @default([]) @map("require_2fa_roles")
+  viewSlaHours        Int          @default(24) @map("view_sla_hours")
   /// Dupla checagem na publicação (Q40): quem publica não pode ser quem editou por último.
-  publishFourEyes     Boolean  @default(false) @map("publish_four_eyes")
+  publishFourEyes     Boolean      @default(false) @map("publish_four_eyes")
   /// Aplica a dupla checagem só a ordens com pelo menos esta quantidade (toneladas). Nulo = todas.
-  publishFourEyesMinT Decimal? @map("publish_four_eyes_min_t") @db.Decimal(18, 3)
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  publishFourEyesMinT Decimal?     @map("publish_four_eyes_min_t") @db.Decimal(18, 3)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organizations Organization[]
   memberships   Membership[]
@@ -277,22 +277,22 @@ model Organization {
 }
 
 model User {
-  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email            String       @unique
-  name             String
-  passwordHash     String?      @map("password_hash")
-  securityVersion  Int          @default(1) @map("security_version")
-  failedLoginCount Int          @default(0) @map("failed_login_count")
-  lockedUntil      DateTime?    @map("locked_until") @db.Timestamptz(6)
-  lastLoginAt      DateTime?    @map("last_login_at") @db.Timestamptz(6)
-  isPlatformAdmin  Boolean      @default(false) @map("is_platform_admin")
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email              String       @unique
+  name               String
+  passwordHash       String?      @map("password_hash")
+  securityVersion    Int          @default(1) @map("security_version")
+  failedLoginCount   Int          @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?    @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt        DateTime?    @map("last_login_at") @db.Timestamptz(6)
+  isPlatformAdmin    Boolean      @default(false) @map("is_platform_admin")
   /// Espelho de two_factor_credentials.confirmed_at, legível por administradores (credenciais ficam sob RLS do próprio usuário).
-  twoFactorEnabled Boolean      @default(false) @map("two_factor_enabled")
+  twoFactorEnabled   Boolean      @default(false) @map("two_factor_enabled")
   /// Senha provisória definida por administrador: troca obrigatória no próximo acesso.
-  mustChangePassword Boolean    @default(false) @map("must_change_password")
-  status           RecordStatus @default(ACTIVE)
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  mustChangePassword Boolean      @default(false) @map("must_change_password")
+  status             RecordStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   memberships         Membership[]
   sessions            Session[]
@@ -315,12 +315,12 @@ model Membership {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id])
-  user         User             @relation(fields: [userId], references: [id])
-  organization Organization     @relation(fields: [organizationId], references: [id])
-  roles        MembershipRole[]
-  supportQueues SupportQueueMember[]
-  customRoles   MembershipCustomRole[]
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id])
+  user             User                        @relation(fields: [userId], references: [id])
+  organization     Organization                @relation(fields: [organizationId], references: [id])
+  roles            MembershipRole[]
+  supportQueues    SupportQueueMember[]
+  customRoles      MembershipCustomRole[]
   permissionGrants MembershipPermissionGrant[]
 
   @@unique([userId, organizationId])
@@ -422,7 +422,7 @@ model MembershipPermissionGrant {
 }
 
 model Permission {
-  code        String           @id
+  code        String                      @id
   description String
   roles       RolePermission[]
   tenantRoles TenantRolePermission[]
@@ -625,36 +625,36 @@ model OutboxEvent {
 }
 
 model FileUpload {
-  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String       @map("tenant_id") @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  entityType     String       @map("entity_type")
-  entityId       String       @map("entity_id") @db.Uuid
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String             @map("tenant_id") @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  entityType     String             @map("entity_type")
+  entityId       String             @map("entity_id") @db.Uuid
   kind           DocumentKind
-  originalName   String       @map("original_name")
-  declaredMime   String       @map("declared_mime")
-  detectedMime   String?      @map("detected_mime")
-  sizeBytes      BigInt       @map("size_bytes")
+  originalName   String             @map("original_name")
+  declaredMime   String             @map("declared_mime")
+  detectedMime   String?            @map("detected_mime")
+  sizeBytes      BigInt             @map("size_bytes")
   bucket         String
-  objectKey      String       @unique @map("object_key")
-  multipartId    String?      @map("multipart_id")
-  sha256Declared String?      @map("sha256_declared")
-  sha256Actual   String?      @map("sha256_actual")
-  status         UploadStatus @default(PENDING)
-  scanStatus     ScanStatus   @default(PENDING) @map("scan_status")
-  rejectReason   String?      @map("reject_reason")
+  objectKey      String             @unique @map("object_key")
+  multipartId    String?            @map("multipart_id")
+  sha256Declared String?            @map("sha256_declared")
+  sha256Actual   String?            @map("sha256_actual")
+  status         UploadStatus       @default(PENDING)
+  scanStatus     ScanStatus         @default(PENDING) @map("scan_status")
+  rejectReason   String?            @map("reject_reason")
   /// Visibilidade para Fazenda/Comprador; organizações herdadas da entidade por trigger (migration 0700).
   visibility     DocumentVisibility @default(INTERNAL)
-  sellerOrgId    String?      @map("seller_org_id") @db.Uuid
-  buyerOrgId     String?      @map("buyer_org_id") @db.Uuid
-  idempotencyKey String       @map("idempotency_key")
-  createdBy      String       @map("created_by") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  completedAt    DateTime?    @map("completed_at") @db.Timestamptz(6)
-  removedAt      DateTime?    @map("removed_at") @db.Timestamptz(6)
-  removedBy      String?      @map("removed_by") @db.Uuid
-  removeReason   String?      @map("remove_reason")
+  sellerOrgId    String?            @map("seller_org_id") @db.Uuid
+  buyerOrgId     String?            @map("buyer_org_id") @db.Uuid
+  idempotencyKey String             @map("idempotency_key")
+  createdBy      String             @map("created_by") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  completedAt    DateTime?          @map("completed_at") @db.Timestamptz(6)
+  removedAt      DateTime?          @map("removed_at") @db.Timestamptz(6)
+  removedBy      String?            @map("removed_by") @db.Uuid
+  removeReason   String?            @map("remove_reason")
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, entityType, entityId])
@@ -844,12 +844,12 @@ model Farm {
 }
 
 model Unit {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
-  code        String
-  name        String
-  factorToKg  Decimal  @map("factor_to_kg") @db.Decimal(18, 6)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  code       String
+  name       String
+  factorToKg Decimal  @map("factor_to_kg") @db.Decimal(18, 6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([tenantId, code])
   @@map("units")
@@ -955,94 +955,94 @@ model TenantSequence {
 }
 
 model LoadingOrder {
-  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId           String         @map("tenant_id") @db.Uuid
-  number             String
-  externalNumber     String?        @map("external_number")
-  orderDate          DateTime?      @map("order_date") @db.Date
-  status             OrderStatus    @default(DRAFT)
-  priority           OrderPriority  @default(NORMAL)
-  operationType      OperationType? @map("operation_type")
-  version            Int            @default(0)
-  contractId         String?        @map("contract_id") @db.Uuid
-  sellerPartnerId    String?        @map("seller_partner_id") @db.Uuid
-  farmId             String?        @map("farm_id") @db.Uuid
-  buyerPartnerId     String?        @map("buyer_partner_id") @db.Uuid
-  sellerOrgId        String?        @map("seller_org_id") @db.Uuid
-  buyerOrgId         String?        @map("buyer_org_id") @db.Uuid
-  commodityId        String?        @map("commodity_id") @db.Uuid
-  cropYear           String?        @map("crop_year")
-  quantity           Decimal?       @db.Decimal(18, 4)
-  unitId             String?        @map("unit_id") @db.Uuid
-  releasedQty        Decimal        @default(0) @map("released_qty") @db.Decimal(18, 4)
-  scheduledQty       Decimal        @default(0) @map("scheduled_qty") @db.Decimal(18, 4)
-  loadedQty          Decimal        @default(0) @map("loaded_qty") @db.Decimal(18, 4)
-  inTransitQty       Decimal        @default(0) @map("in_transit_qty") @db.Decimal(18, 4)
-  receivedQty        Decimal        @default(0) @map("received_qty") @db.Decimal(18, 4)
-  cancelledQty       Decimal        @default(0) @map("cancelled_qty") @db.Decimal(18, 4)
+  id                     String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String         @map("tenant_id") @db.Uuid
+  number                 String
+  externalNumber         String?        @map("external_number")
+  orderDate              DateTime?      @map("order_date") @db.Date
+  status                 OrderStatus    @default(DRAFT)
+  priority               OrderPriority  @default(NORMAL)
+  operationType          OperationType? @map("operation_type")
+  version                Int            @default(0)
+  contractId             String?        @map("contract_id") @db.Uuid
+  sellerPartnerId        String?        @map("seller_partner_id") @db.Uuid
+  farmId                 String?        @map("farm_id") @db.Uuid
+  buyerPartnerId         String?        @map("buyer_partner_id") @db.Uuid
+  sellerOrgId            String?        @map("seller_org_id") @db.Uuid
+  buyerOrgId             String?        @map("buyer_org_id") @db.Uuid
+  commodityId            String?        @map("commodity_id") @db.Uuid
+  cropYear               String?        @map("crop_year")
+  quantity               Decimal?       @db.Decimal(18, 4)
+  unitId                 String?        @map("unit_id") @db.Uuid
+  releasedQty            Decimal        @default(0) @map("released_qty") @db.Decimal(18, 4)
+  scheduledQty           Decimal        @default(0) @map("scheduled_qty") @db.Decimal(18, 4)
+  loadedQty              Decimal        @default(0) @map("loaded_qty") @db.Decimal(18, 4)
+  inTransitQty           Decimal        @default(0) @map("in_transit_qty") @db.Decimal(18, 4)
+  receivedQty            Decimal        @default(0) @map("received_qty") @db.Decimal(18, 4)
+  cancelledQty           Decimal        @default(0) @map("cancelled_qty") @db.Decimal(18, 4)
   /// Liberação criada automaticamente na publicação (preservada no rascunho).
-  initialReleaseQty  Decimal?       @map("initial_release_qty") @db.Decimal(18, 4)
-  unitPrice          Decimal?       @map("unit_price") @db.Decimal(18, 6)
-  currency           String         @default("BRL") @db.Char(3)
-  freightMode        FreightMode?   @map("freight_mode")
-  freightEstimate    Decimal?       @map("freight_estimate") @db.Decimal(18, 2)
-  preferredCarrierId String?        @map("preferred_carrier_id") @db.Uuid
+  initialReleaseQty      Decimal?       @map("initial_release_qty") @db.Decimal(18, 4)
+  unitPrice              Decimal?       @map("unit_price") @db.Decimal(18, 6)
+  currency               String         @default("BRL") @db.Char(3)
+  freightMode            FreightMode?   @map("freight_mode")
+  freightEstimate        Decimal?       @map("freight_estimate") @db.Decimal(18, 2)
+  preferredCarrierId     String?        @map("preferred_carrier_id") @db.Uuid
   /// Transporte digitado já na ordem (o Comprador informa ao solicitar); o agendamento herda e pode corrigir.
-  carrierName        String?        @map("carrier_name")
-  driverName         String?        @map("driver_name")
-  driverCpf          String?        @map("driver_cpf")
-  driverRg           String?        @map("driver_rg")
-  driverPhone        String?        @map("driver_phone")
-  driverBirthDate    DateTime?      @map("driver_birth_date") @db.Date
-  driverCnh          String?        @map("driver_cnh")
-  driverCnhCategory  String?        @map("driver_cnh_category")
-  driverCnhExpiresAt DateTime?      @map("driver_cnh_expires_at") @db.Date
-  driverCnhRestrictions String?     @map("driver_cnh_restrictions")
-  vehicles           Json           @default("[]")
-  loadingStartsOn    DateTime?      @map("loading_starts_on") @db.Date
-  loadingEndsOn      DateTime?      @map("loading_ends_on") @db.Date
-  tolerancePct       Decimal        @default(0) @map("tolerance_pct") @db.Decimal(9, 4)
-  requiresReceipt    Boolean        @default(true) @map("requires_receipt")
-  completedAt        DateTime?      @map("completed_at") @db.Timestamptz(6)
-  completedBy        String?        @map("completed_by") @db.Uuid
-  completionReason   String?        @map("completion_reason")
-  completionVia      String?        @map("completion_via")
+  carrierName            String?        @map("carrier_name")
+  driverName             String?        @map("driver_name")
+  driverCpf              String?        @map("driver_cpf")
+  driverRg               String?        @map("driver_rg")
+  driverPhone            String?        @map("driver_phone")
+  driverBirthDate        DateTime?      @map("driver_birth_date") @db.Date
+  driverCnh              String?        @map("driver_cnh")
+  driverCnhCategory      String?        @map("driver_cnh_category")
+  driverCnhExpiresAt     DateTime?      @map("driver_cnh_expires_at") @db.Date
+  driverCnhRestrictions  String?        @map("driver_cnh_restrictions")
+  vehicles               Json           @default("[]")
+  loadingStartsOn        DateTime?      @map("loading_starts_on") @db.Date
+  loadingEndsOn          DateTime?      @map("loading_ends_on") @db.Date
+  tolerancePct           Decimal        @default(0) @map("tolerance_pct") @db.Decimal(9, 4)
+  requiresReceipt        Boolean        @default(true) @map("requires_receipt")
+  completedAt            DateTime?      @map("completed_at") @db.Timestamptz(6)
+  completedBy            String?        @map("completed_by") @db.Uuid
+  completionReason       String?        @map("completion_reason")
+  completionVia          String?        @map("completion_via")
   /// Local de carregamento digitado (silo, armazém, ponto da fazenda): o motorista vai até aqui.
-  loadingLocationName    String?    @map("loading_location_name")
-  loadingLocationAddress String?    @map("loading_location_address")
-  loadingLocationCity    String?    @map("loading_location_city")
-  loadingLocationState   String?    @map("loading_location_state") @db.Char(2)
-  destinationName    String?        @map("destination_name")
-  destinationAddress String?        @map("destination_address")
-  destinationCity    String?        @map("destination_city")
-  destinationState   String?        @map("destination_state") @db.Char(2)
-  commercialTerms    String?        @map("commercial_terms")
-  loadingInstructions String?       @map("loading_instructions")
-  internalNotes      String?        @map("internal_notes")
-  farmNotes          String?        @map("farm_notes")
-  buyerNotes         String?        @map("buyer_notes")
-  publishedAt        DateTime?      @map("published_at") @db.Timestamptz(6)
-  publishRequestedAt DateTime?      @map("publish_requested_at") @db.Timestamptz(6)
-  publishRequestedBy String?        @map("publish_requested_by") @db.Uuid
+  loadingLocationName    String?        @map("loading_location_name")
+  loadingLocationAddress String?        @map("loading_location_address")
+  loadingLocationCity    String?        @map("loading_location_city")
+  loadingLocationState   String?        @map("loading_location_state") @db.Char(2)
+  destinationName        String?        @map("destination_name")
+  destinationAddress     String?        @map("destination_address")
+  destinationCity        String?        @map("destination_city")
+  destinationState       String?        @map("destination_state") @db.Char(2)
+  commercialTerms        String?        @map("commercial_terms")
+  loadingInstructions    String?        @map("loading_instructions")
+  internalNotes          String?        @map("internal_notes")
+  farmNotes              String?        @map("farm_notes")
+  buyerNotes             String?        @map("buyer_notes")
+  publishedAt            DateTime?      @map("published_at") @db.Timestamptz(6)
+  publishRequestedAt     DateTime?      @map("publish_requested_at") @db.Timestamptz(6)
+  publishRequestedBy     String?        @map("publish_requested_by") @db.Uuid
   /// Origem (Q41): portal do Comprador segue DRAFT → PENDING_BILLING → PUBLISHED pelo Faturamento.
-  origin             OrderOrigin    @default(MATRIZ)
-  submittedAt        DateTime?      @map("submitted_at") @db.Timestamptz(6)
-  submittedBy        String?        @map("submitted_by") @db.Uuid
+  origin                 OrderOrigin    @default(MATRIZ)
+  submittedAt            DateTime?      @map("submitted_at") @db.Timestamptz(6)
+  submittedBy            String?        @map("submitted_by") @db.Uuid
   /// Devolução ao Comprador pelo Faturamento (Q41): volta a rascunho, sem dados da análise.
-  returnedAt         DateTime?      @map("returned_at") @db.Timestamptz(6)
-  returnedBy         String?        @map("returned_by") @db.Uuid
-  returnReason       String?        @map("return_reason")
-  cancelledAt        DateTime?      @map("cancelled_at") @db.Timestamptz(6)
-  cancelledBy        String?        @map("cancelled_by") @db.Uuid
-  cancelReason       String?        @map("cancel_reason")
-  suspendedAt        DateTime?      @map("suspended_at") @db.Timestamptz(6)
-  suspendedBy        String?        @map("suspended_by") @db.Uuid
-  suspendReason      String?        @map("suspend_reason")
-  lastMaterialChangeAt DateTime?    @map("last_material_change_at") @db.Timestamptz(6)
-  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdBy          String?        @map("created_by") @db.Uuid
-  updatedBy          String?        @map("updated_by") @db.Uuid
+  returnedAt             DateTime?      @map("returned_at") @db.Timestamptz(6)
+  returnedBy             String?        @map("returned_by") @db.Uuid
+  returnReason           String?        @map("return_reason")
+  cancelledAt            DateTime?      @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy            String?        @map("cancelled_by") @db.Uuid
+  cancelReason           String?        @map("cancel_reason")
+  suspendedAt            DateTime?      @map("suspended_at") @db.Timestamptz(6)
+  suspendedBy            String?        @map("suspended_by") @db.Uuid
+  suspendReason          String?        @map("suspend_reason")
+  lastMaterialChangeAt   DateTime?      @map("last_material_change_at") @db.Timestamptz(6)
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy              String?        @map("created_by") @db.Uuid
+  updatedBy              String?        @map("updated_by") @db.Uuid
 
   versions     LoadingOrderVersion[]
   releases     LoadingOrderRelease[]
@@ -1299,6 +1299,21 @@ model SupportMessage {
 
   @@index([tenantId, conversationId, seq])
   @@map("support_messages")
+}
+
+/// Imagens anexadas a uma mensagem do atendimento (captura de tela, foto). O acesso é do usuário que
+/// abriu a conversa, não da organização dele — ver migration 20260929003100.
+model SupportMessageAttachment {
+  tenantId       String   @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  messageId      String   @map("message_id") @db.Uuid
+  fileUploadId   String   @unique @map("file_upload_id") @db.Uuid
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([messageId, fileUploadId])
+  @@index([tenantId, conversationId])
+  @@map("support_message_attachments")
 }
 
 // ─────────────────────── Fiscal e ocorrências (Fase 8) ───────────────────────
