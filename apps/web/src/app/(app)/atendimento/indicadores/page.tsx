@@ -2,10 +2,11 @@
 
 import { Suspense } from 'react';
 import { SupportDashboard } from '@/features/support/support-dashboard';
+import { PageLoading } from '@/components/shell/page-loading';
 
 export default function Page() {
   return (
-    <Suspense>
+    <Suspense fallback={<PageLoading />}>
       <SupportDashboard />
     </Suspense>
   );
