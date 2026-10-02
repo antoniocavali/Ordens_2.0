@@ -41,7 +41,7 @@ export function toListItem(row: OrderRow, scope: Scope): OrderListItem {
     seller: row.seller_partner_id ? { id: row.seller_partner_id, name: row.seller_name ?? '' } : null,
     farm: row.farm_id ? { id: row.farm_id, name: row.farm_name ?? '', city: row.farm_city, state: row.farm_state } : null,
     buyer: row.buyer_partner_id ? { id: row.buyer_partner_id, name: row.buyer_name ?? '' } : null,
-    contract: row.contract_id ? { id: row.contract_id, number: row.contract_number ?? '' } : null,
+    contractNumber: row.contract_number,
     cropYear: row.crop_year,
     quantities: {
       total: dec(row.quantity) ?? '0',

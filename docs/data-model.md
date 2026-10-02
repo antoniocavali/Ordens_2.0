@@ -73,7 +73,6 @@ erDiagram
 
 ```mermaid
 erDiagram
-  contracts ||--o{ loading_orders : origina
   loading_orders ||--o{ loading_order_versions : "snapshot por versão"
   loading_orders ||--o{ loading_order_releases : "liberações parciais"
   loading_orders ||--o{ loading_order_views : "faróis"
@@ -86,8 +85,7 @@ erDiagram
   loads ||--o{ occurrences : ""
   loading_orders ||--o{ occurrences : ""
 
-  contracts { uuid id PK; uuid tenant_id; text number; uuid seller_partner_id; uuid buyer_partner_id; uuid commodity_id; text crop_year; numeric quantity; uuid unit_id; numeric unit_price; char3 currency; numeric total_value; date starts_on; date ends_on; freight_mode freight_mode; contract_status status }
-  loading_orders { uuid id PK; uuid tenant_id; text number UK; text external_number; order_status status "DRAFT|PENDING_BILLING|PUBLISHED|…"; order_origin origin "MATRIZ|BUYER"; order_priority priority; int version; uuid contract_id; uuid seller_partner_id; uuid farm_id; uuid buyer_partner_id; uuid seller_org_id "RLS"; uuid buyer_org_id "RLS"; uuid commodity_id; numeric quantity; numeric released_qty; numeric scheduled_qty; numeric loaded_qty; numeric in_transit_qty; numeric received_qty; numeric cancelled_qty; numeric unit_price; numeric freight_estimate; text carrier_name; text driver_name; text driver_cpf; jsonb vehicles "transporte digitado na ordem"; numeric tolerance_pct; boolean requires_receipt "padrão true; só Matriz altera"; timestamptz completed_at; uuid completed_by; text completion_reason; text completion_via "auto|manual"; date loading_starts_on; date loading_ends_on; uuid created_by "RLS portal"; timestamptz submitted_at; uuid submitted_by; timestamptz published_at }
+  loading_orders { uuid id PK; uuid tenant_id; text number UK; text external_number; order_status status "DRAFT|PENDING_BILLING|PUBLISHED|…"; order_origin origin "MATRIZ|BUYER"; order_priority priority; int version; text contract_number "digitado pelo Faturamento, sem cadastro"; uuid seller_partner_id; uuid farm_id; uuid buyer_partner_id; uuid seller_org_id "RLS"; uuid buyer_org_id "RLS"; uuid commodity_id; numeric quantity; numeric released_qty; numeric scheduled_qty; numeric loaded_qty; numeric in_transit_qty; numeric received_qty; numeric cancelled_qty; numeric unit_price; numeric freight_estimate; text carrier_name; text driver_name; text driver_cpf; jsonb vehicles "transporte digitado na ordem"; numeric tolerance_pct; boolean requires_receipt "padrão true; só Matriz altera"; timestamptz completed_at; uuid completed_by; text completion_reason; text completion_via "auto|manual"; date loading_starts_on; date loading_ends_on; uuid created_by "RLS portal"; timestamptz submitted_at; uuid submitted_by; timestamptz published_at }
   loading_order_versions { uuid id PK; uuid order_id; int version; jsonb material_snapshot; jsonb changed_fields; uuid created_by; timestamptz created_at }
   loading_order_releases { uuid id PK; uuid order_id; int sequence; numeric quantity; date valid_until; release_status status; int order_version; uuid created_by }
   loading_order_views { uuid id PK; uuid order_id; uuid organization_id; uuid user_id; uuid membership_id; int version; timestamptz first_viewed_at; timestamptz last_viewed_at; int view_count; inet last_ip; text last_user_agent; uuid last_session_id }
@@ -122,7 +120,7 @@ erDiagram
 | Tabela | Índice |
 |---|---|
 | todas de negócio | `(tenant_id, …)` como prefixo |
-| loading_orders | `(tenant_id, number)` unique; `(tenant_id, status, loading_starts_on)`; `(tenant_id, seller_partner_id)`; `(tenant_id, farm_id)`; `(tenant_id, buyer_partner_id)`; `(tenant_id, commodity_id)`; `(tenant_id, contract_id)`; `(tenant_id, seller_org_id)`; `(tenant_id, buyer_org_id)`; `(tenant_id, updated_at desc)`; trigram em `number` para busca |
+| loading_orders | `(tenant_id, number)` unique; `(tenant_id, status, loading_starts_on)`; `(tenant_id, seller_partner_id)`; `(tenant_id, farm_id)`; `(tenant_id, buyer_partner_id)`; `(tenant_id, commodity_id)`; `(tenant_id, contract_number)`; `(tenant_id, seller_org_id)`; `(tenant_id, buyer_org_id)`; `(tenant_id, updated_at desc)`; trigram em `number` para busca |
 | loads | `(tenant_id, order_id)`; `(tenant_id, status)`; GIN em `plates`; `(tenant_id, driver_cpf)` parcial |
 | appointments | `(tenant_id, driver_cpf)` e `(tenant_id, carrier_name)` parciais (sugestões de digitação) |
 | invoices | `access_key` unique; `(tenant_id, load_id)` |

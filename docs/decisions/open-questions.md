@@ -4,8 +4,8 @@ Regras que **não** serão inventadas silenciosamente. Enquanto não houver deci
 
 | # | Questão | Comportamento provisório |
 |---|---|---|
-| Q1 | Publicar OC acima do saldo contratual bloqueia ou apenas alerta? | Bloqueia com erro `CONTRACT_BALANCE_EXCEEDED`; Gestor/Admin poderá ter override auditado (a confirmar). |
-| Q2 | Tolerância de quantidade padrão por commodity/contrato/OC? | Campo `tolerance_pct` na OC, padrão 0%. |
+| Q1 | Publicar OC acima do saldo contratual bloqueia ou apenas alerta? | **Encerrada em 02/10/2026:** não há mais cadastro de contratos nem saldo a controlar. O contrato virou um número digitado pelo Faturamento ao definir a fazenda, sem validação. |
+| Q2 | Tolerância de quantidade padrão por commodity/OC? | Campo `tolerance_pct` na OC, padrão 0%. |
 | Q3 | "Administrador Fazenda" representa o vendedor/produtor (várias fazendas) ou uma única propriedade? | Organização `FARM` = vendedor/produtor; enxerga todas as fazendas vinculadas a ela. |
 | Q4 | Um tenant pode ter múltiplas Matrizes/filiais com visibilidade separada? | Uma Matriz vê todo o tenant; `app.org_ids` já permite restringir no futuro. |
 | Q5 | Numeração da OC: sequência por tenant e ano (`2026/00125`) ou configurável? | `AAAA/NNNNN` por tenant, gerada na criação do rascunho via sequência transacional. |

@@ -25,7 +25,7 @@ export const UPLOAD_RULES: Record<DocumentKind, { mimes: string[]; extensions: s
   },
 };
 
-export const UPLOAD_ENTITY_TYPES = ['loading_order', 'load', 'contract', 'partner', 'farm', 'occurrence', 'user', 'support_conversation'] as const;
+export const UPLOAD_ENTITY_TYPES = ['loading_order', 'load', 'partner', 'farm', 'occurrence', 'user', 'support_conversation'] as const;
 
 /**
  * Imagem no chat de Atendimento (captura de tela ou foto): limite menor que o de imagem em geral,

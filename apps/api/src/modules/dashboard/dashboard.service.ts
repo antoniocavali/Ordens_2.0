@@ -78,16 +78,6 @@ export class DashboardService {
           coalesce(sum(loaded_qty * unit_price) filter (where status in ${ACTIVE} and currency = 'BRL'), 0) as loaded_value
         from o
       `);
-      let contractedT: string | null = null;
-      if (isMatriz) {
-        const [c] = await tx.$queryRaw<{ t: Dec }[]>(Prisma.sql`
-          select coalesce(sum(c.quantity * coalesce(u.factor_to_kg, 1000) / 1000.0), 0) as t
-          from contracts c left join units u on u.id = c.unit_id
-          where c.status = 'ACTIVE' and ${commodity('c')}
-        `);
-        contractedT = tons(c?.t);
-      }
-
       // ─── Faróis e tolerância ───
       const [sig] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
         ${ordersCte}
@@ -278,7 +268,6 @@ export class DashboardService {
           openOrders: int(k?.open_orders),
           publishedInPeriod: int(k?.published_in_period),
           orderedT: tons(k?.ordered_t),
-          contractedT,
           releasedT: tons(k?.released_t),
           scheduledT: tons(k?.scheduled_t),
           loadedT: tons(k?.loaded_t),
@@ -288,7 +277,6 @@ export class DashboardService {
           loadedValue: isMatriz ? new D((k?.loaded_value ?? 0).toString()).toDecimalPlaces(2).toString() : null,
         },
         funnel: [
-          ...(contractedT !== null ? [{ key: 'contracted', label: 'Contratado', valueT: contractedT }] : []),
           { key: 'ordered', label: 'Em ordens', valueT: tons(k?.ordered_t) },
           { key: 'released', label: 'Liberado', valueT: tons(k?.released_t) },
           { key: 'scheduled', label: 'Agendado', valueT: tons(k?.scheduled_t) },

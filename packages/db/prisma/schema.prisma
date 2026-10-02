@@ -90,15 +90,6 @@ enum PersonType {
   @@map("person_type")
 }
 
-enum ContractStatus {
-  DRAFT
-  ACTIVE
-  CLOSED
-  CANCELLED
-
-  @@map("contract_status")
-}
-
 enum FreightMode {
   CIF
   FOB
@@ -871,37 +862,6 @@ model Commodity {
   @@map("commodities")
 }
 
-model Contract {
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String         @map("tenant_id") @db.Uuid
-  number          String
-  sellerPartnerId String         @map("seller_partner_id") @db.Uuid
-  buyerPartnerId  String         @map("buyer_partner_id") @db.Uuid
-  commodityId     String         @map("commodity_id") @db.Uuid
-  cropYear        String?        @map("crop_year")
-  quantity        Decimal        @db.Decimal(18, 4)
-  unitId          String         @map("unit_id") @db.Uuid
-  unitPrice       Decimal?       @map("unit_price") @db.Decimal(18, 6)
-  currency        String         @default("BRL") @db.Char(3)
-  totalValue      Decimal?       @map("total_value") @db.Decimal(18, 2)
-  startsOn        DateTime?      @map("starts_on") @db.Date
-  endsOn          DateTime?      @map("ends_on") @db.Date
-  freightMode     FreightMode?   @map("freight_mode")
-  terms           String?
-  notes           String?
-  status          ContractStatus @default(ACTIVE)
-  buyerOrgId      String?        @map("buyer_org_id") @db.Uuid
-  sellerOrgId     String?        @map("seller_org_id") @db.Uuid
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@unique([tenantId, number])
-  @@index([tenantId, sellerPartnerId])
-  @@index([tenantId, buyerPartnerId])
-  @@index([tenantId, commodityId])
-  @@map("contracts")
-}
-
 enum LocationKind {
   WAREHOUSE
   PORT
@@ -964,7 +924,7 @@ model LoadingOrder {
   priority               OrderPriority  @default(NORMAL)
   operationType          OperationType? @map("operation_type")
   version                Int            @default(0)
-  contractId             String?        @map("contract_id") @db.Uuid
+  contractNumber         String?        @map("contract_number")
   sellerPartnerId        String?        @map("seller_partner_id") @db.Uuid
   farmId                 String?        @map("farm_id") @db.Uuid
   buyerPartnerId         String?        @map("buyer_partner_id") @db.Uuid
@@ -1056,7 +1016,7 @@ model LoadingOrder {
   @@index([tenantId, farmId])
   @@index([tenantId, buyerPartnerId])
   @@index([tenantId, commodityId])
-  @@index([tenantId, contractId])
+  @@index([tenantId, contractNumber])
   @@index([tenantId, sellerOrgId])
   @@index([tenantId, buyerOrgId])
   @@index([tenantId, updatedAt(sort: Desc)])

@@ -154,11 +154,10 @@ export function PartnerDrawer({ id, open, defaultRoles, onClose, entityLabel }: 
         <form onSubmit={submit} noValidate>
           <fieldset disabled={readOnly} className="contents">
             {p ? (
-              <div className="grid grid-cols-2 gap-2 px-5 pt-5 sm:grid-cols-4 sm:px-7">
+              <div className="grid grid-cols-3 gap-2 px-5 pt-5 sm:px-7">
                 <Stat label="Fazendas" value={p.farmsCount} />
                 <Stat label="Ordens" value={p.ordersCount} />
                 <Stat label="Volume em aberto" value={formatQty(p.openQuantity, 't')} />
-                <Stat label="Contratos" value={p.contractsCount} />
               </div>
             ) : null}
 

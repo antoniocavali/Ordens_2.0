@@ -9,11 +9,11 @@ import { toast } from 'sonner';
 import { FormSection, span } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
-import { assignFarm, billingPublish, lookups, useInvalidateOrders } from './orders-api';
+import { assignFarm, billingPublish, lookups, useContractNumbers, useInvalidateOrders } from './orders-api';
 import { useNoDestinationConfirm } from '@/features/orders/destination-guard';
 
 interface Values {
-  contract: ComboOption | null;
+  contractNumber: string;
   seller: ComboOption | null;
   farm: ComboOption | null;
   unitPrice: string;
@@ -23,7 +23,7 @@ interface Values {
   internalNotes: string;
 }
 
-const API_TO_FORM: Record<string, keyof Values> = { contractId: 'contract', sellerPartnerId: 'seller', farmId: 'farm' };
+const API_TO_FORM: Record<string, keyof Values> = { sellerPartnerId: 'seller', farmId: 'farm' };
 
 /** Faturamento: revisa a solicitação do Comprador, define vendedor/fazenda e publica para a Fazenda. */
 export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail; open: boolean; onClose: () => void }) {
@@ -31,12 +31,13 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
   const [busy, setBusy] = useState<'save' | 'publish' | null>(null);
   const form = useForm<Values>();
   const errors = form.formState.errors;
-  const [contract, seller] = useWatch({ control: form.control, name: ['contract', 'seller'] });
+  const seller = useWatch({ control: form.control, name: 'seller' });
+  const contractNumbers = useContractNumbers();
 
   useEffect(() => {
     if (!open) return;
     form.reset({
-      contract: order.contract ? { id: order.contract.id, label: order.contract.number } : null,
+      contractNumber: order.contractNumber ?? '',
       seller: order.seller ? { id: order.seller.id, label: order.seller.name } : null,
       farm: order.farm ? { id: order.farm.id, label: order.farm.name } : null,
       unitPrice: toDecimalInput(order.unitPrice),
@@ -62,7 +63,7 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
           expectedUpdatedAt: order.updatedAt,
           sellerPartnerId: v.seller.id,
           farmId: v.farm.id,
-          contractId: v.contract?.id ?? null,
+          contractNumber: v.contractNumber.trim() || null,
           unitPrice: v.unitPrice ? parseDecimalInput(v.unitPrice) : null,
           tolerancePct: v.tolerancePct ? parseDecimalInput(v.tolerancePct) : null,
           loadingInstructions: v.loadingInstructions.trim() || null,
@@ -109,26 +110,16 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
     >
       <form onSubmit={(e) => e.preventDefault()} noValidate>
         <FormSection title="Origem do carregamento" description="A Fazenda só vê a ordem depois da publicação.">
-          <Field label="Contrato" className={span[6]} error={errors.contract?.message} hint="Opcional: filtra o vendedor e valida commodity e saldo.">
+          <Field label="Contrato" className={span[6]} error={errors.contractNumber?.message} hint="Número do contrato comercial, se houver. Digitado — não há cadastro de contratos.">
             {(a) => (
-              <Controller
-                control={form.control}
-                name="contract"
-                render={({ field }) => (
-                  <AsyncCombobox
-                    {...a}
-                    value={field.value}
-                    onChange={(v) => {
-                      field.onChange(v);
-                      form.setValue('seller', null);
-                      form.setValue('farm', null);
-                    }}
-                    queryKey={['lookup', 'contracts', order.buyer?.id ?? null, order.commodity?.id ?? null]}
-                    fetchPage={lookups.contracts({ buyerId: order.buyer?.id, commodityId: order.commodity?.id })}
-                    placeholder="Sem contrato"
-                  />
-                )}
-              />
+              <>
+                <Input {...a} list="contratos-ja-usados" maxLength={40} className="uppercase" {...form.register('contractNumber')} placeholder="CT-2026-0001" />
+                <datalist id="contratos-ja-usados">
+                  {(contractNumbers.data ?? []).map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              </>
             )}
           </Field>
           <Field label="Vendedor" required className={span[3]} error={errors.seller?.message}>
@@ -144,8 +135,8 @@ export function AssignFarmDrawer({ order, open, onClose }: { order: OrderDetail;
                       field.onChange(v);
                       form.setValue('farm', null);
                     }}
-                    queryKey={['lookup', 'sellers', contract?.id ?? null]}
-                    fetchPage={lookups.sellers(contract?.id)}
+                    queryKey={['lookup', 'sellers']}
+                    fetchPage={lookups.sellers()}
                     placeholder="Pesquisar vendedor…"
                   />
                 )}

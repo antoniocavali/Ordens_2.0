@@ -322,9 +322,6 @@ export class UploadsService {
       case 'loading_order':
         found = await tx.loadingOrder.findUnique({ where: { id: entityId }, select: { id: true } });
         break;
-      case 'contract':
-        found = await tx.contract.findUnique({ where: { id: entityId }, select: { id: true } });
-        break;
       case 'partner':
         found = await tx.businessPartner.findUnique({ where: { id: entityId }, select: { id: true } });
         break;

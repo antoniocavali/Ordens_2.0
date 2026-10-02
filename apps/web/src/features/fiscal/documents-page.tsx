@@ -24,8 +24,6 @@ function entityHref(d: DocumentDto): string | null {
       return `/cargas?abrir=${d.entity.id}`;
     case 'occurrence':
       return d.order ? `/ordens/${d.order.id}` : '/ocorrencias';
-    case 'contract':
-      return '/contratos';
     default:
       return null;
   }

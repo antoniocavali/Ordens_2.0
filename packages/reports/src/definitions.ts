@@ -61,7 +61,7 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
     ],
     sql: (p) => Prisma.sql`
       select lo.number, lo.status::text as status, lo.published_at, c.name as commodity,
-        ${partner('sp')} as seller, f.name as farm, ${partner('bp')} as buyer, ct.number as contract, ${unit} as unit,
+        ${partner('sp')} as seller, f.name as farm, ${partner('bp')} as buyer, lo.contract_number as contract, ${unit} as unit,
         lo.quantity, lo.released_qty as released, lo.scheduled_qty as scheduled, lo.loaded_qty as loaded,
         lo.in_transit_qty as in_transit, lo.received_qty as received, lo.cancelled_qty as cancelled,
         greatest(coalesce(lo.quantity, 0) - lo.loaded_qty - lo.cancelled_qty, 0) as balance,
@@ -72,7 +72,6 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       left join business_partners sp on sp.id = lo.seller_partner_id
       left join business_partners bp on bp.id = lo.buyer_partner_id
       left join farms f on f.id = lo.farm_id
-      left join contracts ct on ct.id = lo.contract_id
       left join units u on u.id = lo.unit_id
       -- Só ordens que chegaram à publicação (fora rascunhos, solicitações em análise e canceladas antes de publicar).
       where lo.status not in ('DRAFT', 'PENDING_BILLING')

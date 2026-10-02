@@ -122,13 +122,24 @@ const lookup = (path: string, extra: LookupQuery = {}) => ({ q, cursor }: { q: s
   get<CursorPage<LookupOption>>(path, { ...extra, q, cursor, limit: 20 });
 
 export const lookups = {
-  sellers: (contractId?: string | null) => lookup('/lookups/partners', { role: 'SELLER', contractId }),
-  buyers: (contractId?: string | null) => lookup('/lookups/partners', { role: 'BUYER', contractId }),
+  sellers: () => lookup('/lookups/partners', { role: 'SELLER' }),
+  buyers: () => lookup('/lookups/partners', { role: 'BUYER' }),
   /** Parceiros com papel de transportadora: usado só para vincular um grupo de acesso do tipo Transportadora. */
   carriers: () => lookup('/lookups/partners', { role: 'CARRIER' }),
   farms: (sellerId: string) => lookup('/lookups/farms', { sellerId }),
-  commodities: (contractId?: string | null) => lookup('/lookups/commodities', { contractId }),
-  contracts: (filters: { sellerId?: string; buyerId?: string; commodityId?: string }) => lookup('/lookups/contracts', filters),
+  commodities: () => lookup('/lookups/commodities'),
 };
 
 export const useUnits = () => useQuery({ queryKey: ['lookups', 'units'], queryFn: () => get<LookupOption[]>('/lookups/units'), staleTime: 5 * 60_000 });
+
+/**
+ * Números de contrato já digitados em outras ordens. Contrato não tem cadastro: a sugestão existe
+ * só para o mesmo contrato não acabar escrito de três formas diferentes.
+ */
+export const useContractNumbers = () =>
+  useQuery({
+    queryKey: ['lookups', 'contract-numbers'],
+    queryFn: () => get<CursorPage<LookupOption>>('/lookups/contract-numbers'),
+    select: (p) => p.items.map((i) => i.label),
+    staleTime: 5 * 60_000,
+  });

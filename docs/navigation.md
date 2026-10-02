@@ -16,7 +16,6 @@ Documentos
   ├─ Notas Fiscais                  /documentos/nfe
   └─ Pendências                     /documentos/pendencias
 Comercial
-  ├─ Contratos                      /contratos
   └─ Commodities                    /commodities
 Cadastros
   ├─ Compradores                    /cadastros/compradores

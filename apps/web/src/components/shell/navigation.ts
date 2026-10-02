@@ -72,7 +72,6 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Comercial',
     items: [
-      { label: 'Contratos', href: '/contratos', icon: FileText, permission: 'contract.read', scopes: ['MATRIZ'] },
       { label: 'Commodities', href: '/commodities', icon: Wheat, permission: 'commodity.read', scopes: ['MATRIZ'] },
     ],
   },
