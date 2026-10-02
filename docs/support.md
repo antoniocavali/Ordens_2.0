@@ -89,16 +89,19 @@ Regras provisórias: Q26–Q32 em [decisions/open-questions.md](decisions/open-q
 
 ## Fila no chat do atendente
 
-Quem atende alguma fila ganha a aba **Na fila** no próprio balão do chat, ao lado de "Minhas
-conversas". Ela lista as conversas aguardando atendimento nas filas da pessoa, com **Assumir**: ao
-assumir, a conversa abre ali mesmo em modo de atendente (nota interna disponível, sem respostas
-rápidas do assistente), sem precisar ir até o painel.
+Quem atende alguma fila ganha duas abas no próprio balão do chat, ao lado de "Minhas
+conversas": **Na fila**, com o que aguarda atendimento nas filas dela, e **Em atendimento**, com o que
+ela assumiu e ainda não encerrou (inclusive o que aguarda resposta do cliente).
 
-A aba só existe para quem está em alguma equipe — para o cliente, o balão continua mostrando apenas
-as próprias conversas. O contador do balão soma o que espera resposta nos dois papéis.
+Na fila, cada conversa tem **Assumir**: ao assumir, ela abre ali mesmo em modo de atendente (nota
+interna disponível, sem respostas rápidas do assistente) e passa para "Em atendimento", sem precisar
+ir até o painel.
+
+As abas só existem para quem está em alguma equipe — para o cliente, o balão continua mostrando
+apenas as próprias conversas. O contador do balão soma o que espera resposta nos dois papéis.
 
 O painel de Atendimento continua sendo o lugar completo: filtros, indicadores, transferência entre
-filas e histórico. A aba no chat é o atalho para pegar um chamado sem trocar de tela.
+filas e histórico. As abas no chat são o atalho para pegar e tocar um chamado sem trocar de tela.
 
 ## Imagens e captura de tela no chat
 

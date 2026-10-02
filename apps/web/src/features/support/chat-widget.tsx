@@ -24,7 +24,7 @@ export function ChatWidget() {
   // Quem atende enxerga a fila aqui mesmo; a aba só existe para quem está em alguma equipe.
   const access = useSupportAccess();
   const attends = access.queues.length > 0;
-  const [tab, setTab] = useState<'mine' | 'queue'>('mine');
+  const [tab, setTab] = useState<'mine' | 'queue' | 'working'>('mine');
   // Conversa aberta pela fila é respondida como atendente (nota interna, sem respostas rápidas).
   const [asAgent, setAsAgent] = useState(false);
   const params = useSearchParams();
@@ -32,6 +32,8 @@ export function ChatWidget() {
   const router = useRouter();
   const mine = useMyConversations(enabled);
   const queue = useSupportQueue({ status: ['WAITING'] }, open && attends);
+  // "Em atendimento": o que esta pessoa assumiu e ainda não encerrou, inclusive o que aguarda o cliente.
+  const working = useSupportQueue({ status: ['OPEN', 'PENDING_CUSTOMER'], assignee: 'me' }, open && attends);
   const conversation = useConversation(open ? activeId : null);
   const { start, send, close, assign } = useSupportMutations();
 
@@ -58,6 +60,7 @@ export function ChatWidget() {
 
   const awaitingMe = (mine.data ?? []).filter((c) => c.status === 'PENDING_CUSTOMER').length;
   const waiting = attends ? (queue.data?.items.length ?? 0) : 0;
+  const workingItems = working.data?.items ?? [];
   const badge = awaitingMe + waiting;
 
   const openConversation = (id: string, agent: boolean) => {
@@ -159,6 +162,7 @@ export function ChatWidget() {
                     {[
                       { key: 'mine' as const, label: 'Minhas conversas', count: awaitingMe },
                       { key: 'queue' as const, label: 'Na fila', count: waiting },
+                      { key: 'working' as const, label: 'Em atendimento', count: workingItems.length },
                     ].map((t) => (
                       <button
                         key={t.key}
@@ -171,7 +175,7 @@ export function ChatWidget() {
                         )}
                       >
                         {t.label}
-                        {t.count ? <Badge tone={t.key === 'queue' ? 'warning' : 'primary'}>{t.count}</Badge> : null}
+                        {t.count ? <Badge tone={t.key === 'queue' ? 'warning' : t.key === 'working' ? 'info' : 'primary'}>{t.count}</Badge> : null}
                       </button>
                     ))}
                   </div>
@@ -184,7 +188,38 @@ export function ChatWidget() {
                   </div>
                 ) : null}
                 <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/60">
-                  {tab === 'queue' ? (
+                  {tab === 'working' ? (
+                    working.isLoading ? (
+                      <div className="space-y-2 p-4">
+                        <Skeleton className="h-14" />
+                        <Skeleton className="h-14" />
+                      </div>
+                    ) : !workingItems.length ? (
+                      <p className="px-6 py-10 text-center text-sm text-muted">Você não está atendendo nenhuma conversa agora.</p>
+                    ) : (
+                      <ul className="divide-y divide-border/60">
+                        {workingItems.map((c) => (
+                          <li key={c.id}>
+                            <button onClick={() => openConversation(c.id, true)} className="flex w-full flex-col gap-1 px-4 py-3 text-left transition hover:bg-surface-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono text-xs text-muted">{c.number}</span>
+                                <span className="text-[11px] text-subtle">{formatRelative(c.lastMessageAt)}</span>
+                              </div>
+                              <span className="truncate text-sm font-medium">{c.subject ?? 'Sem assunto'}</span>
+                              <span className="truncate text-xs text-muted">
+                                {c.requester.name}
+                                {c.requester.organization ? ` · ${c.requester.organization}` : ''}
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <SupportStatusBadge status={c.status} />
+                                {c.queue ? <Badge tone="neutral">{SUPPORT_QUEUE_LABELS[c.queue]}</Badge> : null}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  ) : tab === 'queue' ? (
                     queue.isLoading ? (
                       <div className="space-y-2 p-4">
                         <Skeleton className="h-14" />
