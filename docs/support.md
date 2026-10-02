@@ -43,12 +43,13 @@ stateDiagram-v2
 ### Quem atende o quê
 
 - **Papel** define quem *pode* atender: `support.attend` (Operador Matriz e Atendente). Gestor e Administrador têm `support.manage` (supervisão) e atendem todas as filas.
-- **Equipe** (`support_queue_members`) define *em quais filas*: a supervisão marca Faturamento e/ou Suporte por usuário em Atendimento → Equipe. Mudanças valem na hora (o menu do atendente atualiza em tempo real) e são auditadas (`support.team_updated`).
+- **Equipe** (`support_queue_members`) define *de quais filas a pessoa recebe automaticamente*: a supervisão marca Faturamento e/ou Suporte por usuário em Atendimento → Equipe. Mudanças valem na hora (o menu do atendente atualiza em tempo real) e são auditadas (`support.team_updated`).
 - Ao tirar alguém de uma fila, as conversas dele naquela fila voltam para "Aguardando atendente" sem responsável.
+- **Direcionar é decisão de quem atende**: a conversa pode ir para qualquer pessoa ativa da Matriz que possa atender — Operador Matriz e Atendente inclusive —, mesmo que a fila da conversa não seja uma das dela. A lista mostra primeiro quem já recebe a fila; os demais aparecem com o papel e a marca *fora da equipe desta fila*.
 - Somente leitura, Fazenda, Comprador e Transportadora só abrem conversas pelo chat.
 
 - A API aplica o recorte em lista, resumo, detalhe, mensagens, atribuição, status, transferência e indicadores. Conversa de outra fila responde **404**; pedir explicitamente outra fila responde **403**.
-- Responsável precisa atender a fila da conversa. A transferência para a outra fila libera o responsável e tira a conversa do painel do time de origem.
+- Receber uma conversa dá acesso **a ela**, não à fila: quem foi direcionado abre, responde e vê o chamado em "Em atendimento", mas continua recebendo **403** ao pedir a fila inteira. A transferência para a outra fila libera o responsável e tira a conversa do painel do time de origem.
 - Conversa **resolvida não reabre pelo cliente** (Q29): API e trigger do banco bloqueiam; o chat oferece "Abrir nova conversa". O atendente ainda pode reabrir.
 
 ## SLA de 1ª resposta (Q30)

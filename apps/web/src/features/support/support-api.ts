@@ -43,6 +43,8 @@ export function useSupportAccess() {
       // Filas vêm da equipe do atendimento (Q31), calculadas pela API.
       queues: matriz ? (me?.supportQueues ?? []) : [],
       supervisor: matriz && (me?.permissions ?? []).includes('support.manage'),
+      // Pode atender mesmo sem fila na equipe: ainda recebe conversas direcionadas a ela.
+      canAttend: matriz && ((me?.permissions ?? []).includes('support.attend') || (me?.permissions ?? []).includes('support.manage')),
       userId: me?.user.id ?? null,
     };
   }, [me]);
