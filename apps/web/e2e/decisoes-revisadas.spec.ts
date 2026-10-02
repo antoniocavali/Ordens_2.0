@@ -86,9 +86,9 @@ test.describe('Decisões revisadas', () => {
 
   test('Q47 — faturar sem a nota da Matriz exige confirmação e fica auditado', async ({ page }) => {
     await login(page, 'admin@graoforte.demo');
-    const loads = (await apiOk(page, 'GET', '/loads?status=AWAITING_MATRIZ_INVOICE&pageSize=50')).items as any[];
+    const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
     const load = loads.find((l) => l.matrizChecklist && !l.matrizChecklist.ready);
-    test.skip(!load, 'nenhuma carga aguardando faturamento sem a nota da Matriz');
+    test.skip(!load, 'nenhuma carga em trânsito sem a nota da Matriz');
 
     // Sem confirmação: recusado com código próprio.
     const refused = await api(page, 'POST', `/loads/${load.id}/transition`, { to: 'MATRIZ_INVOICED', expectedUpdatedAt: load.updatedAt });

@@ -43,7 +43,7 @@ export const LOAD_LOADED: readonly LoadStatus[] = [
 export const LOAD_FISCAL_CHECK_STATUSES: readonly LoadStatus[] = ['LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
 
 /** Q47: etapas em que a nota da Matriz para o Comprador é exigida. */
-export const LOAD_MATRIZ_CHECK_STATUSES: readonly LoadStatus[] = ['CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED'];
+export const LOAD_MATRIZ_CHECK_STATUSES: readonly LoadStatus[] = ['IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED'];
 
 /** Situação de cada documento exigido para liberar a carga para transporte (Q41). */
 export type FiscalDocState = 'MISSING' | 'PENDING' | 'PROCESSING' | 'OK' | 'REJECTED' | 'INFECTED';

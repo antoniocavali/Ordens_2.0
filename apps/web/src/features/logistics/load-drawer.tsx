@@ -44,9 +44,7 @@ const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
   COMPLETED: 'Concluir carga',
 };
 
-/** Vindo do trânsito, a mesma transição encerra o transporte (ordem dispensa recebimento). */
-function actionLabel(from: LoadStatus, to: LoadStatus) {
-  if (from === 'IN_TRANSIT' && to === 'AWAITING_MATRIZ_INVOICE') return 'Encerrar transporte';
+function actionLabel(_from: LoadStatus, to: LoadStatus) {
   return ACTION_LABELS[to] ?? LOAD_STATUS_LABELS[to];
 }
 
@@ -297,7 +295,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
 
             <FormSection
               title="Nota da Matriz para o Comprador"
-              description="Depois da conferência, anexe o PDF e o XML da NF-e emitida pela Matriz. A carga só é faturada e concluída com os dois documentos e o XML validado."
+              description="Com a carga em trânsito, anexe o PDF e o XML da NF-e emitida pela Matriz. A carga só é faturada e concluída com os dois documentos e o XML validado."
             >
               {l.matrizChecklist ? <FiscalChecklist c={l.matrizChecklist} party="MATRIZ" /> : null}
               {can('invoice.upload') && l.status !== 'CANCELLED' ? (
@@ -307,7 +305,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                     entityId={l.id}
                     accept=".xml,.pdf"
                     title="Arraste o PDF e o XML da nota da Matriz"
-                    hint="Anexos enviados a partir da conferência contam como documentos da Matriz"
+                    hint="Anexos da Matriz enviados depois da liberação para transporte contam como nota da Matriz"
                   />
                 </div>
               ) : null}

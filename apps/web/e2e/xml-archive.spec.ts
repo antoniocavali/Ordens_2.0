@@ -84,6 +84,20 @@ test.describe('Cópia do XML em pasta de rede', () => {
     await page.goto('/configuracoes/parametros');
     await expect(page.getByLabel('Situação das cópias').getByText(/copiados/)).toBeVisible();
 
+    // Trocou o modelo de subpastas: "Sincronizar" copia de novo o que já estava copiado, no destino atual.
+    await apiOk(page, 'PUT', '/settings/xml-archive', { enabled: true, path: TARGET, username: USER, ...(PASS ? { password: PASS } : {}), folderTemplate: 'resync\\{ano}' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Sincronizar XML já copiados' }).click();
+    await page.getByRole('dialog', { name: 'Sincronizar os XML já copiados?' }).getByRole('button', { name: 'Sincronizar' }).click();
+    await expect.poll(async () => (await archived())?.path, { timeout: 60_000 }).toBe(`${TARGET}\\resync\\${year}\\${key}-nfe.xml`);
+    expect((await archived()).status).toBe('COPIED');
+    if (!isNetwork) {
+      expect(existsSync((await archived()).path)).toBe(true);
+      expect(existsSync(info.path), 'a cópia antiga não é apagada').toBe(true);
+    }
+    const resynced = await apiOk(page, 'GET', '/audit?action=tenant.xml_archive_resynced&pageSize=5');
+    expect((resynced.items as any[]).length).toBeGreaterThan(0);
+
     await apiOk(page, 'PUT', '/settings/xml-archive', { enabled: false, path: TARGET, folderTemplate: '' });
   });
 
@@ -91,5 +105,6 @@ test.describe('Cópia do XML em pasta de rede', () => {
     await login(page, 'fazenda.joao@graoforte.demo');
     expect((await api(page, 'GET', '/settings/xml-archive')).status).toBe(403);
     expect((await api(page, 'POST', '/settings/xml-archive/test')).status).toBe(403);
+    expect((await api(page, 'POST', '/settings/xml-archive/resync')).status).toBe(403);
   });
 });

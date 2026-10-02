@@ -66,8 +66,7 @@ stateDiagram-v2
   LOADED --> AWAITING_FARM_INVOICE: automático
   AWAITING_FARM_INVOICE --> FARM_INVOICED: PDF + XML válidos
   FARM_INVOICED --> IN_TRANSIT: liberar para transporte (reconfere documentos)
-  IN_TRANSIT --> AWAITING_MATRIZ_INVOICE: encerrar transporte
-  AWAITING_MATRIZ_INVOICE --> MATRIZ_INVOICED: PDF + XML da nota da Matriz (Q47)
+  IN_TRANSIT --> MATRIZ_INVOICED: PDF + XML da nota da Matriz (Q47)
   MATRIZ_INVOICED --> COMPLETED: nota da Matriz validada
   SCHEDULED --> CANCELLED
   CONFIRMED --> CANCELLED
@@ -87,8 +86,8 @@ stateDiagram-v2
 | AWAITING_FARM_INVOICE | Aguardando documentação fiscal | automático após LOADED | — |
 | FARM_INVOICED | Documentação fiscal validada | FARM, MATRIZ (checklist fiscal) | — |
 | IN_TRANSIT | Em trânsito | MATRIZ, FARM (checklist fiscal reconferido) | +in_transit |
-| AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | MATRIZ | −in_transit, +received |
-| MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ | PDF e XML da nota da Matriz validados (Q47) |
+| MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ, direto do trânsito | −in_transit, +received; PDF e XML da nota da Matriz validados (Q47) |
+| AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | ninguém (só cargas antigas) | etapa removida em 02/10/2026: não havia o que fazer entre o trânsito e o faturamento. Cargas que estavam nela seguem para MATRIZ_INVOICED |
 | COMPLETED | Concluída | MATRIZ | — |
 | CANCELLED | Cancelada | MATRIZ (FARM antes de LOADING) | estorna scheduled; +cancelled |
 
