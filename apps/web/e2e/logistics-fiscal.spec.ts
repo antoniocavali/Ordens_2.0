@@ -90,15 +90,13 @@ test.describe('Logística e fiscal', () => {
     expect(final.status).toBe('IN_TRANSIT');
     expect(final.history.map((h: any) => h.to)).toEqual(expect.arrayContaining(['FARM_INVOICED', 'IN_TRANSIT']));
 
-    // Tela de cargas abre filtrada pela URL (links do painel) e a aba fica refletida no endereço.
-    await page.goto('/cargas?etapa=transit');
-    await expect(page.getByRole('tab', { name: /Transporte/ })).toHaveAttribute('aria-selected', 'true');
+    // Não há tela geral de cargas: a carga aparece dentro da ordem, na aba Cargas, filtrável por etapa.
+    await page.goto(`/ordens/${setup.orderId}`);
+    await page.getByRole('tab', { name: 'Cargas', exact: true }).click();
+    await page.getByRole('tab', { name: /Transporte/ }).click();
     await expect(page.getByRole('row', { name: new RegExp(setup.loadNumber) })).toBeVisible();
-    await page.getByRole('tab', { name: /Aguardando documentação fiscal/ }).click();
-    await expect(page).toHaveURL(/etapa=documentacao/);
-    await expect(page.getByRole('row', { name: new RegExp(setup.loadNumber) })).toHaveCount(0);
     const dashboard = await apiOk(page, 'GET', '/dashboard');
-    expect((dashboard.attention as any[]).find((a) => a.key === 'awaiting_invoice')?.href).toBe('/cargas?etapa=documentacao');
+    expect((dashboard.attention as any[]).find((a) => a.key === 'awaiting_invoice')?.href).toBe('/ordens?status=IN_PROGRESS');
 
     // Auditoria e timeline da ordem registram anexos e validação.
     const timeline = (await apiOk(page, 'GET', `/orders/${setup.orderId}/timeline`)) as any[];

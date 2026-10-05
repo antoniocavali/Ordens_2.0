@@ -6,10 +6,8 @@
 Visão Geral                         /                     (Central de Controle + "Precisa da sua atenção")
 Operação
   ├─ Ordens de Carregamento         /ordens               (grid TMS + Drawer Nova Ordem + Quick View)
-  │    └─ Detalhe da OC             /ordens/[id]          (resumo, quantidades, faróis, timeline, cargas, docs)
-  ├─ Liberações                     /liberacoes
-  ├─ Agendamentos                   /agendamentos         (lista | dia | semana | calendário)
-  ├─ Cargas                         /cargas
+  │    └─ Detalhe da OC             /ordens/[id]          (resumo, quantidades, faróis, timeline, cargas, docs;
+  │                                                        "Informar chegada do caminhão" cria a carga; ?carga=<id> abre uma)
   └─ Ocorrências                    /ocorrencias
 Documentos
   ├─ Central de Documentos          /documentos
@@ -37,10 +35,8 @@ Conta (menu do avatar)
 ## Fazenda
 
 ```
-Início            /            (novas ordens, atualizadas, liberações, próximos carregamentos, alertas)
-Ordens            /ordens      (somente OCs publicadas vinculadas à organização)
-Agendamentos      /agendamentos
-Cargas            /cargas
+Início            /            (novas ordens, atualizadas, caminhões na fazenda, alertas)
+Ordens            /ordens      (somente OCs publicadas vinculadas à organização; cargas dentro de cada ordem)
 Documentos        /documentos
 ```
 
@@ -48,8 +44,7 @@ Documentos        /documentos
 
 ```
 Início            /            (volumes, saldo, previsões, timeline, ocorrências relevantes)
-Ordens            /ordens
-Cargas            /cargas
+Ordens            /ordens      (cargas dentro de cada ordem)
 Documentos        /documentos  (somente autorizados)
 ```
 

@@ -1119,7 +1119,7 @@ model Load {
   number                 String
   sequence               Int
   loadingDate            DateTime?  @map("loading_date") @db.Date
-  expectedQty            Decimal    @map("expected_qty") @db.Decimal(18, 4)
+  expectedQty            Decimal    @default(0) @map("expected_qty") @db.Decimal(18, 4)
   carrierPartnerId       String?    @map("carrier_partner_id") @db.Uuid
   driverId               String?    @map("driver_id") @db.Uuid
   tractorVehicleId       String?    @map("tractor_vehicle_id") @db.Uuid

@@ -426,41 +426,22 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
       });
     }
 
-    // Liberações parciais
+    // Não há liberações: `released` é apenas quanto da ordem a demonstração considera já em operação.
     const releaseCount = status === 'PUBLISHED' ? r.int(0, 2) : r.int(1, 3);
     let released = 0;
     for (let s = 1; s <= releaseCount; s++) {
       const part = Math.min(qty - released, Math.round((qty * r.int(15, 40)) / 100 / 10) * 10);
       if (part <= 0) break;
       released += part;
-      await tx.loadingOrderRelease.create({
-        data: {
-          tenantId,
-          orderId: order.id,
-          sequence: s,
-          quantity: String(part),
-          orderVersion: Math.min(s, version),
-          status: status === 'COMPLETED' ? 'CONSUMED' : 'ACTIVE',
-          createdBy: gestor.userId,
-          createdAt: addDays(createdAt, s + 1),
-          notes: s === 1 ? 'Liberação inicial' : null,
-        },
-      });
-      await writeAudit(tx, ctx, { ...meta, actorUserId: gestor.userId, actorMembershipId: gestor.membershipId, actorRole: 'MATRIZ_MANAGER' }, {
-        entityType: 'loading_order',
-        entityId: order.id,
-        action: 'order.release_created',
-        after: { sequence: s, quantity: String(part) },
-      });
     }
     if (status === 'COMPLETED') released = qty;
 
     await tx.loadingOrder.update({
       where: { id: order.id },
-      data: { releasedQty: String(released), cancelledQty: status === 'CANCELLED' ? String(qty) : '0' },
+      data: { cancelledQty: status === 'CANCELLED' ? String(qty) : '0' },
     });
 
-    // Totais operacionais nascem de cargas e agendamentos reais (recalc_order_quantities).
+    // Totais operacionais nascem das cargas (recalc_order_quantities).
     const transport = r.pick(transports);
     const split = (total: number) => {
       const parts: number[] = [];
@@ -496,7 +477,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           number: `${number}-C${String(sequence).padStart(2, '0')}`,
           sequence,
           loadingDate: dateOnly(loadingDate),
-          expectedQty: String(tons),
+          // Carga nasce da chegada do caminhão, sem previsão: a quantidade é a da pesagem.
+          expectedQty: '0',
           ...transportData,
           tareKg: String(tareKg),
           grossKg: String(tareKg + netKg),
@@ -554,24 +536,6 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
           createdAt: issuedAt,
         },
       });
-    }
-    if (status === 'IN_PROGRESS' || status === 'PUBLISHED') {
-      const scheduledTarget = Math.max(0, Math.round(((released - loadedTarget) * r.int(0, 60)) / 100));
-      for (const [i, tons] of split(scheduledTarget).entries()) {
-        await tx.appointment.create({
-          data: {
-            tenantId,
-            orderId: order.id,
-            scheduledOn: dateOnly(addDays(now, i + r.int(0, 3))),
-            windowStart: '07:00',
-            windowEnd: '11:00',
-            expectedQty: String(tons),
-            ...transportData,
-            status: 'CONFIRMED',
-            createdBy: creator.userId,
-          },
-        });
-      }
     }
     await tx.$executeRaw`select recalc_order_quantities(${order.id}::uuid)`;
     await tx.loadingOrder.update({ where: { id: order.id }, data: { updatedAt: addDays(createdAt, version + releaseCount) } });

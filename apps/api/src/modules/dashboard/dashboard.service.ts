@@ -124,12 +124,6 @@ export class DashboardService {
           group by i.load_id
         ) per_load
       `);
-      const [appt] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
-        select
-          count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED') and a.carrier_name is null and a.scheduled_on >= ${today}::date) as without_carrier,
-          count(*) filter (where a.status in ('REQUESTED', 'CONFIRMED', 'CHECKED_IN') and a.scheduled_on = ${today}::date) as today
-        from appointments a ${orderFilterJoin('a')}
-      `);
       const [occ] = await tx.$queryRaw<Record<string, Dec>[]>(Prisma.sql`
         select
           count(*) filter (where oc.status in ('OPEN', 'IN_PROGRESS')) as open,
@@ -225,15 +219,14 @@ export class DashboardService {
           ? [
               item('pending_billing', 'Solicitações do Comprador aguardando faturamento', sig?.pending_billing, 'warning', '/ordens?status=PENDING_BILLING'),
               item('farm_view_overdue', 'OCs sem visualização da Fazenda no prazo', sig?.farm_overdue, 'danger', '/ordens?farmSignal=OVERDUE'),
-              item('late_loads', 'Cargas atrasadas', loads?.late, 'danger', '/cargas?etapa=atrasadas'),
+              item('late_loads', 'Caminhões na fazenda desde antes de hoje', loads?.late, 'danger', '/ordens?status=IN_PROGRESS'),
               item('rejected_invoices', 'Cargas com XML rejeitado', inv?.rejected_open, 'danger', '/documentos/nfe'),
               item('over_tolerance', 'OCs carregadas acima da tolerância', sig?.over_tolerance, 'danger', '/ordens'),
               item('occurrences_overdue', 'Ocorrências com prazo vencido', occ?.overdue, 'danger', '/ocorrencias'),
               item('buyer_view_overdue', 'OCs sem visualização do Comprador no prazo', sig?.buyer_overdue, 'warning', '/ordens?buyerSignal=OVERDUE'),
-              item('awaiting_invoice', 'Cargas aguardando documentação fiscal da Fazenda', loads?.awaiting_invoice, 'warning', '/cargas?etapa=documentacao'),
+              item('awaiting_invoice', 'Cargas aguardando documentação fiscal da Fazenda', loads?.awaiting_invoice, 'warning', '/ordens?status=IN_PROGRESS'),
               item('divergent_invoices', 'NF-e com divergência', inv?.divergent, 'warning', '/documentos/nfe'),
               item('occurrences_severe', 'Ocorrências altas ou críticas em aberto', occ?.severe, 'warning', '/ocorrencias'),
-              item('appointments_without_carrier', 'Agendamentos sem transportadora', appt?.without_carrier, 'info', '/agendamentos'),
               item('documents_blocked', 'Documentos rejeitados nos últimos 30 dias', blockedDocs, 'info', '/documentos'),
               item('drafts', 'Rascunhos não publicados', sig?.drafts, 'primary', '/ordens?status=DRAFT'),
             ]
@@ -241,10 +234,9 @@ export class DashboardService {
             ? [
                 item('farm_view_pending', 'OCs novas ou alteradas para visualizar', sig?.farm_pending, 'danger', '/ordens'),
                 item('rejected_invoices', 'Cargas com XML rejeitado', inv?.rejected_open, 'danger', '/documentos/nfe'),
-                item('late_loads', 'Cargas atrasadas', loads?.late, 'danger', '/cargas?etapa=atrasadas'),
-                item('awaiting_invoice', 'Cargas aguardando seu PDF e XML da NF-e', loads?.awaiting_invoice, 'danger', '/cargas?etapa=documentacao'),
+                item('late_loads', 'Caminhões na fazenda desde antes de hoje', loads?.late, 'danger', '/ordens?status=IN_PROGRESS'),
+                item('awaiting_invoice', 'Cargas aguardando seu PDF e XML da NF-e', loads?.awaiting_invoice, 'danger', '/ordens?status=IN_PROGRESS'),
                 item('occurrences_open', 'Ocorrências em aberto', occ?.open, 'warning', '/ocorrencias'),
-                item('appointments_today', 'Agendamentos para hoje', appt?.today, 'info', '/agendamentos'),
               ]
             : [
                 item('buyer_returned', 'Solicitações devolvidas para ajuste', sig?.buyer_returned, 'danger', '/ordens?status=DRAFT'),
@@ -252,7 +244,7 @@ export class DashboardService {
                 item('buyer_view_pending', 'OCs novas ou alteradas para visualizar', sig?.buyer_pending, 'danger', '/ordens'),
                 item('divergent_invoices', 'NF-e com divergência', inv?.divergent, 'warning', '/documentos/nfe'),
                 item('occurrences_open', 'Ocorrências compartilhadas em aberto', occ?.open, 'warning', '/ocorrencias'),
-                item('in_transit', 'Cargas a caminho', loads?.in_transit, 'info', '/cargas?etapa=transit'),
+                item('in_transit', 'Cargas a caminho', loads?.in_transit, 'info', '/ordens?status=IN_PROGRESS'),
               ];
 
       const ordered = new D((k?.ordered_t ?? 0).toString());
@@ -278,8 +270,6 @@ export class DashboardService {
         },
         funnel: [
           { key: 'ordered', label: 'Em ordens', valueT: tons(k?.ordered_t) },
-          { key: 'released', label: 'Liberado', valueT: tons(k?.released_t) },
-          { key: 'scheduled', label: 'Agendado', valueT: tons(k?.scheduled_t) },
           { key: 'loaded', label: 'Carregado', valueT: tons(k?.loaded_t) },
           { key: 'received', label: 'Recebido', valueT: tons(k?.received_t) },
         ],

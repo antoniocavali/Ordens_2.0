@@ -19,13 +19,10 @@ test.describe('Conclusão da ordem', () => {
       quantity: '100', loadingStartsOn: addDays(1), loadingEndsOn: addDays(30),
     });
     const published = await apiOk(page, 'POST', `/orders/${draft.id}/publish`, { expectedUpdatedAt: draft.updatedAt });
-    let order = await apiOk(page, 'POST', `/orders/${draft.id}/releases`, { quantity: '60', expectedVersion: published.version });
-    // Uma carga leva a ordem a "Em execução" e fica sem documentação fiscal.
-    const created = await apiOk(page, 'POST', '/loads', { orderId: order.id, expectedQty: '30', loadingDate: addDays(1) });
-    // Confirmar a carga coloca a ordem em execução.
-    await apiOk(page, 'POST', `/loads/${created.id}/transition`, { to: 'CONFIRMED', expectedUpdatedAt: created.updatedAt });
+    // Um caminhão na fazenda: carga ativa, ainda sem documentação fiscal.
+    const created = await apiOk(page, 'POST', '/loads/arrival', { orderId: published.id });
     const load = await apiOk(page, 'GET', `/loads/${created.id}`);
-    order = await apiOk(page, 'GET', `/orders/${order.id}`);
+    const order = await apiOk(page, 'GET', `/orders/${published.id}`);
     return { order, load };
   }
 
@@ -77,8 +74,6 @@ test.describe('Conclusão da ordem', () => {
     expect(fresh).toMatchObject({ status: 'COMPLETED', completionReason: 'Contrato encerrado com o volume carregado' });
     expect(fresh.completedAt).not.toBeNull();
     expect(fresh.allowedActions).not.toContain('complete');
-    // Liberação ativa é encerrada junto.
-    expect((fresh.releases as any[]).every((r) => r.status !== 'ACTIVE')).toBe(true);
 
     const audit = await apiOk(page, 'GET', '/audit?action=order.completed&pageSize=5');
     expect((audit.items as any[]).some((e) => e.entityId === fresh.id && e.after.via === 'manual')).toBe(true);

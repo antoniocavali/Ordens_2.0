@@ -7,12 +7,10 @@ import {
   ORDER_PUBLISH_REQUIRED,
   type AssignFarmInput,
   type BuyerOrderInput,
-  type CancelReleaseInput,
   type CompleteOrderInput,
   type OrderCompletionCheck,
   type OrderReasonActionInput,
   type UpdateBuyerOrderInput,
-  type CreateReleaseInput,
   type OrderDetail,
   type OrderDraftInput,
   type OrderListItem,
@@ -22,9 +20,6 @@ import {
   type OrderViewHistoryItem,
   type Page,
   type ReleaseDto,
-  type ReleaseListItem,
-  type ReleaseListQuery,
-  type ReleasesSummary,
   type TimelineEventDto,
   type UpdateOrderInput,
 } from '@ordens/contracts';
@@ -37,7 +32,6 @@ import { dec, day, toDetail, toListItem } from './orders.mapper.js';
 import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
 import { recalcOrder } from '../logistics/logistics.util.js';
 import { completeOrderRecord, pendingFiscalDocuments } from './order-completion.util.js';
-import { listReleases, releasesSummary } from './releases.queries.js';
 
 type OrderRecord = NonNullable<Awaited<ReturnType<Tx['loadingOrder']['findUnique']>>>;
 
@@ -78,6 +72,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   'order.release_cancelled': 'Liberação cancelada',
   'order.viewed': 'Ordem visualizada',
   'order.appointment_created': 'Agendamento realizado',
+  'order.truck_arrived': 'Caminhão chegou à fazenda',
   'order.load_created': 'Carga criada',
   'order.load_status': 'Carga atualizada',
   'order.invoice_attached': 'NF-e anexada',
@@ -104,6 +99,7 @@ const EXTERNAL_TIMELINE = new Set([
   'order.release_created',
   'order.release_cancelled',
   'order.appointment_created',
+  'order.truck_arrived',
   'order.load_created',
   'order.load_status',
   'order.invoice_attached',
@@ -406,19 +402,12 @@ export class OrdersService {
     });
   }
 
-  /** Publicação: versão 1, liberação inicial, auditoria e aviso às partes. Quem chama valida status e requisitos. */
+  /** Publicação: versão 1, auditoria e aviso às partes. Quem chama valida status e requisitos. */
   private async publishInScope(scope: UnitOfWorkScope, order: OrderRecord, via: 'MATRIZ' | 'BILLING'): Promise<OrderDetail> {
     const auth = currentAuth();
     const { tx } = scope;
     const id = order.id;
     {
-      const initial = order.initialReleaseQty ? new Prisma.Decimal(order.initialReleaseQty) : null;
-      if (initial && initial.greaterThan(this.maxReleasable(order))) {
-        throw AppError.domain(ErrorCode.RELEASE_EXCEEDS_ORDER, 'A liberação inicial excede a quantidade da ordem.', {
-          fields: { initialReleaseQty: ['Maior que a quantidade da ordem (considerando a tolerância)'] },
-        });
-      }
-
       const now = new Date();
       const published = await tx.loadingOrder.update({
         where: { id },
@@ -427,7 +416,6 @@ export class OrdersService {
           version: 1,
           publishedAt: now,
           lastMaterialChangeAt: now,
-          releasedQty: initial ?? 0,
           updatedBy: auth.userId,
         },
       });
@@ -440,25 +428,12 @@ export class OrdersService {
           createdBy: auth.userId,
         },
       });
-      if (initial) {
-        await tx.loadingOrderRelease.create({
-          data: {
-            tenantId: published.tenantId,
-            orderId: id,
-            sequence: 1,
-            quantity: initial,
-            orderVersion: 1,
-            notes: 'Liberação inicial na publicação',
-            createdBy: auth.userId,
-          },
-        });
-      }
       await scope.audit({
         entityType: 'loading_order',
         entityId: id,
         action: 'order.published',
         before: { status: order.status },
-        after: { status: 'PUBLISHED', version: 1, initialRelease: initial?.toString() ?? null, via, farmId: published.farmId },
+        after: { status: 'PUBLISHED', version: 1, via, farmId: published.farmId },
       });
       await scope.outbox({
         type: 'order.published',
@@ -470,146 +445,6 @@ export class OrdersService {
     }
   }
 
-  async createRelease(id: string, input: CreateReleaseInput): Promise<OrderDetail> {
-    const auth = currentAuth();
-    this.assertInternal();
-    return this.db.write(async (scope) => {
-      const { tx } = scope;
-      const order = await this.lockForWrite(tx, id, null);
-      if (!['PUBLISHED', 'IN_PROGRESS'].includes(order.status)) {
-        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Liberações só podem ser criadas em ordens publicadas ou em execução.');
-      }
-      if (order.version !== input.expectedVersion) {
-        throw AppError.conflict('Esta ordem foi alterada. Recarregue antes de liberar.', ErrorCode.ORDER_STALE);
-      }
-      const qty = new Prisma.Decimal(input.quantity);
-      if (qty.lessThanOrEqualTo(0)) throw AppError.validation({ fields: { quantity: ['Informe uma quantidade positiva'] } });
-
-      const agg = await tx.loadingOrderRelease.aggregate({
-        where: { orderId: id, status: { in: ['ACTIVE', 'CONSUMED'] } },
-        _sum: { quantity: true },
-        _max: { sequence: true },
-      });
-      const releasedSoFar = new Prisma.Decimal(agg._sum.quantity ?? 0);
-      const max = this.maxReleasable(order);
-      if (releasedSoFar.plus(qty).greaterThan(max)) {
-        const available = Prisma.Decimal.max(max.minus(releasedSoFar), 0).toString();
-        throw AppError.domain(ErrorCode.RELEASE_EXCEEDS_ORDER, `A liberação excede o saldo liberável (${available}).`, {
-          fields: { quantity: [`Disponível para liberar: ${available}`] },
-          available,
-        });
-      }
-
-      const newReleased = releasedSoFar.plus(qty);
-      const sequence = (agg._max.sequence ?? 0) + 1;
-      const updated = await tx.loadingOrder.update({
-        where: { id },
-        data: { releasedQty: newReleased, version: order.version + 1, lastMaterialChangeAt: new Date(), updatedBy: auth.userId },
-      });
-      const release = await tx.loadingOrderRelease.create({
-        data: {
-          tenantId: order.tenantId,
-          orderId: id,
-          sequence,
-          quantity: qty,
-          validUntil: input.validUntil ? new Date(`${input.validUntil}T00:00:00.000Z`) : null,
-          notes: input.notes ?? null,
-          orderVersion: updated.version,
-          createdBy: auth.userId,
-        },
-      });
-      await this.createVersion(scope, updated, [{ field: 'releasedQty', from: releasedSoFar.toString(), to: newReleased.toString() }], {
-        releaseId: release.id,
-        sequence,
-      });
-      await scope.audit({
-        entityType: 'loading_order',
-        entityId: id,
-        action: 'order.release_created',
-        after: { releaseId: release.id, sequence, quantity: qty.toString(), validUntil: input.validUntil ?? null, releasedTotal: newReleased.toString() },
-      });
-      await scope.outbox({
-        type: 'order.release_created',
-        aggregateType: 'loading_order',
-        aggregateId: id,
-        payload: { orderId: id, releaseId: release.id, sequence, quantity: qty.toString(), version: updated.version },
-      });
-      return this.loadDetail(tx, id);
-    });
-  }
-
-  /**
-   * Cancela uma liberação ativa (Q37). O total liberado restante, com tolerância, precisa cobrir
-   * o que já foi agendado e carregado. Gera nova versão, auditoria e aviso à Fazenda na mesma transação.
-   */
-  async cancelRelease(id: string, releaseId: string, input: CancelReleaseInput): Promise<OrderDetail> {
-    const auth = currentAuth();
-    return this.db.write(async (scope) => {
-      const { tx } = scope;
-      const order = await this.lockForWrite(tx, id, null);
-      const release = await tx.loadingOrderRelease.findFirst({ where: { id: releaseId, orderId: id } });
-      if (!release) throw AppError.notFound('Liberação não encontrada.');
-      if (release.status !== 'ACTIVE') {
-        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Somente liberações ativas podem ser canceladas.');
-      }
-      if (!ACTIVE_STATUSES.includes(order.status)) {
-        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A ordem não permite mais alterar liberações.');
-      }
-      if (order.version !== input.expectedVersion) {
-        throw AppError.conflict('Esta ordem foi alterada. Recarregue antes de cancelar a liberação.', ErrorCode.ORDER_STALE);
-      }
-
-      const releasedBefore = new Prisma.Decimal(order.releasedQty);
-      const remaining = Prisma.Decimal.max(releasedBefore.minus(release.quantity), 0);
-      const committed = new Prisma.Decimal(order.scheduledQty).plus(order.loadedQty);
-      const coverage = remaining.times(new Prisma.Decimal(order.tolerancePct).dividedBy(100).plus(1));
-      if (coverage.lessThan(committed)) {
-        throw AppError.domain(
-          ErrorCode.RELEASE_BELOW_COMMITTED,
-          `Não é possível cancelar: ${committed.toString()} já estão agendados ou carregados e o liberado restante não cobriria essa quantidade.`,
-          { committed: committed.toString(), remaining: remaining.toString() },
-        );
-      }
-
-      const updated = await tx.loadingOrder.update({
-        where: { id },
-        data: { releasedQty: remaining, version: order.version + 1, lastMaterialChangeAt: new Date(), updatedBy: auth.userId },
-      });
-      await tx.loadingOrderRelease.update({
-        where: { id: releaseId },
-        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledBy: auth.userId, cancelReason: input.reason },
-      });
-      await this.createVersion(scope, updated, [{ field: 'releasedQty', from: releasedBefore.toString(), to: remaining.toString() }], {
-        releaseId,
-        sequence: release.sequence,
-        cancelled: true,
-      });
-      await scope.audit({
-        entityType: 'loading_order',
-        entityId: id,
-        action: 'order.release_cancelled',
-        before: { releaseId, sequence: release.sequence, status: 'ACTIVE', releasedTotal: releasedBefore.toString() },
-        after: { releaseId, sequence: release.sequence, status: 'CANCELLED', quantity: release.quantity.toString(), reason: input.reason, releasedTotal: remaining.toString() },
-      });
-      await scope.outbox({
-        type: 'order.release_cancelled',
-        aggregateType: 'loading_order',
-        aggregateId: id,
-        payload: { orderId: id, releaseId, sequence: release.sequence, quantity: release.quantity.toString(), version: updated.version },
-      });
-      return this.loadDetail(tx, id);
-    });
-  }
-
-  listReleases(query: ReleaseListQuery): Promise<Page<ReleaseListItem>> {
-    const auth = currentAuth();
-    const canCancel = auth.permissions.has('order.release') && auth.membership!.scope === 'MATRIZ';
-    return this.db.read((tx) => listReleases(tx, query, canCancel));
-  }
-
-  releasesSummary(): Promise<ReleasesSummary> {
-    return this.db.read((tx) => releasesSummary(tx));
-  }
 
   // ───────────────────────────── Portal do Comprador (Q41) ─────────────────────────────
 
@@ -1234,12 +1069,10 @@ export class OrdersService {
     ) {
       actions.push('request_publish');
     }
-    if (perms.has('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(status)) actions.push('release');
-    // Agendar e criar carga partem da própria ordem: a etapa é a mesma da liberação (publicada ou em
-    // execução), e cada perfil vê o que a permissão dele permite — Fazenda, Comprador e Matriz.
-    if (['PUBLISHED', 'IN_PROGRESS'].includes(status)) {
-      if (perms.has('appointment.manage')) actions.push('schedule');
-      if (perms.has('load.manage')) actions.push('create_load');
+    // Ordem publicada já autoriza carregar: quem opera a carga (Fazenda ou Matriz) informa a chegada
+    // do caminhão, e é isso que cria a carga.
+    if (['PUBLISHED', 'IN_PROGRESS'].includes(status) && row.farm_id && perms.has('load.manage') && auth.membership!.scope !== 'BUYER') {
+      actions.push('register_arrival');
     }
     if (internal && status === 'PENDING_BILLING' && perms.has('order.billing.manage')) {
       actions.push('assign_farm', 'return_to_buyer');
@@ -1258,7 +1091,6 @@ export class OrdersService {
       actions.push('buyer_cancel');
     }
     if (internal && ['PUBLISHED', 'IN_PROGRESS'].includes(status) && perms.has('order.cancel')) actions.push('complete');
-    if (perms.has('order.release') && ACTIVE_STATUSES.includes(status) && auth.membership!.scope === 'MATRIZ') actions.push('cancel_release');
     if (internal && perms.has('order.cancel')) {
       if (status === 'PUBLISHED' || status === 'IN_PROGRESS') actions.push('suspend');
       if (status === 'SUSPENDED') actions.push('resume');

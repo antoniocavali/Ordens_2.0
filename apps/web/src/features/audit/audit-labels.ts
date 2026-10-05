@@ -31,6 +31,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'load.receipt_skipped': 'Transporte encerrado sem recebimento',
   'order.completed': 'Ordem concluída',
   'order.version_created': 'Nova versão da ordem',
+  'order.truck_arrived': 'Caminhão chegou à fazenda',
   'order.release_created': 'Liberação criada',
   'order.release_cancelled': 'Liberação cancelada',
   'order.status_changed': 'Status da ordem alterado',

@@ -47,18 +47,17 @@ Visibilidade externa: a **Fazenda** só enxerga a partir de `PUBLISHED` e com `f
 
 ## Liberação
 
-`ACTIVE → CONSUMED | EXPIRED | CANCELLED`. Soma de liberações ativas + consumidas ≤ quantidade da OC × (1 + tolerância), salvo regra explícita.
+**Removida em 05/10/2026 (Q50).** A ordem publicada já autoriza carregar; não há mais liberação parcial nem teto de quantidade. Liberações antigas aparecem só como histórico na ordem.
 
 ## Agendamento
 
-`REQUESTED → CONFIRMED → CHECKED_IN (veículo chegou na fazenda) → CONVERTED (carga criada)`; `REQUESTED|CONFIRMED → CANCELLED | NO_SHOW`. Carga a partir de agendamento **exige `CHECKED_IN`** e nasce em `AWAITING_LOADING`.
+**Removido em 05/10/2026 (Q50).** A Fazenda apenas informa a chegada do caminhão (`POST /loads/arrival`), e isso cria a carga em `AWAITING_LOADING`.
 
 ## Carga
 
 ```mermaid
 stateDiagram-v2
-  [*] --> SCHEDULED: carga planejada pela Matriz
-  [*] --> AWAITING_LOADING: agendamento CHECKED_IN convertido
+  [*] --> AWAITING_LOADING: Fazenda informa a chegada do caminhão
   SCHEDULED --> CONFIRMED
   CONFIRMED --> AWAITING_LOADING
   AWAITING_LOADING --> LOADING

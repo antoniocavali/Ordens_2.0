@@ -11,19 +11,13 @@ import {
   type AssignFarmInput,
   type BuyerOrderInput,
   type UpdateBuyerOrderInput,
-  cancelReleaseSchema,
   completeOrderSchema,
   type CompleteOrderInput,
-  createReleaseSchema,
   orderDraftSchema,
   orderListQuerySchema,
   publishOrderSchema,
-  releaseListQuerySchema,
   requestPublishSchema,
   updateOrderSchema,
-  type CancelReleaseInput,
-  type CreateReleaseInput,
-  type ReleaseListQuery,
   type OrderDraftInput,
   type OrderListQuery,
   type UpdateOrderInput,
@@ -50,19 +44,6 @@ export class OrdersController {
   @RequirePermission('order.read')
   summary() {
     return this.orders.summary();
-  }
-
-  /** Liberações de todas as ordens visíveis (declarado antes de ':id'). */
-  @Get('releases')
-  @RequirePermission('order.read')
-  releases(@Query(new ZodPipe(releaseListQuerySchema)) query: ReleaseListQuery) {
-    return this.orders.listReleases(query);
-  }
-
-  @Get('releases/summary')
-  @RequirePermission('order.read')
-  releasesSummary() {
-    return this.orders.releasesSummary();
   }
 
   /** Portal do Comprador: payload próprio (estrito); comprador derivado da organização ativa. */
@@ -177,23 +158,6 @@ export class OrdersController {
   @RequireAnyPermission('order.create', 'order.update')
   requestPublish(@Param('id', uuid) id: string, @Body(new ZodPipe(requestPublishSchema)) body: z.infer<typeof requestPublishSchema>) {
     return this.orders.requestPublish(id, body.expectedUpdatedAt);
-  }
-
-  @Post(':id/releases')
-  @RequirePermission('order.release')
-  release(@Param('id', uuid) id: string, @Body(new ZodPipe(createReleaseSchema)) body: CreateReleaseInput) {
-    return this.orders.createRelease(id, body);
-  }
-
-  @Post(':id/releases/:releaseId/cancel')
-  @HttpCode(200)
-  @RequirePermission('order.release')
-  cancelRelease(
-    @Param('id', uuid) id: string,
-    @Param('releaseId', uuid) releaseId: string,
-    @Body(new ZodPipe(cancelReleaseSchema)) body: CancelReleaseInput,
-  ) {
-    return this.orders.cancelRelease(id, releaseId, body);
   }
 
   /** Chamado pela UI somente ao abrir efetivamente o detalhe (não na renderização da tabela). */

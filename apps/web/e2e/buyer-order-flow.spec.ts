@@ -130,20 +130,14 @@ test.describe('Solicitação do Comprador', () => {
     const audit = (await apiOk(admin.page, 'GET', `/audit?entityType=loading_order&entityId=${draft.id}&pageSize=100`)).items as any[];
     expect(audit.map((e) => e.action)).toEqual(expect.arrayContaining(['order.created', 'order.draft_saved', 'order.submitted', 'order.farm_assigned', 'order.published', 'order.version_created'].filter((a) => a !== 'order.version_created')));
 
-    // Liberação da Matriz para a Fazenda operar.
-    const withVersion = await apiOk(admin.page, 'GET', `/orders/${draft.id}`);
-    await apiOk(admin.page, 'POST', `/orders/${draft.id}/releases`, { quantity: '40', expectedVersion: withVersion.version });
-
     // ─── Fazenda: chegada do veículo, carga e carregamento ───
     await admin.context.close();
 
-    // Sem repetir o transporte: o agendamento nasce com o que o Comprador digitou na ordem.
-    const appointment = await apiOk(farm.page, 'POST', '/appointments', { orderId: draft.id, scheduledOn: addDays(1), expectedQty: '12' });
-    expect(appointment.driverCpf, 'agendamento herda o transporte digitado na ordem').toBe('39053344705');
-    await apiOk(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONFIRMED' });
-    expect((await api(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONVERTED' })).status).toBe(422);
-    await apiOk(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CHECKED_IN' });
-    const converted = await apiOk(farm.page, 'POST', `/appointments/${appointment.id}/transition`, { to: 'CONVERTED' });
+    // A Fazenda só informa a chegada: a carga nasce com o transporte que o Comprador digitou na ordem,
+    // sem liberação nem agendamento antes.
+    const arrived = await apiOk(farm.page, 'POST', '/loads/arrival', { orderId: draft.id });
+    expect(arrived.driverCpf, 'a carga herda o transporte digitado na ordem').toBe('39053344705');
+    const converted = { loadId: arrived.id as string };
 
     const move = async (to: string, extra: Record<string, unknown> = {}) => {
       const current = await apiOk(farm.page, 'GET', `/loads/${converted.loadId}`);

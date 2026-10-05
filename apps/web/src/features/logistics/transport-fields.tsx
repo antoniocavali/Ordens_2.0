@@ -199,7 +199,7 @@ export function TransportFields({ disabled }: { disabled?: boolean }) {
       <Field label="Categoria" className={span[2]} error={errors.driverCnhCategory?.message}>
         {(a) => <Select {...a} {...register('driverCnhCategory')} disabled={disabled} options={CNH_OPTIONS} placeholder="—" />}
       </Field>
-      <Field label="Validade da CNH" className={span[2]} error={errors.driverCnhExpiresAt?.message} hint="Vencida na data do carregamento impede confirmar o agendamento.">
+      <Field label="Validade da CNH" className={span[2]} error={errors.driverCnhExpiresAt?.message} hint="Confira a validade antes de carregar.">
         {(a) => <Input {...a} {...register('driverCnhExpiresAt')} type="date" disabled={disabled} />}
       </Field>
       <Field label="Restrições" className={span[2]} error={errors.driverCnhRestrictions?.message}>

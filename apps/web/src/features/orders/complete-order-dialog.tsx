@@ -41,7 +41,7 @@ export function CompleteOrderDialog({
       <Card className="w-full max-w-xl overflow-hidden">
         <div className="border-b border-border/70 px-5 py-4">
           <h2 className="font-semibold">Concluir ordem {order.number}</h2>
-          <p className="mt-1 text-sm text-muted">A ordem é encerrada para novas liberações, agendamentos e cargas. Fazenda e Comprador são avisados.</p>
+          <p className="mt-1 text-sm text-muted">A ordem é encerrada para novas cargas. Fazenda e Comprador são avisados.</p>
         </div>
 
         <div className="max-h-[60vh] space-y-4 overflow-y-auto p-5">

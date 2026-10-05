@@ -16,7 +16,7 @@ export interface TransportInput {
   vehicles?: TransportVehicle[] | null;
 }
 
-/** Colunas de transporte gravadas em `appointments` e `loads` (mesmo formato nas duas tabelas). */
+/** Colunas de transporte gravadas na ordem e na carga (mesmo formato). */
 export interface TransportColumns {
   carrierName: string | null;
   driverName: string | null;
@@ -116,13 +116,12 @@ export interface OrderForLogistics {
 
 /** Ordem apta a operações logísticas (publicada ou em execução), com fator de conversão da unidade. */
 export async function orderForLogistics(tx: Tx, orderId: string): Promise<OrderForLogistics> {
-  // Bloqueia a ordem até o fim da transação: quem consome saldo liberado (agendamento, carga, pesagem)
-  // lê os totais já serializado, evitando que requisições simultâneas ultrapassem o liberado (revisão 3.2).
+  // Bloqueia a ordem até o fim da transação: duas chegadas simultâneas não pegam o mesmo número de carga.
   await tx.$queryRaw`select id from loading_orders where id = ${orderId}::uuid for update`;
   const order = await tx.loadingOrder.findUnique({ where: { id: orderId } });
   if (!order) throw AppError.notFound('Ordem não encontrada.');
   if (!['PUBLISHED', 'IN_PROGRESS'].includes(order.status)) {
-    throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Agendamentos e cargas só podem ser registrados em ordens publicadas ou em execução.');
+    throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A chegada do caminhão só pode ser informada em ordens publicadas ou em execução.');
   }
   const unit = order.unitId ? await tx.unit.findUnique({ where: { id: order.unitId } }) : null;
   return {
@@ -144,26 +143,4 @@ export async function recalcOrder(tx: Tx, orderId: string) {
   // $executeRaw: a função retorna void (não desserializável por $queryRaw).
   await tx.$executeRaw`select recalc_order_quantities(${orderId}::uuid)`;
   return tx.loadingOrder.findUniqueOrThrow({ where: { id: orderId } });
-}
-
-/**
- * Garante que agendado + carregado + novo ≤ liberado × (1 + tolerância).
- * `freed` desconta a quantidade do próprio registro quando ele já está contabilizado.
- */
-type DecimalLike = Prisma.Decimal | string | number;
-
-export function assertWithinReleased(
-  order: { releasedQty: Prisma.Decimal; scheduledQty: Prisma.Decimal; loadedQty: Prisma.Decimal; tolerancePct: Prisma.Decimal },
-  adding: DecimalLike,
-  freed: DecimalLike = 0,
-) {
-  const max = new Prisma.Decimal(order.releasedQty).times(new Prisma.Decimal(order.tolerancePct).dividedBy(100).plus(1));
-  const used = new Prisma.Decimal(order.scheduledQty).plus(order.loadedQty).minus(freed);
-  const available = Prisma.Decimal.max(max.minus(used), 0);
-  if (new Prisma.Decimal(adding).greaterThan(available)) {
-    throw AppError.domain(ErrorCode.QUANTITY_EXCEEDS_RELEASED, `Quantidade acima do saldo liberado disponível (${available.toString()}).`, {
-      fields: { expectedQty: [`Disponível: ${available.toString()}`] },
-      available: available.toString(),
-    });
-  }
 }

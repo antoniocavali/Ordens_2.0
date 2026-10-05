@@ -4,7 +4,6 @@ import {
   ErrorCode,
   LOAD_STATUS_LABELS,
   LOAD_TRANSITIONS,
-  loadInputSchema,
   type LoadDto,
   type LoadFiscalChecklist,
   type LoadHistoryItem,
@@ -14,17 +13,15 @@ import {
   type LogisticsListQuery,
   type Page,
 } from '@ordens/contracts';
-import { Prisma, type Tx, type UnitOfWorkScope } from '@ordens/db';
-import type { z } from 'zod';
+import { Prisma, type Tx } from '@ordens/db';
 import { AppError } from '../../common/errors.js';
 import { currentAuth } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { fromDate, toDate } from '../registry/registry.util.js';
 import { autoCompleteIfFinished } from '../orders/order-completion.util.js';
 import { fiscalChecklists, matrizChecklists } from './fiscal-checklist.js';
-import { assertWithinReleased, orderForLogistics, readVehicles, recalcOrder, resolveTransport, transportDto } from './logistics.util.js';
+import { orderForLogistics, readVehicles, recalcOrder, resolveTransport, transportDto } from './logistics.util.js';
 
-type LoadData = z.output<typeof loadInputSchema>;
 type LoadRow = NonNullable<Awaited<ReturnType<Tx['load']['findUnique']>>>;
 
 const D = Prisma.Decimal;
@@ -98,64 +95,49 @@ export class LoadsService {
     });
   }
 
-  create(input: LoadData): Promise<LoadDto> {
-    return this.db.write(async (scope) => {
-      const id = await this.createInScope(scope, input);
-      return this.dto(scope.tx, id);
-    });
-  }
-
   /**
-   * Cria a carga dentro de uma unidade de trabalho existente (reutilizado na conversão de agendamento).
-   * Carga de agendamento exige veículo na fazenda (CHECKED_IN) e já nasce aguardando carregamento.
+   * A Fazenda informa que o caminhão chegou: é isso que cria a carga, já aguardando carregamento.
+   * Não há liberação nem agendamento antes — a ordem publicada é a autorização. Transportadora,
+   * motorista e veículos vêm do que foi informado na ordem e podem ser corrigidos na carga enquanto
+   * ela não for pesada.
    */
-  async createInScope(scope: UnitOfWorkScope, input: LoadData): Promise<string> {
-    const { tx, audit, outbox } = scope;
-    const order = await orderForLogistics(tx, input.orderId);
-    const fresh = await recalcOrder(tx, order.id);
+  registerArrival(orderId: string): Promise<LoadDto> {
+    return this.db.write(async ({ tx, audit, outbox }) => {
+      // Quem opera a carga é a Fazenda (ou a Matriz por ela); o Comprador só acompanha.
+      if (currentAuth().membership!.scope === 'BUYER') throw AppError.forbidden('Somente a Fazenda ou a Matriz informam a chegada do caminhão.');
+      const order = await orderForLogistics(tx, orderId);
+      const source = await tx.loadingOrder.findUniqueOrThrow({ where: { id: orderId } });
+      if (!source.farmId) throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A ordem ainda não tem fazenda definida.');
+      const transport = resolveTransport(transportDto(source));
 
-    let freed = new D(0);
-    if (input.appointmentId) {
-      const appt = await tx.appointment.findUnique({ where: { id: input.appointmentId }, include: { load: true } });
-      if (!appt || appt.orderId !== order.id) throw AppError.domain(ErrorCode.INCONSISTENT_RELATION, 'Agendamento não pertence a esta ordem.');
-      if (appt.load) throw AppError.conflict('Este agendamento já gerou uma carga.');
-      if (appt.status !== 'CHECKED_IN') {
-        throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Registre a chegada do veículo na fazenda antes de criar a carga.');
-      }
-      freed = appt.expectedQty;
-    }
-    assertWithinReleased(fresh, input.expectedQty, freed);
-    const transport = resolveTransport(input);
-    const initial: LoadStatus = input.appointmentId ? 'AWAITING_LOADING' : 'SCHEDULED';
+      const agg = await tx.load.aggregate({ where: { orderId: order.id }, _max: { sequence: true } });
+      const sequence = (agg._max.sequence ?? 0) + 1;
+      const number = `${order.number}-C${String(sequence).padStart(2, '0')}`;
+      const now = new Date();
+      const load = await tx.load.create({
+        data: {
+          tenantId: order.tenantId,
+          orderId: order.id,
+          number,
+          sequence,
+          loadingDate: toDate(now.toISOString().slice(0, 10)),
+          // Sem previsão por caminhão: a quantidade da carga é o peso líquido da pesagem.
+          expectedQty: 0,
+          status: 'AWAITING_LOADING',
+          createdBy: currentAuth().userId,
+          ...transport,
+        },
+      });
+      await tx.loadStatusHistory.create({
+        data: { tenantId: order.tenantId, loadId: load.id, fromStatus: null, toStatus: 'AWAITING_LOADING', actorUserId: currentAuth().userId, notes: 'Caminhão na fazenda' },
+      });
+      await recalcOrder(tx, order.id);
 
-    const agg = await tx.load.aggregate({ where: { orderId: order.id }, _max: { sequence: true } });
-    const sequence = (agg._max.sequence ?? 0) + 1;
-    const number = `${order.number}-C${String(sequence).padStart(2, '0')}`;
-    const load = await tx.load.create({
-      data: {
-        tenantId: order.tenantId,
-        orderId: order.id,
-        appointmentId: input.appointmentId ?? null,
-        number,
-        sequence,
-        loadingDate: toDate(input.loadingDate),
-        expectedQty: input.expectedQty,
-        notes: input.notes ?? null,
-        status: initial,
-        createdBy: currentAuth().userId,
-        ...transport,
-      },
+      await audit({ entityType: 'load', entityId: load.id, action: 'load.created', after: { number, status: 'AWAITING_LOADING', plates: transport.plates } });
+      await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.truck_arrived', after: { loadNumber: number, plates: transport.plates } });
+      await outbox({ type: 'load.created', aggregateType: 'load', aggregateId: load.id, payload: { loadId: load.id, orderId: order.id, number } });
+      return this.dto(tx, load.id);
     });
-    await tx.loadStatusHistory.create({
-      data: { tenantId: order.tenantId, loadId: load.id, fromStatus: null, toStatus: initial, actorUserId: currentAuth().userId, notes: input.appointmentId ? 'Veículo na fazenda' : null },
-    });
-    if (input.appointmentId) await tx.appointment.update({ where: { id: input.appointmentId }, data: { status: 'CONVERTED' } });
-    await recalcOrder(tx, order.id);
-
-    await audit({ entityType: 'load', entityId: load.id, action: 'load.created', after: { number, status: initial, ...input, plates: transport.plates } });
-    await audit({ entityType: 'loading_order', entityId: order.id, action: 'order.load_created', after: { loadNumber: number, quantity: input.expectedQty, plates: transport.plates } });
-    await outbox({ type: 'load.created', aggregateType: 'load', aggregateId: load.id, payload: { loadId: load.id, orderId: order.id, number } });
-    return load.id;
   }
 
   update(id: string, input: LoadUpdateInput & { expectedUpdatedAt: string }): Promise<LoadDto> {
@@ -251,12 +233,7 @@ export class LoadsService {
             fields: { grossKg: gross ? [] : ['Obrigatório'], tareKg: tare ? [] : ['Obrigatório'] },
           });
         }
-        const net = new D(weights.netKg ?? load.netKg ?? 0);
-        const order = await orderForLogistics(tx, load.orderId).catch(async () => recalcOrder(tx, load.orderId).then((o) => ({ ...o, unitFactorToKg: new D(1), unitCode: 'T' })));
-        const fresh = await recalcOrder(tx, load.orderId);
-        const factor = 'unitFactorToKg' in order ? order.unitFactorToKg : new D(1);
-        // Ao carregar, a quantidade prevista desta carga deixa de contar como agendada e passa a contar o peso real.
-        assertWithinReleased(fresh, net.dividedBy(factor), load.expectedQty);
+        // Não há teto: a Fazenda carrega o que chegou e a ordem mostra quando passou da quantidade.
         data.loadedAt = new Date();
       }
       // Do trânsito a carga vai direto ao faturamento: faturar na Matriz é o próprio fim do transporte.

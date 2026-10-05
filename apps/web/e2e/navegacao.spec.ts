@@ -40,11 +40,8 @@ test.describe('Navegação entre telas', () => {
       '/atendimento/equipe': 'Equipe do atendimento',
       '/gestao/auditoria': 'Auditoria',
       '/gestao/usuarios': 'Usuários',
-      '/cargas': 'Cargas',
       '/cadastros/fazendas': 'Fazendas',
       '/ordens': 'Ordens de Carregamento',
-      '/liberacoes': 'Liberações',
-      '/agendamentos': 'Agendamentos',
       '/documentos': 'Central de Documentos',
     };
 

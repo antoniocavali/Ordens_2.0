@@ -116,14 +116,12 @@ export interface LoadSetup {
 
 export const PDF = Buffer.from('%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n%%EOF\n');
 
-/** Carga criada a partir de um agendamento confirmado e com chegada registrada (aguardando carregamento). */
+/** Carga criada pela chegada do caminhão (aguardando carregamento), com o transporte conferido na fazenda. */
 export async function prepareLoad(page: Page): Promise<LoadSetup> {
-  const today = new Date().toISOString().slice(0, 10);
   const orders = (await apiOk(page, 'GET', '/orders?status=PUBLISHED&status=IN_PROGRESS&pageSize=100')).items as any[];
-  const avail = (o: any) => Number(o.quantities.released) - Number(o.quantities.scheduled ?? 0) - Number(o.quantities.loaded ?? 0);
   // Comprador com usuários no portal (ABC ou Nutri): a checagem de visibilidade final depende disso.
-  const order = orders.filter((o) => o.farm && o.seller && /abc|nutri/i.test(o.buyer?.name ?? '') && avail(o) > 20).sort((a, b) => avail(b) - avail(a))[0];
-  expect(order, 'ordem publicada com saldo liberado no seed').toBeTruthy();
+  const order = orders.find((o) => o.farm && o.seller && /abc|nutri/i.test(o.buyer?.name ?? ''));
+  expect(order, 'ordem publicada com fazenda no seed').toBeTruthy();
 
   const detail = await apiOk(page, 'GET', `/orders/${order.id}`);
   const seller = await apiOk(page, 'GET', `/partners/${detail.seller.id}`);
@@ -138,20 +136,11 @@ export async function prepareLoad(page: Page): Promise<LoadSetup> {
     vehicles: [{ plate: 'RVG1A23', description: 'Scania R 450', type: 'TRUCK_TRACTOR', axles: 3 }],
   };
 
-  const appt = await apiOk(page, 'POST', '/appointments', {
-    orderId: order.id,
-    scheduledOn: today,
-    windowStart: '08:00',
-    windowEnd: '10:00',
-    expectedQty: '10',
-    ...transport,
-  });
-  await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CONFIRMED' });
-  // Sem registrar a chegada do veículo, não há carga.
-  expect((await api(page, 'POST', '/loads', { orderId: order.id, appointmentId: appt.id, expectedQty: '10' })).status).toBe(422);
-  await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CHECKED_IN' });
-  const converted = await apiOk(page, 'POST', `/appointments/${appt.id}/transition`, { to: 'CONVERTED' });
-  const load = await apiOk(page, 'GET', `/loads/${converted.loadId}`);
+  // A chegada do caminhão é o que cria a carga: não há liberação nem agendamento antes.
+  const arrived = await apiOk(page, 'POST', '/loads/arrival', { orderId: order.id });
+  expect(arrived.status).toBe('AWAITING_LOADING');
+  await apiOk(page, 'PATCH', `/loads/${arrived.id}`, { expectedUpdatedAt: arrived.updatedAt, ...transport });
+  const load = await apiOk(page, 'GET', `/loads/${arrived.id}`);
 
   return {
     loadId: load.id,

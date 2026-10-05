@@ -2,18 +2,18 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CalendarPlus, CheckCircle2, FileText, GitCommitVertical, Hourglass, PackageCheck, PackageX, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, FileText, GitCommitVertical, Hourglass, PackageCheck, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
-import { NewLoadDrawer } from '@/features/logistics/new-load-drawer';
 import { LoadsPage } from '@/features/logistics/loads-page';
+import { useRegisterArrival } from '@/features/logistics/logistics-api';
 import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
-import type { OrderDetail } from '@ordens/contracts';
+import { RELEASE_STATUS_LABELS, type OrderDetail } from '@ordens/contracts';
 import { AssignFarmDrawer } from '@/features/orders/assign-farm-drawer';
 import { BuyerOrderDrawer } from '@/features/orders/buyer-order-drawer';
 import { ReasonDialog } from '@/features/logistics/reason-dialog';
@@ -34,11 +34,8 @@ import {
   useVersions,
   useViewHistory,
 } from '@/features/orders/orders-api';
-import { CancelReleaseDialog, type CancelReleaseTarget } from '@/features/orders/cancel-release-dialog';
 import { CompleteOrderDialog } from '@/features/orders/complete-order-dialog';
 import { useNoDestinationConfirm } from '@/features/orders/destination-guard';
-import { ReleaseDialog } from '@/features/orders/release-dialog';
-import { ReleaseStatusBadge } from '@/features/orders/releases-page';
 import { Timeline } from '@/features/orders/timeline';
 import { UploadDropzone } from '@/features/uploads/upload-dropzone';
 import { ApiRequestError } from '@/lib/api';
@@ -61,12 +58,12 @@ const REASON_ACTIONS: Record<ReasonAction, { title: string; description: string;
   },
   suspend: {
     title: 'Suspender ordem',
-    description: 'Liberações, agendamentos e cargas novas ficam bloqueados até a retomada. Cargas em andamento continuam. Fazenda e Comprador são avisados com o motivo.',
+    description: 'Novas chegadas de caminhão ficam bloqueadas até a retomada. Cargas em andamento continuam. Fazenda e Comprador são avisados com o motivo.',
     done: (n) => `Ordem ${n} suspensa`,
   },
   order_cancel: {
     title: 'Cancelar ordem',
-    description: 'Exige que não haja carga em andamento. Agendamentos e liberações ativos são cancelados e o saldo não carregado fica como cancelado. Esta ação não pode ser desfeita.',
+    description: 'Exige que não haja carga em andamento. O saldo não carregado fica como cancelado. Esta ação não pode ser desfeita.',
     done: (n) => `Ordem ${n} cancelada`,
   },
 };
@@ -97,10 +94,21 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const can = useCan();
   const invalidate = useInvalidateOrders();
   const [editing, setEditing] = useState(false);
-  const [releasing, setReleasing] = useState(false);
-  const [scheduling, setScheduling] = useState(false);
-  const [creatingLoad, setCreatingLoad] = useState(false);
-  const [cancelling, setCancelling] = useState<CancelReleaseTarget | null>(null);
+  const router = useRouter();
+  const search = useSearchParams();
+  // `?carga=` (links de documentos e avisos) já abre na aba das cargas.
+  const [tab, setTab] = useState(search.get('carga') ? 'cargas' : 'resumo');
+  const arrival = useRegisterArrival();
+  const registerArrival = async () => {
+    try {
+      const load = await arrival.mutateAsync(id);
+      toast.success(`Chegada registrada: carga ${load.number}`, { description: 'Aguardando carregamento.' });
+      setTab('cargas');
+      router.replace(`/ordens/${id}?carga=${load.id}`, { scroll: false });
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível registrar a chegada.');
+    }
+  };
   const [requesting, setRequesting] = useState(false);
   const [buyerEditing, setBuyerEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
@@ -165,19 +173,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {o.allowedActions.includes('release') ? (
-            <Button variant="soft" onClick={() => setReleasing(true)}>
-              <PackageCheck /> Nova liberação
-            </Button>
-          ) : null}
-          {o.allowedActions.includes('schedule') ? (
-            <Button variant="soft" onClick={() => setScheduling(true)}>
-              <CalendarPlus /> Novo agendamento
-            </Button>
-          ) : null}
-          {o.allowedActions.includes('create_load') ? (
-            <Button variant="soft" onClick={() => setCreatingLoad(true)}>
-              <Truck /> Nova carga
+          {o.allowedActions.includes('register_arrival') ? (
+            <Button onClick={() => void registerArrival()} loading={arrival.isPending}>
+              <Truck /> Informar chegada do caminhão
             </Button>
           ) : null}
           {o.allowedActions.includes('update') ? (
@@ -317,7 +315,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           <PauseCircle className="size-4 text-warning" />
           <span>
             <strong>Ordem suspensa</strong>
-            {o.suspendedAt ? ` em ${formatDateTime(o.suspendedAt)}` : ''}: sem novas liberações, agendamentos ou cargas até a retomada.
+            {o.suspendedAt ? ` em ${formatDateTime(o.suspendedAt)}` : ''}: sem novas chegadas de caminhão até a retomada.
           </span>
           <span className="text-muted">Motivo: {o.suspendReason}</span>
         </div>
@@ -351,11 +349,12 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="overflow-hidden">
-          <Tabs.Root defaultValue="resumo">
+          <Tabs.Root value={tab} onValueChange={setTab}>
             <Tabs.List className="flex gap-1 overflow-x-auto border-b border-border/70 px-4">
               {[
                 ['resumo', 'Resumo'],
-                ['liberacoes', `Liberações (${o.releases.length})`],
+                // Liberações deixaram de existir: a aba só aparece em ordens antigas que tiveram alguma.
+                ...(o.releases.length ? [['liberacoes', `Liberações antigas (${o.releases.length})`]] : []),
                 ...(can('load.read') ? [['cargas', 'Cargas']] : []),
                 ...(can('occurrence.read') && o.status !== 'DRAFT' ? [['ocorrencias', 'Ocorrências']] : []),
                 ['versoes', 'Versões'],
@@ -409,7 +408,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
             <Tabs.Content value="liberacoes" className="p-5 sm:p-6">
               {o.releases.length === 0 ? (
-                <EmptyState icon={<PackageCheck />} title="Nenhuma liberação" description="A Matriz libera a quantidade de forma parcial conforme a operação." />
+                <EmptyState icon={<PackageCheck />} title="Nenhuma liberação" description="Liberações não são mais usadas: a ordem publicada já autoriza o carregamento." />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -421,7 +420,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         <th className="py-2 pr-3">Versão</th>
                         <th className="py-2 pr-3">Status</th>
                         <th className="py-2">Registro</th>
-                        {o.allowedActions.includes('cancel_release') ? <th className="py-2" /> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -432,7 +430,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                           <td className="py-3 pr-3">{r.validUntil ? formatDate(r.validUntil) : '—'}</td>
                           <td className="py-3 pr-3">v{r.orderVersion}</td>
                           <td className="py-3 pr-3">
-                            <ReleaseStatusBadge status={r.status} />
+                            <Badge tone={r.status === 'CANCELLED' ? 'danger' : 'neutral'} size="sm">
+                              {RELEASE_STATUS_LABELS[r.status]}
+                            </Badge>
                           </td>
                           <td className="py-3 text-xs text-muted">
                             {formatDateTime(r.createdAt)}
@@ -446,20 +446,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                               </div>
                             ) : null}
                           </td>
-                          {o.allowedActions.includes('cancel_release') ? (
-                            <td className="py-2 text-right">
-                              {r.status === 'ACTIVE' ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label={`Cancelar liberação ${r.sequence}`}
-                                  onClick={() => setCancelling({ orderId: o.id, orderNumber: o.number, orderVersion: o.version, releaseId: r.id, sequence: r.sequence, quantity: r.quantity, unit })}
-                                >
-                                  <PackageX /> Cancelar
-                                </Button>
-                              ) : null}
-                            </td>
-                          ) : null}
                         </tr>
                       ))}
                     </tbody>
@@ -470,7 +456,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
             <Tabs.Content value="cargas" className="space-y-4 p-5 sm:p-6">
               <Suspense fallback={<PageLoading />}>
-                <LoadsPage orderId={o.id} embedded />
+                <LoadsPage orderId={o.id} />
               </Suspense>
             </Tabs.Content>
 
@@ -504,8 +490,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <QuantityBar q={o.quantities} className="mt-3" showLegend />
             <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/60 pt-4 text-sm">
               {[
-                ['Liberado', o.quantities.released],
-                ['Agendado', o.quantities.scheduled],
                 ['Carregado', o.quantities.loaded],
                 ['Em trânsito', o.quantities.inTransit],
                 ['Recebido', o.quantities.received],
@@ -541,8 +525,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <OrderFormDrawer open={editing} order={o} onClose={() => setEditing(false)} />
-      <ReleaseDialog order={o} open={releasing} onOpenChange={setReleasing} />
-      <CancelReleaseDialog target={cancelling} onClose={() => setCancelling(null)} />
       <BuyerOrderDrawer open={buyerEditing} order={o} onClose={() => setBuyerEditing(false)} />
       {o.allowedActions.includes('assign_farm') ? <AssignFarmDrawer open={assigning} order={o} onClose={() => setAssigning(false)} /> : null}
       {destinationDialog}
@@ -586,18 +568,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           }
         />
       ) : null}
-      <AppointmentDrawer
-        appointment={null}
-        open={scheduling}
-        onClose={() => setScheduling(false)}
-        defaultOrder={{
-          id: o.id,
-          label: o.number,
-          description: `${o.commodity?.name ?? '—'} · ${o.farm?.name ?? '—'}`,
-          meta: { released: o.quantities.released, scheduled: o.quantities.scheduled, loaded: o.quantities.loaded, unit },
-        }}
-      />
-      <NewLoadDrawer orderId={o.id} open={creatingLoad} onClose={() => setCreatingLoad(false)} />
     </div>
   );
 }

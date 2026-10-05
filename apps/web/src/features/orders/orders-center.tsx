@@ -46,9 +46,8 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { AppointmentDrawer } from '@/features/logistics/appointment-drawer';
-import { NewLoadDrawer } from '@/features/logistics/new-load-drawer';
-import { del, get, post } from '@/lib/api';
+import { useRegisterArrival } from '@/features/logistics/logistics-api';
+import { ApiRequestError, del, get, post } from '@/lib/api';
 import { formatDate, formatMoney, formatQty, formatQtyCompact, formatRelative, formatShortDate } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 import { Farol, PriorityDot, QuantityBar, SIGNAL_OPTIONS, STATUS_OPTIONS, StatusBadge } from './indicators';
@@ -57,7 +56,6 @@ import { BuyerOrderDrawer } from './buyer-order-drawer';
 import { OrderFormDrawer } from './order-form-drawer';
 import { useOrder, useOrders, useOrdersSummary, type ListParams } from './orders-api';
 import { QuickView } from './quick-view';
-import { ReleaseDialog } from './release-dialog';
 
 // ───────────────────────────── Estado na URL ─────────────────────────────
 
@@ -183,9 +181,16 @@ export function OrdersCenter() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [quickId, setQuickId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [releaseId, setReleaseId] = useState<string | null>(null);
-  const [scheduleOrder, setScheduleOrder] = useState<OrderListItem | null>(null);
-  const [loadOrderId, setLoadOrderId] = useState<string | null>(null);
+  const arrival = useRegisterArrival();
+  /** Chegada do caminhão direto da lista: cria a carga e abre a ordem já nela. */
+  const registerArrival = (orderId: string) =>
+    arrival
+      .mutateAsync(orderId)
+      .then((load) => {
+        toast.success(`Chegada registrada: carga ${load.number}`);
+        router.push(`/ordens/${orderId}?carga=${load.id}`);
+      })
+      .catch((err: unknown) => toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível registrar a chegada.'));
   const creating = params.get('nova') === '1';
 
   useEffect(() => setSearch(filters.q), [filters.q]);
@@ -208,7 +213,6 @@ export function OrdersCenter() {
   const summary = useOrdersSummary();
   const pendingBilling = useOrders({ status: ['PENDING_BILLING'], pageSize: 10 });
   const editing = useOrder(editId);
-  const releasing = useOrder(releaseId);
 
   const savedViews = useQuery({
     queryKey: ['saved-views', 'orders'],
@@ -329,7 +333,7 @@ export function OrdersCenter() {
           <div className="min-w-0 space-y-1.5">
             <div className="flex items-baseline justify-between gap-2 tabular">
               <span className="font-medium">{formatQty(o.quantities.total, o.quantities.unit)}</span>
-              <span className="text-[11px] text-subtle">lib. {formatQtyCompact(o.quantities.released)}</span>
+              <span className="text-[11px] text-subtle">carr. {formatQtyCompact(o.quantities.loaded)}</span>
             </div>
             <QuantityBar q={o.quantities} />
           </div>
@@ -417,9 +421,9 @@ export function OrdersCenter() {
                 <MenuItem onSelect={() => setQuickId(o.id)}>Visualização rápida</MenuItem>
                 <MenuItem onSelect={() => router.push(`/ordens/${o.id}`)}>Abrir detalhes</MenuItem>
                 {can('order.update') && !['COMPLETED', 'CANCELLED'].includes(o.status) ? <MenuItem onSelect={() => setEditId(o.id)}>{o.status === 'DRAFT' ? 'Continuar rascunho' : 'Editar'}</MenuItem> : null}
-                {can('order.release') && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status) ? <MenuItem onSelect={() => setReleaseId(o.id)}>Nova liberação</MenuItem> : null}
-                {can('appointment.manage') && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status) ? <MenuItem onSelect={() => setScheduleOrder(o)}>Novo agendamento</MenuItem> : null}
-                {can('load.manage') && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status) ? <MenuItem onSelect={() => setLoadOrderId(o.id)}>Nova carga</MenuItem> : null}
+                {can('load.manage') && scope !== 'BUYER' && o.farm && ['PUBLISHED', 'IN_PROGRESS'].includes(o.status) ? (
+                  <MenuItem onSelect={() => void registerArrival(o.id)}>Informar chegada do caminhão</MenuItem>
+                ) : null}
               </Dropdown.Content>
             </Dropdown.Portal>
           </Dropdown.Root>
@@ -470,7 +474,7 @@ export function OrdersCenter() {
           <h1 className="text-2xl font-semibold tracking-tight">Ordens de Carregamento</h1>
           <p className="mt-1 text-sm text-muted">
             {scope === 'MATRIZ'
-              ? 'Central operacional: solicitações do Comprador, liberações, execução e visualização por Fazenda e Comprador.'
+              ? 'Central operacional: solicitações do Comprador, execução e visualização por Fazenda e Comprador.'
               : scope === 'BUYER'
                 ? 'Suas solicitações e as ordens publicadas para sua organização.'
                 : 'Ordens publicadas para sua organização.'}
@@ -501,7 +505,6 @@ export function OrdersCenter() {
           <>
             <KpiCard label="Abertas" value={s.open} hint={`${s.publishedToday} publicadas hoje`} icon={<ClipboardList />} active={filters.status.join() === 'PUBLISHED,IN_PROGRESS,SUSPENDED'} onClick={() => setFilters({ status: ['PUBLISHED', 'IN_PROGRESS', 'SUSPENDED'], farmSignal: '', buyerSignal: '' })} />
             <KpiCard label="Volume em aberto" value={formatQtyCompact(s.totalQty, 't')} hint={`${formatQtyCompact(s.balanceQty, 't')} de saldo`} icon={<Scale />} />
-            <KpiCard label="Liberado" value={formatQtyCompact(s.releasedQty, 't')} icon={<Scale />} progress={{ value: s.releasedQty, total: s.totalQty }} />
             <KpiCard label="Carregado" value={formatQtyCompact(s.loadedQty, 't')} hint={`${formatQtyCompact(s.receivedQty, 't')} recebidas`} icon={<Truck />} tone="success" progress={{ value: s.loadedQty, total: s.totalQty }} />
             {scope === 'MATRIZ' ? (
               <>
@@ -818,10 +821,6 @@ export function OrdersCenter() {
           setQuickId(null);
           setEditId(id);
         }}
-        onRelease={(id) => {
-          setQuickId(null);
-          setReleaseId(id);
-        }}
       />
       {scope === 'BUYER' ? (
         <BuyerOrderDrawer open={creating} order={null} onClose={closeCreate} />
@@ -829,28 +828,6 @@ export function OrdersCenter() {
         <OrderFormDrawer open={creating} order={null} onClose={closeCreate} onPublished={(o) => setQuickId(o.id)} />
       )}
       <OrderFormDrawer open={Boolean(editId && editing.data)} order={editing.data ?? null} onClose={() => setEditId(null)} onPublished={(o) => setQuickId(o.id)} />
-      {releasing.data ? <ReleaseDialog order={releasing.data} open={Boolean(releaseId)} onOpenChange={(o) => !o && setReleaseId(null)} /> : null}
-      <AppointmentDrawer
-        appointment={null}
-        open={scheduleOrder !== null}
-        onClose={() => setScheduleOrder(null)}
-        defaultOrder={
-          scheduleOrder
-            ? {
-                id: scheduleOrder.id,
-                label: scheduleOrder.number,
-                description: `${scheduleOrder.commodity?.name ?? '—'} · ${scheduleOrder.farm?.name ?? '—'}`,
-                meta: {
-                  released: scheduleOrder.quantities.released,
-                  scheduled: scheduleOrder.quantities.scheduled,
-                  loaded: scheduleOrder.quantities.loaded,
-                  unit: scheduleOrder.quantities.unit,
-                },
-              }
-            : null
-        }
-      />
-      <NewLoadDrawer orderId={loadOrderId} open={loadOrderId !== null} onClose={() => setLoadOrderId(null)} />
     </div>
   );
 }

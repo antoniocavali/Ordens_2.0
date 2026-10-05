@@ -1,7 +1,6 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { ReleasesPage } from '@/features/orders/releases-page';
-
+/** Tela removida: liberações e agendamentos não existem mais. Links antigos caem na lista de ordens. */
 export default function Page() {
-  return <ReleasesPage />;
+  redirect('/ordens');
 }

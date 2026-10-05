@@ -80,11 +80,8 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `order.update` | — | ● | ● | ● | — | — | — | — |
 | `order.publish` | — | ● | ● | — | — | — | — | — |
 | `order.cancel` | — | ● | ● | — | — | — | — | — |
-| `order.release` | — | ● | ● | — | — | — | — | — |
 | `order.submit` (portal: criar, editar próprios rascunhos, enviar ao Faturamento, cancelar antes da análise) | — | — | — | — | — | — | — | ○ |
 | `order.billing.manage` (definir vendedor/fazenda, publicar ou devolver solicitações; também papel Faturamento) | — | ● | ● | — | — | — | — | — |
-| `appointment.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
-| `appointment.manage` | — | ● | ● | ● | — | ○ | ○ | — |
 | `load.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
 | `load.manage` | — | ● | ● | ● | — | ○ | ○ | — |
 | `occurrence.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |

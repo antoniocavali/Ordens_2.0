@@ -120,19 +120,14 @@ export function Farol({
   );
 }
 
-/** Barra segmentada: recebido ⊂ carregado ⊂ liberado ⊂ total. */
+/** Barra segmentada: recebido ⊂ carregado ⊂ total. Passa de 100% quando a Fazenda carrega além da ordem. */
 export function QuantityBar({ q, className, showLegend }: { q: OrderQuantities; className?: string; showLegend?: boolean }) {
   const received = ratio(q.received, q.total);
   const loaded = Math.max(0, ratio(q.loaded, q.total) - received);
-  const released = Math.max(0, ratio(q.released, q.total) - ratio(q.loaded, q.total));
   const tooltip = (
     <span className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 tabular">
       <span>Total</span>
       <span className="text-right">{formatQty(q.total, q.unit)}</span>
-      <span>Liberado</span>
-      <span className="text-right">{formatQty(q.released, q.unit)}</span>
-      <span>Agendado</span>
-      <span className="text-right">{formatQty(q.scheduled, q.unit)}</span>
       <span>Carregado</span>
       <span className="text-right">{formatQty(q.loaded, q.unit)}</span>
       <span>Em trânsito</span>
@@ -149,16 +144,14 @@ export function QuantityBar({ q, className, showLegend }: { q: OrderQuantities; 
         <div
           className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-3"
           role="img"
-          aria-label={`Liberado ${formatQty(q.released, q.unit)}, carregado ${formatQty(q.loaded, q.unit)}, recebido ${formatQty(q.received, q.unit)} de ${formatQty(q.total, q.unit)}`}
+          aria-label={`Carregado ${formatQty(q.loaded, q.unit)}, recebido ${formatQty(q.received, q.unit)} de ${formatQty(q.total, q.unit)}`}
         >
           <motion.div className="h-full bg-success" initial={{ width: 0 }} animate={{ width: `${received}%` }} transition={{ duration: 0.6 }} />
           <motion.div className="h-full bg-accent" initial={{ width: 0 }} animate={{ width: `${loaded}%` }} transition={{ duration: 0.6, delay: 0.05 }} />
-          <motion.div className="h-full bg-primary/45" initial={{ width: 0 }} animate={{ width: `${released}%` }} transition={{ duration: 0.6, delay: 0.1 }} />
         </div>
       </Tooltip>
       {showLegend ? (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-          <Legend cls="bg-primary/45" label="Liberado" value={formatQty(q.released, q.unit)} />
           <Legend cls="bg-accent" label="Carregado" value={formatQty(q.loaded, q.unit)} />
           <Legend cls="bg-success" label="Recebido" value={formatQty(q.received, q.unit)} />
         </div>
