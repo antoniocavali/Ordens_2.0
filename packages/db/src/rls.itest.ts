@@ -300,13 +300,60 @@ describe('fiscal, ocorrências e documentos', () => {
     await expect(db.run(buyer(A, 0), (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }))).rejects.toThrow(/row-level security/);
   });
 
-  it('Comprador lê só NF-e válidas da própria ordem; Fazenda lê as da própria organização', async () => {
+  it('Fazenda lê só a NF-e dela; Comprador lê só a que a Matriz emitiu para ele (e válida)', async () => {
     const load = await newLoad(A, 0);
-    const valid = await db.run(systemContext(A.tenantId), (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }));
-    const rejected = await db.run(systemContext(A.tenantId), (tx) => tx.invoice.create({ data: invoiceData(A, load.id, 'REJECTED') }));
-    const ids = async (ctx: DbContext) => (await db.run(ctx, (tx) => tx.invoice.findMany({ where: { loadId: load.id }, select: { id: true } }))).map((r) => r.id);
-    expect(await ids(buyer(A, 0))).toEqual([valid.id]);
-    expect(await ids(farm(A, 0))).toEqual(expect.arrayContaining([valid.id, rejected.id]));
+    const sys = systemContext(A.tenantId);
+    const daFazenda = await db.run(sys, (tx) => tx.invoice.create({ data: invoiceData(A, load.id) }));
+    const daFazendaRejeitada = await db.run(sys, (tx) => tx.invoice.create({ data: invoiceData(A, load.id, 'REJECTED') }));
+    const daMatriz = await db.run(sys, (tx) => tx.invoice.create({ data: { ...invoiceData(A, load.id), origin: 'MATRIZ' } }));
+    const daMatrizRejeitada = await db.run(sys, (tx) => tx.invoice.create({ data: { ...invoiceData(A, load.id, 'REJECTED'), origin: 'MATRIZ' } }));
+    const ids = async (ctx: DbContext) => (await db.run(ctx, (tx) => tx.invoice.findMany({ where: { loadId: load.id }, select: { id: true } }))).map((r) => r.id).sort();
+
+    // A Matriz vê tudo.
+    expect(await ids(matriz(A))).toEqual([daFazenda.id, daFazendaRejeitada.id, daMatriz.id, daMatrizRejeitada.id].sort());
+    // A Fazenda vê as dela (inclusive a rejeitada, para corrigir) e nunca a nota da Matriz ao Comprador.
+    expect(await ids(farm(A, 0))).toEqual([daFazenda.id, daFazendaRejeitada.id].sort());
+    // O Comprador vê só a nota que a Matriz emitiu para ele, e só se válida — nunca a da Fazenda.
+    expect(await ids(buyer(A, 0))).toEqual([daMatriz.id]);
+    // Outras organizações e outro tenant: nada.
+    expect(await ids(farm(A, 1))).toHaveLength(0);
+    expect(await ids(buyer(A, 1))).toHaveLength(0);
+    expect(await ids(matriz(B))).toHaveLength(0);
+  });
+
+  it('arquivos da nota: os da Fazenda só ela vê; os da Matriz só o Comprador', async () => {
+    const load = await newLoad(A, 0);
+    const arquivo = (visibility: 'FARM' | 'BUYER' | 'INTERNAL', organizationId: string, kind: 'PDF' | 'NFE_XML') => ({
+      tenantId: A.tenantId,
+      organizationId,
+      entityType: 'load',
+      entityId: load.id,
+      kind,
+      originalName: `${visibility}-${kind}`,
+      declaredMime: kind === 'PDF' ? 'application/pdf' : 'application/xml',
+      sizeBytes: 10n,
+      bucket: 'ordens-documents',
+      objectKey: `t/${A.tenantId}/test/${randomUUID()}`,
+      idempotencyKey: randomUUID(),
+      createdBy: randomUUID(),
+      status: 'AVAILABLE' as const,
+      visibility,
+    });
+    const docs = await db.run(matriz(A), async (tx) => ({
+      // Nota da Fazenda anexada pela Matriz em nome dela.
+      fazendaPdf: await tx.fileUpload.create({ data: arquivo('FARM', A.matrizOrg, 'PDF') }),
+      fazendaXml: await tx.fileUpload.create({ data: arquivo('FARM', A.matrizOrg, 'NFE_XML') }),
+      // Nota que a Matriz emite para o Comprador.
+      matrizPdf: await tx.fileUpload.create({ data: arquivo('BUYER', A.matrizOrg, 'PDF') }),
+      matrizXml: await tx.fileUpload.create({ data: arquivo('BUYER', A.matrizOrg, 'NFE_XML') }),
+      interno: await tx.fileUpload.create({ data: arquivo('INTERNAL', A.matrizOrg, 'PDF') }),
+    }));
+    const all = Object.values(docs).map((d) => d.id);
+    const ids = async (ctx: DbContext) => (await db.run(ctx, (tx) => tx.fileUpload.findMany({ where: { id: { in: all } }, select: { id: true } }))).map((r) => r.id).sort();
+
+    expect(await ids(matriz(A))).toEqual([...all].sort());
+    expect(await ids(farm(A, 0))).toEqual([docs.fazendaPdf.id, docs.fazendaXml.id].sort());
+    expect(await ids(buyer(A, 0))).toEqual([docs.matrizPdf.id, docs.matrizXml.id].sort());
     expect(await ids(farm(A, 1))).toHaveLength(0);
     expect(await ids(buyer(A, 1))).toHaveLength(0);
     expect(await ids(matriz(B))).toHaveLength(0);

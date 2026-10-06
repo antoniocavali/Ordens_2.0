@@ -11,7 +11,7 @@ import { FormSection, handleSaveError, span, Stat } from '@/features/registry/fo
 import { ApiRequestError } from '@/lib/api';
 import { subDec } from '@/lib/decimal';
 import { formatDate, formatDateTime, formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
-import { useCan } from '@/lib/session';
+import { useCan, useMe } from '@/lib/session';
 import { TransportFields, transportFromDto, transportPayload, type TransportValues } from './transport-fields';
 import { LoadStatusBadge, LoadStepper } from './load-status';
 import { useLoad, useLoadMutations } from './logistics-api';
@@ -96,6 +96,8 @@ function FiscalChecklist({ c, party = 'FARM' }: { c: LoadFiscalChecklist; party?
 
 export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const can = useCan();
+  // Cada parte vê só a documentação que é dela: a Fazenda, a nota que emite; o Comprador, a da Matriz.
+  const scope = useMe().data?.activeMembership?.scope;
   const load = useLoad(id);
   const { update, transition } = useLoadMutations();
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -273,6 +275,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
               </FormSection>
             </fieldset>
 
+            {scope !== 'BUYER' ? (
             <FormSection
               title="Documentação fiscal da Fazenda"
               description="Após confirmar o carregamento, anexe o PDF da nota fiscal e o XML da NF-e. A carga só segue para transporte com os dois documentos e o XML validado."
@@ -291,7 +294,9 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 <InvoiceList loadId={l.id} />
               </div>
             </FormSection>
+            ) : null}
 
+            {scope !== 'FARM' ? (
             <FormSection
               title="Nota da Matriz para o Comprador"
               description="Com a carga em trânsito, anexe o PDF e o XML da NF-e emitida pela Matriz. A carga só é faturada e concluída com os dois documentos e o XML validado."
@@ -308,7 +313,14 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                   />
                 </div>
               ) : null}
+              {/* O Comprador não tem a seção da Fazenda: a lista das notas dele (as da Matriz) fica aqui. */}
+              {scope === 'BUYER' ? (
+                <div className="sm:col-span-6">
+                  <InvoiceList loadId={l.id} />
+                </div>
+              ) : null}
             </FormSection>
+            ) : null}
 
             {can('occurrence.read') ? (
               <FormSection title="Ocorrências">

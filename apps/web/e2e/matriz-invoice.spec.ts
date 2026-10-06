@@ -12,8 +12,9 @@ test.describe('Faturamento da Matriz na carga', () => {
   test('Sem a nota da Matriz o faturamento é recusado; com PDF e XML válidos a carga conclui', async ({ page }) => {
     await login(page, 'admin@graoforte.demo');
     const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
-    const chosen = loads[0];
-    expect(chosen, 'carga em trânsito no seed').toBeTruthy();
+    // Outras suítes também deixam cargas em trânsito, algumas já com a nota da Matriz: aqui interessa uma sem nada.
+    const chosen = loads.find((l) => l.matrizChecklist?.pdf === 'MISSING' && l.matrizChecklist?.xml === 'MISSING');
+    expect(chosen, 'carga em trânsito sem nota da Matriz').toBeTruthy();
     const getLoad = () => apiOk(page, 'GET', `/loads/${chosen.id}`);
 
     // Do trânsito a Matriz fatura direto: não há recebimento nem "encerrar transporte".

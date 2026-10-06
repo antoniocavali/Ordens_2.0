@@ -110,6 +110,7 @@ export interface LoadSetup {
   loadNumber: string;
   orderId: string;
   buyerName: string;
+  sellerName: string;
   sellerDoc: string;
   plate: string;
 }
@@ -120,7 +121,8 @@ export const PDF = Buffer.from('%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntra
 export async function prepareLoad(page: Page): Promise<LoadSetup> {
   const orders = (await apiOk(page, 'GET', '/orders?status=PUBLISHED&status=IN_PROGRESS&pageSize=100')).items as any[];
   // Comprador com usuários no portal (ABC ou Nutri): a checagem de visibilidade final depende disso.
-  const order = orders.find((o) => o.farm && o.seller && /abc|nutri/i.test(o.buyer?.name ?? ''));
+  // Vendedor João ou Maria pelo mesmo motivo: são as fazendas que têm usuário no seed.
+  const order = orders.find((o) => o.farm && /jo[aã]o|maria/i.test(o.seller?.name ?? '') && /abc|nutri/i.test(o.buyer?.name ?? ''));
   expect(order, 'ordem publicada com fazenda no seed').toBeTruthy();
 
   const detail = await apiOk(page, 'GET', `/orders/${order.id}`);
@@ -147,6 +149,7 @@ export async function prepareLoad(page: Page): Promise<LoadSetup> {
     loadNumber: load.number,
     orderId: order.id,
     buyerName: detail.buyer?.name ?? '',
+    sellerName: detail.seller?.name ?? '',
     sellerDoc: String(seller.document ?? '').replace(/\D/g, ''),
     plate: load.plates[0],
   };
