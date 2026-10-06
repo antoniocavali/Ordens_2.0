@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, loginAs, login, nfeKey, nfeXml, password, PDF, prepareLoad } from './helpers';
+import { api, apiOk, loginAs, login, MATRIZ_RECIPIENT_DOC, nfeKey, nfeXml, password, PDF, prepareLoad } from './helpers';
 
 /**
  * Logística + fiscal (Q41): veículo na fazenda → carga → carregamento → pesagem obrigatória → documentação fiscal
@@ -131,7 +131,8 @@ test.describe('Logística e fiscal', () => {
     expect(farmUploadsBefore.length).toBeGreaterThan(0);
 
     // ─── A Matriz anexa a nota que emite para o Comprador ───
-    const matrizDoc = '11222333000181';
+    // Emitente diferente do vendedor da ordem: é isso que faz o XML ser a nota da Matriz.
+    const matrizDoc = MATRIZ_RECIPIENT_DOC;
     const matrizKey = nfeKey(matrizDoc);
     await page.goto(`/cargas?abrir=${setup.loadId}`);
     const matrizInput = page.getByRole('dialog').first().locator('input[type="file"]').last();
