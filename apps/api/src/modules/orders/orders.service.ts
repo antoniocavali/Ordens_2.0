@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
   BUYER_SUBMIT_REQUIRED,
-  compareDecimalStrings,
   ErrorCode,
   ORDER_MATERIAL_FIELDS,
   ORDER_PUBLISH_REQUIRED,
@@ -19,7 +18,6 @@ import {
   type OrderVersionDto,
   type OrderViewHistoryItem,
   type Page,
-  type ReleaseDto,
   type TimelineEventDto,
   type UpdateOrderInput,
 } from '@ordens/contracts';
@@ -28,7 +26,7 @@ import { AppError } from '../../common/errors.js';
 import { readVehicles } from '../logistics/logistics.util.js';
 import { currentAuth, currentRequest } from '../../common/request-context.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
-import { dec, day, toDetail, toListItem } from './orders.mapper.js';
+import { day, toDetail, toListItem } from './orders.mapper.js';
 import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
 import { recalcOrder } from '../logistics/logistics.util.js';
 import { completeOrderRecord, pendingFiscalDocuments } from './order-completion.util.js';
@@ -117,7 +115,7 @@ function normalize(field: string, value: unknown): unknown {
   if (field === 'vehicles') return readVehicles(value as Prisma.JsonValue);
   if (DATE_FIELDS.has(field) && value instanceof Date) return day(value);
   if (Prisma.Decimal.isDecimal(value)) return new Prisma.Decimal(value as Prisma.Decimal).toString();
-  if (['quantity', 'unitPrice', 'tolerancePct', 'freightEstimate', 'initialReleaseQty'].includes(field) && typeof value === 'string') {
+  if (['quantity', 'unitPrice', 'tolerancePct', 'freightEstimate'].includes(field) && typeof value === 'string') {
     return new Prisma.Decimal(value).toString();
   }
   return value;
@@ -197,7 +195,6 @@ export class OrdersService {
           awaiting_farm: bigint;
           awaiting_buyer: bigint;
           total_qty: Prisma.Decimal | null;
-          released_qty: Prisma.Decimal | null;
           loaded_qty: Prisma.Decimal | null;
           received_qty: Prisma.Decimal | null;
           cancelled_qty: Prisma.Decimal | null;
@@ -216,7 +213,6 @@ export class OrdersService {
           count(*) filter (where status in ('PUBLISHED', 'IN_PROGRESS') and seller_org_id is not null and coalesce(fv, 0) < version) as awaiting_farm,
           count(*) filter (where status in ('PUBLISHED', 'IN_PROGRESS') and buyer_org_id is not null and coalesce(bv, 0) < version) as awaiting_buyer,
           sum(quantity) filter (where status in ('PUBLISHED', 'IN_PROGRESS', 'SUSPENDED')) as total_qty,
-          sum(released_qty) filter (where status in ('PUBLISHED', 'IN_PROGRESS', 'SUSPENDED')) as released_qty,
           sum(loaded_qty) filter (where status in ('PUBLISHED', 'IN_PROGRESS', 'SUSPENDED')) as loaded_qty,
           sum(received_qty) filter (where status in ('PUBLISHED', 'IN_PROGRESS', 'SUSPENDED')) as received_qty,
           sum(cancelled_qty) filter (where status in ('PUBLISHED', 'IN_PROGRESS', 'SUSPENDED')) as cancelled_qty
@@ -233,7 +229,6 @@ export class OrdersService {
         awaitingFarmView: Number(row?.awaiting_farm ?? 0),
         awaitingBuyerView: Number(row?.awaiting_buyer ?? 0),
         totalQty: total.toString(),
-        releasedQty: new Prisma.Decimal(row?.released_qty ?? 0).toString(),
         loadedQty: loaded.toString(),
         receivedQty: new Prisma.Decimal(row?.received_qty ?? 0).toString(),
         balanceQty: Prisma.Decimal.max(total.minus(loaded).minus(cancelled), 0).toString(),
@@ -306,11 +301,6 @@ export class OrdersService {
       const isDraft = before.status === 'DRAFT' || before.status === 'PENDING_BILLING';
       if (!isDraft) {
         this.assertPublishRequirements(merged);
-        if (merged.quantity && compareDecimalStrings(new Prisma.Decimal(merged.quantity).toString(), before.releasedQty.toString()) < 0) {
-          throw AppError.domain(ErrorCode.RELEASE_EXCEEDS_ORDER, 'A quantidade não pode ser menor que o total já liberado.', {
-            fields: { quantity: [`Mínimo: ${before.releasedQty.toString()}`] },
-          });
-        }
       }
 
       const materialChanges = isDraft ? [] : changes.filter((c) => (ORDER_MATERIAL_FIELDS as readonly string[]).includes(c.field));
@@ -572,7 +562,7 @@ export class OrdersService {
 
   // ───────────────────────────── Suspensão e cancelamento (Matriz) ─────────────────────────────
 
-  /** Suspende ordem publicada ou em execução: bloqueia liberações, agendamentos e cargas novas até a retomada. */
+  /** Suspende ordem publicada ou em execução: bloqueia novas chegadas de caminhão até a retomada. */
   async suspendOrder(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
     const auth = currentAuth();
     this.assertInternal();
@@ -680,7 +670,7 @@ export class OrdersService {
 
   /**
    * Cancela a ordem (rascunho interno, aguardando faturamento, publicada, em execução ou suspensa). Exige que não haja
-   * carga ativa; agendamentos e liberações ativos são cancelados junto e o saldo não carregado vira "cancelado".
+   * carga ativa; o saldo não carregado vira "cancelado".
    * Cargas concluídas são mantidas.
    */
   async cancelOrder(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
@@ -701,15 +691,6 @@ export class OrdersService {
         );
       }
       const now = new Date();
-      const note = `Ordem cancelada: ${input.reason}`;
-      const appointments = await tx.appointment.updateMany({
-        where: { orderId: id, status: { in: ['REQUESTED', 'CONFIRMED', 'CHECKED_IN'] } },
-        data: { status: 'CANCELLED', cancelReason: note },
-      });
-      const releases = await tx.loadingOrderRelease.updateMany({
-        where: { orderId: id, status: 'ACTIVE' },
-        data: { status: 'CANCELLED', cancelledAt: now, cancelledBy: auth.userId, cancelReason: note },
-      });
       await recalcOrder(tx, id);
       const fresh = await tx.loadingOrder.findUniqueOrThrow({ where: { id }, select: { quantity: true, loadedQty: true } });
       const cancelledQty = Prisma.Decimal.max(new Prisma.Decimal(fresh.quantity ?? 0).minus(fresh.loadedQty), 0);
@@ -722,7 +703,7 @@ export class OrdersService {
         entityId: id,
         action: 'order.cancelled',
         before: { status: order.status },
-        after: { status: 'CANCELLED', reason: input.reason, cancelledQty: cancelledQty.toString(), appointmentsCancelled: appointments.count, releasesCancelled: releases.count },
+        after: { status: 'CANCELLED', reason: input.reason, cancelledQty: cancelledQty.toString() },
       });
       await scope.outbox({
         type: 'order.cancelled',
@@ -774,7 +755,6 @@ export class OrdersService {
           farmNotes: null,
           commercialTerms: null,
           loadingInstructions: null,
-          initialReleaseQty: null,
           operationType: null,
           tolerancePct: '0',
           updatedBy: auth.userId,
@@ -1024,24 +1004,6 @@ export class OrdersService {
     const row = rows[0];
     if (!row) throw AppError.notFound('Ordem não encontrada.');
 
-    const releases = await tx.loadingOrderRelease.findMany({ where: { orderId: id }, orderBy: { sequence: 'asc' } });
-    const names = await this.userNames(tx, releases.flatMap((r) => [r.createdBy, r.cancelledBy]));
-    const releaseDtos: ReleaseDto[] = releases.map((r) => ({
-      id: r.id,
-      sequence: r.sequence,
-      quantity: dec(r.quantity)!,
-      validUntil: day(r.validUntil),
-      status: r.status,
-      notes: r.notes,
-      orderVersion: r.orderVersion,
-      createdAt: r.createdAt.toISOString(),
-      createdBy: r.createdBy ? (names.get(r.createdBy) ?? null) : null,
-      cancelledAt: r.cancelledAt?.toISOString() ?? null,
-      cancelledBy: r.cancelledBy ? (names.get(r.cancelledBy) ?? null) : null,
-      // Motivo é interno: Fazenda e Comprador veem só que foi cancelada.
-      cancelReason: auth.membership!.scope === 'MATRIZ' ? r.cancelReason : null,
-    }));
-
     const perms = auth.permissions;
     const actions: string[] = [];
     const status = row.status;
@@ -1097,7 +1059,7 @@ export class OrdersService {
       if (ACTIVE_STATUSES.includes(status) || status === 'PENDING_BILLING' || (status === 'DRAFT' && row.origin !== 'BUYER')) actions.push('cancel');
     }
 
-    return { ...toDetail(row, releaseDtos, auth.membership!.scope, actions), workflow };
+    return { ...toDetail(row, auth.membership!.scope, actions), workflow };
   }
 
   /**
@@ -1165,11 +1127,6 @@ export class OrdersService {
     }
   }
 
-  private maxReleasable(order: OrderRecord): Prisma.Decimal {
-    const qty = new Prisma.Decimal(order.quantity ?? 0);
-    return qty.times(new Prisma.Decimal(order.tolerancePct).dividedBy(100).plus(1));
-  }
-
   private async createVersion(
     scope: UnitOfWorkScope,
     order: OrderRecord,
@@ -1181,7 +1138,7 @@ export class OrdersService {
         tenantId: order.tenantId,
         orderId: order.id,
         version: order.version,
-        materialSnapshot: { ...snapshot(order), releasedQty: order.releasedQty.toString() },
+        materialSnapshot: snapshot(order) as Prisma.InputJsonValue,
         changedFields: changes as Prisma.InputJsonValue,
         createdBy: currentAuth().userId,
       },

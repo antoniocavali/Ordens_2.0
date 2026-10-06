@@ -58,22 +58,16 @@ async function usersOf(tx: Tx, orgIds: (string | null | undefined)[]) {
 export async function notificationPlan(tx: Tx, type: string, p: Record<string, unknown>): Promise<Plan | null> {
   switch (type) {
     case 'order.published':
-    case 'order.version_created':
-    case 'order.release_created': {
+    case 'order.version_created': {
       const orderId = str(p.orderId);
       const order = orderId
         ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, version: true, sellerOrgId: true, buyerOrgId: true } })
         : null;
       if (!order) return null;
-      const release = type === 'order.release_created';
       return {
-        userIds: await usersOf(tx, release ? [order.sellerOrgId] : [order.sellerOrgId, order.buyerOrgId]),
-        title: type === 'order.published' ? `Nova ordem ${order.number}` : release ? `Nova liberação na ordem ${order.number}` : `Ordem ${order.number} atualizada (v${order.version})`,
-        body: release
-          ? `Liberação ${String(p.sequence)} de ${String(p.quantity)} registrada.`
-          : type === 'order.published'
-            ? 'Uma nova ordem de carregamento foi publicada para sua organização.'
-            : 'A Matriz alterou informações relevantes. Revise a nova versão.',
+        userIds: await usersOf(tx, [order.sellerOrgId, order.buyerOrgId]),
+        title: type === 'order.published' ? `Nova ordem ${order.number}` : `Ordem ${order.number} atualizada (v${order.version})`,
+        body: type === 'order.published' ? 'Uma nova ordem de carregamento foi publicada para sua organização.' : 'A Matriz alterou informações relevantes. Revise a nova versão.',
         data: { orderId, version: order.version },
       };
     }
@@ -148,7 +142,7 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
       return {
         userIds,
         title: `Ordem ${order.number} ${verb} pela Matriz`,
-        body: type === 'order.resumed' ? 'A ordem voltou a aceitar agendamentos e cargas.' : `Motivo: ${str(p.reason) ?? 'não informado'}.`,
+        body: type === 'order.resumed' ? 'A ordem voltou a aceitar cargas.' : `Motivo: ${str(p.reason) ?? 'não informado'}.`,
         data: { orderId },
       };
     }
@@ -206,19 +200,6 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
         title: `Ordem ${order.number} aguardando publicação`,
         body: `${name ?? 'Um usuário da Matriz'} revisou o rascunho e pediu a publicação.`,
         data: { orderId },
-      };
-    }
-
-    case 'order.release_cancelled': {
-      const orderId = str(p.orderId);
-      const order = orderId ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { number: true, version: true, sellerOrgId: true } }) : null;
-      if (!order) return null;
-      // Motivo é interno da Matriz; a Fazenda só é avisada de que a quantidade deixou de estar liberada.
-      return {
-        userIds: await usersOf(tx, [order.sellerOrgId]),
-        title: `Liberação cancelada na ordem ${order.number}`,
-        body: `Liberação ${String(p.sequence)} de ${String(p.quantity)} foi cancelada pela Matriz.`,
-        data: { orderId, version: order.version },
       };
     }
 

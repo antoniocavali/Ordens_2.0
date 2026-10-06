@@ -2,7 +2,7 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CheckCircle2, FileText, GitCommitVertical, Hourglass, PackageCheck, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, FileText, GitCommitVertical, Hourglass, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
@@ -13,7 +13,7 @@ import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
 import { Farol, PriorityDot, QuantityBar, StatusBadge } from '@/features/orders/indicators';
-import { RELEASE_STATUS_LABELS, type OrderDetail } from '@ordens/contracts';
+import type { OrderDetail } from '@ordens/contracts';
 import { AssignFarmDrawer } from '@/features/orders/assign-farm-drawer';
 import { BuyerOrderDrawer } from '@/features/orders/buyer-order-drawer';
 import { ReasonDialog } from '@/features/logistics/reason-dialog';
@@ -70,7 +70,6 @@ const REASON_ACTIONS: Record<ReasonAction, { title: string; description: string;
 
 const FIELD_LABEL: Record<string, string> = {
   quantity: 'Quantidade',
-  releasedQty: 'Liberado',
   farmId: 'Fazenda',
   sellerPartnerId: 'Vendedor',
   buyerPartnerId: 'Comprador',
@@ -353,8 +352,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <Tabs.List className="flex gap-1 overflow-x-auto border-b border-border/70 px-4">
               {[
                 ['resumo', 'Resumo'],
-                // Liberações deixaram de existir: a aba só aparece em ordens antigas que tiveram alguma.
-                ...(o.releases.length ? [['liberacoes', `Liberações antigas (${o.releases.length})`]] : []),
                 ...(can('load.read') ? [['cargas', 'Cargas']] : []),
                 ...(can('occurrence.read') && o.status !== 'DRAFT' ? [['ocorrencias', 'Ocorrências']] : []),
                 ['versoes', 'Versões'],
@@ -404,54 +401,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <Note title="Observação interna (somente Matriz)" text={o.internalNotes} tone="primary" />
                 </div>
               ) : null}
-            </Tabs.Content>
-
-            <Tabs.Content value="liberacoes" className="p-5 sm:p-6">
-              {o.releases.length === 0 ? (
-                <EmptyState icon={<PackageCheck />} title="Nenhuma liberação" description="Liberações não são mais usadas: a ordem publicada já autoriza o carregamento." />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted">
-                        <th className="py-2 pr-3">#</th>
-                        <th className="py-2 pr-3 text-right">Quantidade</th>
-                        <th className="py-2 pr-3">Validade</th>
-                        <th className="py-2 pr-3">Versão</th>
-                        <th className="py-2 pr-3">Status</th>
-                        <th className="py-2">Registro</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {o.releases.map((r) => (
-                        <tr key={r.id} className="border-b border-border/60">
-                          <td className="py-3 pr-3 font-mono">{String(r.sequence).padStart(2, '0')}</td>
-                          <td className="py-3 pr-3 text-right font-medium tabular">{formatQty(r.quantity, unit)}</td>
-                          <td className="py-3 pr-3">{r.validUntil ? formatDate(r.validUntil) : '—'}</td>
-                          <td className="py-3 pr-3">v{r.orderVersion}</td>
-                          <td className="py-3 pr-3">
-                            <Badge tone={r.status === 'CANCELLED' ? 'danger' : 'neutral'} size="sm">
-                              {RELEASE_STATUS_LABELS[r.status]}
-                            </Badge>
-                          </td>
-                          <td className="py-3 text-xs text-muted">
-                            {formatDateTime(r.createdAt)}
-                            {r.createdBy ? ` · ${r.createdBy}` : ''}
-                            {r.notes ? <div className="text-subtle">{r.notes}</div> : null}
-                            {r.cancelledAt ? (
-                              <div className="text-danger/90">
-                                Cancelada {formatDateTime(r.cancelledAt)}
-                                {r.cancelledBy ? ` · ${r.cancelledBy}` : ''}
-                                {r.cancelReason ? ` — ${r.cancelReason}` : ''}
-                              </div>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </Tabs.Content>
 
             <Tabs.Content value="cargas" className="space-y-4 p-5 sm:p-6">

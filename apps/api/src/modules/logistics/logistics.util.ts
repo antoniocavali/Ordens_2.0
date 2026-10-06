@@ -106,8 +106,6 @@ export interface OrderForLogistics {
   tenantId: string;
   number: string;
   status: string;
-  releasedQty: Prisma.Decimal;
-  scheduledQty: Prisma.Decimal;
   loadedQty: Prisma.Decimal;
   tolerancePct: Prisma.Decimal;
   unitFactorToKg: Prisma.Decimal;
@@ -129,8 +127,6 @@ export async function orderForLogistics(tx: Tx, orderId: string): Promise<OrderF
     tenantId: order.tenantId,
     number: order.number,
     status: order.status,
-    releasedQty: order.releasedQty,
-    scheduledQty: order.scheduledQty,
     loadedQty: order.loadedQty,
     tolerancePct: order.tolerancePct,
     unitFactorToKg: unit?.factorToKg ?? new Prisma.Decimal(1),
@@ -138,7 +134,7 @@ export async function orderForLogistics(tx: Tx, orderId: string): Promise<OrderF
   };
 }
 
-/** Recalcula totais da ordem a partir de agendamentos e cargas (função SQL, mesma transação). */
+/** Recalcula totais da ordem a partir das cargas (função SQL, mesma transação). */
 export async function recalcOrder(tx: Tx, orderId: string) {
   // $executeRaw: a função retorna void (não desserializável por $queryRaw).
   await tx.$executeRaw`select recalc_order_quantities(${orderId}::uuid)`;

@@ -74,23 +74,18 @@ erDiagram
 ```mermaid
 erDiagram
   loading_orders ||--o{ loading_order_versions : "snapshot por versão"
-  loading_orders ||--o{ loading_order_releases : "liberações parciais"
   loading_orders ||--o{ loading_order_views : "faróis"
-  loading_orders ||--o{ appointments : ""
   loading_orders ||--o{ loads : ""
-  appointments |o--o| loads : "origina"
   loads ||--o{ load_status_history : ""
   loads ||--o{ invoices : ""
   invoices ||--o{ invoice_items : ""
   loads ||--o{ occurrences : ""
   loading_orders ||--o{ occurrences : ""
 
-  loading_orders { uuid id PK; uuid tenant_id; text number UK; text external_number; order_status status "DRAFT|PENDING_BILLING|PUBLISHED|…"; order_origin origin "MATRIZ|BUYER"; order_priority priority; int version; text contract_number "digitado pelo Faturamento, sem cadastro"; uuid seller_partner_id; uuid farm_id; uuid buyer_partner_id; uuid seller_org_id "RLS"; uuid buyer_org_id "RLS"; uuid commodity_id; numeric quantity; numeric released_qty; numeric scheduled_qty; numeric loaded_qty; numeric in_transit_qty; numeric received_qty; numeric cancelled_qty; numeric unit_price; numeric freight_estimate; text carrier_name; text driver_name; text driver_cpf; jsonb vehicles "transporte digitado na ordem"; numeric tolerance_pct; boolean requires_receipt "padrão true; só Matriz altera"; timestamptz completed_at; uuid completed_by; text completion_reason; text completion_via "auto|manual"; date loading_starts_on; date loading_ends_on; uuid created_by "RLS portal"; timestamptz submitted_at; uuid submitted_by; timestamptz published_at }
+  loading_orders { uuid id PK; uuid tenant_id; text number UK; text external_number; order_status status "DRAFT|PENDING_BILLING|PUBLISHED|…"; order_origin origin "MATRIZ|BUYER"; order_priority priority; int version; text contract_number "digitado pelo Faturamento, sem cadastro"; uuid seller_partner_id; uuid farm_id; uuid buyer_partner_id; uuid seller_org_id "RLS"; uuid buyer_org_id "RLS"; uuid commodity_id; numeric quantity; numeric loaded_qty; numeric in_transit_qty; numeric received_qty; numeric cancelled_qty; numeric unit_price; numeric freight_estimate; text carrier_name; text driver_name; text driver_cpf; jsonb vehicles "transporte digitado na ordem"; numeric tolerance_pct; boolean requires_receipt "padrão true; só Matriz altera"; timestamptz completed_at; uuid completed_by; text completion_reason; text completion_via "auto|manual"; date loading_starts_on; date loading_ends_on; uuid created_by "RLS portal"; timestamptz submitted_at; uuid submitted_by; timestamptz published_at }
   loading_order_versions { uuid id PK; uuid order_id; int version; jsonb material_snapshot; jsonb changed_fields; uuid created_by; timestamptz created_at }
-  loading_order_releases { uuid id PK; uuid order_id; int sequence; numeric quantity; date valid_until; release_status status; int order_version; uuid created_by }
   loading_order_views { uuid id PK; uuid order_id; uuid organization_id; uuid user_id; uuid membership_id; int version; timestamptz first_viewed_at; timestamptz last_viewed_at; int view_count; inet last_ip; text last_user_agent; uuid last_session_id }
-  appointments { uuid id PK; uuid order_id; date scheduled_on; tstzrange window; numeric expected_qty; text carrier_name; text driver_name; text driver_cpf; text driver_rg; text driver_phone; date driver_birth_date; text driver_cnh; text driver_cnh_category; date driver_cnh_expires_at; text driver_cnh_restrictions; jsonb vehicles "[{plate,description,type,axles,renavam}]"; text_array plates; appointment_status status }
-  loads { uuid id PK; uuid order_id; uuid appointment_id; text number; text carrier_name; text driver_name; text driver_cpf; date driver_cnh_expires_at; jsonb vehicles; text_array plates; numeric expected_qty; numeric gross_kg; numeric tare_kg; numeric net_kg; numeric invoiced_qty; numeric received_qty; load_status status }
+  loads { uuid id PK; uuid order_id; text number; text carrier_name; text driver_name; text driver_cpf; date driver_cnh_expires_at; jsonb vehicles; text_array plates; numeric expected_qty; numeric gross_kg; numeric tare_kg; numeric net_kg; numeric invoiced_qty; numeric received_qty; load_status status }
   invoices { uuid id PK; uuid load_id; char44 access_key UK; text number; text series; timestamptz issued_at; text issuer_cnpj; text recipient_cnpj; numeric total_value; numeric weight_kg; text plate; uuid file_upload_id; invoice_origin origin; jsonb raw_extract }
   occurrences { uuid id PK; uuid order_id; uuid load_id; occurrence_type type; severity severity; text description; uuid responsible_user_id; occurrence_status status; text resolution }
 ```
@@ -122,7 +117,6 @@ erDiagram
 | todas de negócio | `(tenant_id, …)` como prefixo |
 | loading_orders | `(tenant_id, number)` unique; `(tenant_id, status, loading_starts_on)`; `(tenant_id, seller_partner_id)`; `(tenant_id, farm_id)`; `(tenant_id, buyer_partner_id)`; `(tenant_id, commodity_id)`; `(tenant_id, contract_number)`; `(tenant_id, seller_org_id)`; `(tenant_id, buyer_org_id)`; `(tenant_id, updated_at desc)`; trigram em `number` para busca |
 | loads | `(tenant_id, order_id)`; `(tenant_id, status)`; GIN em `plates`; `(tenant_id, driver_cpf)` parcial |
-| appointments | `(tenant_id, driver_cpf)` e `(tenant_id, carrier_name)` parciais (sugestões de digitação) |
 | invoices | `access_key` unique; `(tenant_id, load_id)` |
 | loading_order_views | `(order_id, organization_id, user_id)` unique |
 | audit_events | `(tenant_id, entity_type, entity_id, occurred_at desc)`; BRIN em `occurred_at` |

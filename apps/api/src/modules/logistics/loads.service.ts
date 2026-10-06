@@ -344,7 +344,6 @@ export class LoadsService {
         id: r.id,
         number: r.number,
         order: { id: r.orderId, number: o?.number ?? '', commodity: o?.commodity ?? null, farm: o?.farm ?? null, buyer: o?.buyer ?? null, unit: o?.unit === 'T' ? 't' : (o?.unit?.toLowerCase() ?? '') },
-        appointmentId: r.appointmentId,
         loadingDate: fromDate(r.loadingDate),
         expectedQty: r.expectedQty.toString(),
         grossKg: r.grossKg?.toString() ?? null,

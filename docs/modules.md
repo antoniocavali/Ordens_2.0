@@ -39,7 +39,7 @@ A ordem evita o problema da aplicação anterior, em que praticamente tudo era u
 | `partners` | 3 | parceiros e papéis | business_partners, partner_roles, partner_contacts, partner_addresses |
 | `farms` | 3 | propriedades rurais | farms |
 | `commodities` | 3 | produtos e unidades | commodities, units |
-| `orders` | 5–6 | OC, versões, liberações, visualizações; número do contrato digitado pelo Faturamento (sem cadastro) | loading_orders, loading_order_versions, loading_order_releases, loading_order_views |
+| `orders` | 5–6 | OC, versões, visualizações; número do contrato digitado pelo Faturamento (sem cadastro) | loading_orders, loading_order_versions, loading_order_views |
 | `loads` | 7 | cargas e workflow | loads, load_status_history |
 | `occurrences` | 7 | ocorrências | occurrences |
 | `documents` | 8 | central de documentos | documents |

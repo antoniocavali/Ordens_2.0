@@ -6,7 +6,6 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   AlarmClock,
   ArrowRight,
-  CalendarClock,
   CheckCircle2,
   EyeOff,
   FileClock,
@@ -45,8 +44,6 @@ const ATTENTION_ICON: Record<string, LucideIcon> = {
   occurrences_overdue: AlarmClock,
   occurrences_severe: ShieldAlert,
   occurrences_open: ShieldAlert,
-  appointments_without_carrier: CalendarClock,
-  appointments_today: CalendarClock,
   documents_blocked: FileX,
   drafts: FileClock,
   in_transit: Truck,

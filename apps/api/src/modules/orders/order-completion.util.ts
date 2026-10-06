@@ -23,17 +23,14 @@ export async function pendingFiscalDocuments(tx: Tx, orderId: string): Promise<P
 }
 
 /**
- * Conclusão automática (Q45): ordem em execução com todas as cargas encerradas, nenhum agendamento em aberto,
+ * Conclusão automática (Q45): ordem em execução com todas as cargas encerradas,
  * documentação fiscal completa e quantidade atingida dentro da tolerância.
  */
 export async function canAutoComplete(tx: Tx, orderId: string): Promise<boolean> {
   const order = await tx.loadingOrder.findUniqueOrThrow({ where: { id: orderId } });
   if (order.status !== 'IN_PROGRESS' || order.quantity === null) return false;
-  const [openLoads, openAppointments] = await Promise.all([
-    tx.load.count({ where: { orderId, status: { notIn: ['COMPLETED', 'CANCELLED'] } } }),
-    tx.appointment.count({ where: { orderId, status: { in: ['REQUESTED', 'CONFIRMED', 'CHECKED_IN'] } } }),
-  ]);
-  if (openLoads || openAppointments) return false;
+  const openLoads = await tx.load.count({ where: { orderId, status: { notIn: ['COMPLETED', 'CANCELLED'] } } });
+  if (openLoads) return false;
   const minimum = new Prisma.Decimal(order.quantity).times(new Prisma.Decimal(1).minus(new Prisma.Decimal(order.tolerancePct).dividedBy(100)));
   if (new Prisma.Decimal(order.loadedQty).plus(order.cancelledQty).lessThan(minimum)) return false;
   return (await pendingFiscalDocuments(tx, orderId)).length === 0;
@@ -49,22 +46,12 @@ export interface CompletionInfo {
 }
 
 /**
- * Grava a conclusão (manual ou automática): cancela agendamentos e liberações ativos que perderam a
- * finalidade, audita e publica o aviso — tudo na mesma transação.
+ * Grava a conclusão (manual ou automática), audita e publica o aviso — tudo na mesma transação.
  */
 export async function completeOrderRecord(scope: UnitOfWorkScope, id: string, info: CompletionInfo): Promise<void> {
   const { tx } = scope;
   const userId = currentAuth().userId;
   const now = new Date();
-  const note = info.reason ? `Ordem concluída: ${info.reason}` : 'Ordem concluída';
-  const appointments = await tx.appointment.updateMany({
-    where: { orderId: id, status: { in: ['REQUESTED', 'CONFIRMED', 'CHECKED_IN'] } },
-    data: { status: 'CANCELLED', cancelReason: note },
-  });
-  const releases = await tx.loadingOrderRelease.updateMany({
-    where: { orderId: id, status: 'ACTIVE' },
-    data: { status: 'CANCELLED', cancelledAt: now, cancelledBy: userId, cancelReason: note },
-  });
   await tx.loadingOrder.update({
     where: { id },
     data: { status: 'COMPLETED', completedAt: now, completedBy: userId, completionReason: info.reason, completionVia: info.via, updatedBy: userId },
@@ -81,8 +68,6 @@ export async function completeOrderRecord(scope: UnitOfWorkScope, id: string, in
       reason: info.reason,
       balance: info.balance,
       acceptedPendingDocuments: info.acceptedPendingDocuments,
-      appointmentsCancelled: appointments.count,
-      releasesCancelled: releases.count,
     },
   });
   await scope.outbox({

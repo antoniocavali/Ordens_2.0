@@ -21,7 +21,7 @@ export async function realtimeTarget(tx: Tx, type: string, payload: Record<strin
   };
 
   if (type.startsWith('order.')) return { keys: [['orders'], ['dashboard']], orgIds: await orderOrgs() };
-  if (type.startsWith('load.') || type.startsWith('appointment.')) return { keys: [['logistics'], ['orders'], ['dashboard']], orgIds: await orderOrgs() };
+  if (type.startsWith('load.')) return { keys: [['logistics'], ['orders'], ['dashboard']], orgIds: await orderOrgs() };
 
   if (type.startsWith('invoice.')) {
     const invoiceId = id('invoiceId');

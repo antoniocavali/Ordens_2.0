@@ -77,7 +77,7 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Compradores', href: '/cadastros/compradores', icon: Building2, permission: 'partner.read', scopes: ['MATRIZ'] },
       { label: 'Vendedores', href: '/cadastros/vendedores', icon: UserRound, permission: 'partner.read', scopes: ['MATRIZ'] },
       { label: 'Fazendas', href: '/cadastros/fazendas', icon: Sprout, permission: 'farm.read' },
-      // Transporte e locais não têm cadastro: são digitados no agendamento e na ordem, com sugestões
+      // Transporte e locais não têm cadastro: são digitados na ordem e na carga, com sugestões
       // do que o grupo já usou antes.
     ],
   },

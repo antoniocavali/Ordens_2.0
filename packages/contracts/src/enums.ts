@@ -82,13 +82,6 @@ export const FreightMode = {
 export type FreightMode = (typeof FreightMode)[keyof typeof FreightMode];
 export const FREIGHT_MODES = values(FreightMode);
 
-export const ReleaseStatus = {
-  ACTIVE: 'ACTIVE',
-  CONSUMED: 'CONSUMED',
-  EXPIRED: 'EXPIRED',
-  CANCELLED: 'CANCELLED',
-} as const;
-export type ReleaseStatus = (typeof ReleaseStatus)[keyof typeof ReleaseStatus];
 
 export const LoadStatus = {
   SCHEDULED: 'SCHEDULED',

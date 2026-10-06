@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatDocument, isValidCnpj, isValidCpf, isValidPlate, normalizePlate } from './documents.js';
-import { appointmentInputSchema } from './schemas/logistics.js';
+import { loadUpdateSchema } from './schemas/logistics.js';
 import { partnerInputSchema } from './schemas/registry.js';
 
 describe('documentos', () => {
@@ -42,10 +42,8 @@ describe('schemas de cadastro', () => {
   });
 
   it('transporte digitado normaliza CPF do motorista e placa do veículo', () => {
-    const t = appointmentInputSchema.parse({
-      orderId: '00000000-0000-4000-8000-000000000001',
-      scheduledOn: '2026-10-01',
-      expectedQty: '30',
+    const t = loadUpdateSchema.parse({
+      expectedUpdatedAt: '2026-10-01T12:00:00.000Z',
       driverCpf: '529.982.247-25',
       vehicles: [{ plate: 'abc-1d23', type: 'TRUCK_TRACTOR' }],
     });
@@ -54,9 +52,9 @@ describe('schemas de cadastro', () => {
   });
 
   it('transporte digitado recusa CPF inválido e placa repetida na composição', () => {
-    const base = { orderId: '00000000-0000-4000-8000-000000000001', scheduledOn: '2026-10-01', expectedQty: '30' };
-    expect(appointmentInputSchema.safeParse({ ...base, driverCpf: '111.111.111-11' }).success).toBe(false);
-    const repeated = appointmentInputSchema.safeParse({
+    const base = { expectedUpdatedAt: '2026-10-01T12:00:00.000Z' };
+    expect(loadUpdateSchema.safeParse({ ...base, driverCpf: '111.111.111-11' }).success).toBe(false);
+    const repeated = loadUpdateSchema.safeParse({
       ...base,
       vehicles: [
         { plate: 'ABC1D23', type: 'TRUCK_TRACTOR' },

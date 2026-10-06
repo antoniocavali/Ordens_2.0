@@ -86,8 +86,6 @@ export const fleetLookups = {
           label: o.number,
           description: `${o.commodity?.name ?? '—'} · ${o.farm?.name ?? o.seller?.name ?? '—'} → ${o.buyer?.name ?? '—'}`,
           meta: {
-            released: o.quantities.released,
-            scheduled: o.quantities.scheduled,
             loaded: o.quantities.loaded,
             unit: o.quantities.unit,
           },
