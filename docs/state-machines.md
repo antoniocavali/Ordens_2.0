@@ -47,18 +47,17 @@ Visibilidade externa: a **Fazenda** só enxerga a partir de `PUBLISHED` e com `f
 
 ## Liberação
 
-`ACTIVE → CONSUMED | EXPIRED | CANCELLED`. Soma de liberações ativas + consumidas ≤ quantidade da OC × (1 + tolerância), salvo regra explícita.
+**Removida em 05/10/2026 (Q50).** A ordem publicada já autoriza carregar; não há mais liberação parcial nem teto de quantidade. As tabelas e colunas de liberação foram removidas do banco (migração `20261005130000`).
 
 ## Agendamento
 
-`REQUESTED → CONFIRMED → CHECKED_IN (veículo chegou na fazenda) → CONVERTED (carga criada)`; `REQUESTED|CONFIRMED → CANCELLED | NO_SHOW`. Carga a partir de agendamento **exige `CHECKED_IN`** e nasce em `AWAITING_LOADING`.
+**Removido em 05/10/2026 (Q50).** A Fazenda apenas informa a chegada do caminhão (`POST /loads/arrival`), e isso cria a carga em `AWAITING_LOADING`. A tabela de agendamentos foi removida do banco.
 
 ## Carga
 
 ```mermaid
 stateDiagram-v2
-  [*] --> SCHEDULED: carga planejada pela Matriz
-  [*] --> AWAITING_LOADING: agendamento CHECKED_IN convertido
+  [*] --> AWAITING_LOADING: Fazenda informa a chegada do caminhão
   SCHEDULED --> CONFIRMED
   CONFIRMED --> AWAITING_LOADING
   AWAITING_LOADING --> LOADING
@@ -130,4 +129,4 @@ peso líquido registrado no carregamento. Os status `ARRIVED`, `RECEIVED` e `CHE
 pelo histórico de cargas anteriores — nenhuma carga nova entra neles, e a única saída deles é o faturamento.
 Com isso saiu também a ocorrência automática de divergência de peso, que comparava o recebido com o carregado.
 
-Guardas: carregamento que ultrapasse `released_qty × (1 + tolerance_pct)` é bloqueado com erro de domínio `QUANTITY_EXCEEDS_RELEASED` (sem regra silenciosa). O workflow é configurável no futuro por tabela de transições por tenant; no MVP a tabela é código versionado.
+Guardas: não há teto de quantidade no carregamento (Q50) — a Fazenda carrega o que chegou e a ordem mostra o total.

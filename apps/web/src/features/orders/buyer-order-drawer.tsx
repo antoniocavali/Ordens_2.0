@@ -181,7 +181,7 @@ export function BuyerOrderDrawer({ open, order, onClose }: { open: boolean; orde
           </Field>
         </FormSection>
 
-        <FormSection title="Transporte" description="Dados como no documento do motorista. O agendamento de cada carga nasce com eles e pode corrigi-los na portaria.">
+        <FormSection title="Transporte" description="Dados como no documento do motorista. Cada carga nasce com eles quando o caminhão chega à fazenda, que pode corrigi-los.">
           <TransportFields />
         </FormSection>
 

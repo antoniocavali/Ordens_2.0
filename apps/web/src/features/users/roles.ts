@@ -10,9 +10,9 @@ export const ROLE_HINTS: Partial<Record<RoleCode, string>> = {
   MATRIZ_SUPPORT_AGENT: 'Consulta e atende nas filas definidas na equipe do atendimento',
   MATRIZ_VIEWER: 'Consulta tudo, sem alterar',
   FARM_ADMIN: 'Gerencia a fazenda e os usuários dela',
-  FARM_OPERATOR: 'Agendamentos, cargas e NF-e da fazenda',
+  FARM_OPERATOR: 'Chegada dos caminhões, cargas e NF-e da fazenda',
   BUYER_USER: 'Acompanha ordens, cargas e documentos do comprador',
-  CARRIER_USER: 'Agendamentos e cargas da transportadora',
+  CARRIER_USER: 'Cargas da transportadora',
 };
 
 export const roleName = (code: string) => (ROLES as Record<string, { name: string }>)[code]?.name ?? code;

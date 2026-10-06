@@ -6,7 +6,6 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   AlarmClock,
   ArrowRight,
-  CalendarClock,
   CheckCircle2,
   EyeOff,
   FileClock,
@@ -45,8 +44,6 @@ const ATTENTION_ICON: Record<string, LucideIcon> = {
   occurrences_overdue: AlarmClock,
   occurrences_severe: ShieldAlert,
   occurrences_open: ShieldAlert,
-  appointments_without_carrier: CalendarClock,
-  appointments_today: CalendarClock,
   documents_blocked: FileX,
   drafts: FileClock,
   in_transit: Truck,
@@ -275,7 +272,7 @@ export function DashboardPage() {
               progress={{ value: d.kpis.loadedT, total: d.kpis.orderedT }}
             />
             <KpiCard label="Em trânsito" value={formatQtyCompact(d.kpis.inTransitT, 't')} hint={`${formatQtyCompact(d.kpis.receivedT, 't')} recebidas`} icon={<TrendingUp />} tone="success" />
-            <KpiCard label="Saldo a carregar" value={formatQtyCompact(d.kpis.balanceT, 't')} hint={`${formatQtyCompact(d.kpis.releasedT, 't')} liberadas`} icon={<Scale />} tone="warning" />
+            <KpiCard label="Saldo a carregar" value={formatQtyCompact(d.kpis.balanceT, 't')} icon={<Scale />} tone="warning" />
             {isMatriz && d.kpis.loadedValue !== null ? (
               <KpiCard label="Valor carregado" value={formatMoney(d.kpis.loadedValue, 'BRL', true)} hint="Ordens em BRL" icon={<Wallet />} />
             ) : null}
@@ -292,7 +289,7 @@ export function DashboardPage() {
             ) : (
             <Panel title="Cargas de hoje" className="lg:col-span-2" action={<span className="text-xs tabular text-subtle">{d.loadsToday.total} no dia</span>}>
               {d.loadsToday.total === 0 ? (
-                <p className="py-8 text-center text-sm text-subtle">Nenhuma carga com carregamento previsto para hoje.</p>
+                <p className="py-8 text-center text-sm text-subtle">Nenhum caminhão chegou hoje.</p>
               ) : (
                 <ul className="space-y-2.5">
                   {d.loadsToday.stages.map((s) => (
@@ -362,8 +359,6 @@ export function DashboardPage() {
                 <dl className="grid grid-cols-2 gap-4 text-sm">
                   {[
                     ['Em ordens', d.kpis.orderedT],
-                    ['Liberado', d.kpis.releasedT],
-                    ['Agendado', d.kpis.scheduledT],
                     ['Carregado', d.kpis.loadedT],
                     ['Em trânsito', d.kpis.inTransitT],
                     ['Recebido', d.kpis.receivedT],

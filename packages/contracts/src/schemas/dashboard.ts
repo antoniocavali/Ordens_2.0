@@ -34,8 +34,6 @@ export interface DashboardDto {
     openOrders: number;
     publishedInPeriod: number;
     orderedT: string;
-    releasedT: string;
-    scheduledT: string;
     loadedT: string;
     inTransitT: string;
     receivedT: string;

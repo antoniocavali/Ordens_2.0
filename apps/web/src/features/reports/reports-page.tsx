@@ -14,7 +14,7 @@ import {
 } from '@ordens/contracts';
 import { Button, Card, cn, EmptyState, Input, Skeleton } from '@ordens/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AlertTriangle, BarChart3, Inbox, ClipboardList, Download, FileSpreadsheet, FileText, PackageCheck, ShieldOff, Truck, Users } from 'lucide-react';
+import { AlertTriangle, BarChart3, Inbox, ClipboardList, Download, FileSpreadsheet, FileText, ShieldOff, Truck, Users } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ApiRequestError, get } from '@/lib/api';
@@ -25,7 +25,6 @@ import { BackgroundExports } from './background-exports';
 const ICONS: Record<ReportKind, ReactNode> = {
   orders: <ClipboardList className="size-5" />,
   loads: <Truck className="size-5" />,
-  releases: <PackageCheck className="size-5" />,
   carriers: <Users className="size-5" />,
   occurrences: <AlertTriangle className="size-5" />,
   requests: <Inbox className="size-5" />,

@@ -202,13 +202,20 @@ describe('cadastros', () => {
 });
 
 describe('logística', () => {
-  const appointmentData = (f: TenantFixture) => ({ tenantId: f.tenantId, orderId: f.published[0], scheduledOn: new Date('2026-09-20T00:00:00Z'), expectedQty: '30' });
+  // A carga nasce quando a Fazenda informa a chegada do caminhão: é ela quem grava a linha.
+  const arrival = (f: TenantFixture) => ({
+    tenantId: f.tenantId,
+    orderId: f.published[0],
+    number: `CH-${randomUUID().slice(0, 8)}`,
+    sequence: 1000 + Math.floor(Math.random() * 1_000_000),
+    status: 'AWAITING_LOADING' as const,
+  });
 
-  it('transporte digitado fica no agendamento e não atravessa grupos', async () => {
+  it('transporte digitado fica na carga e não atravessa grupos', async () => {
     const created = await db.run(farm(A, 0), (tx) =>
-      tx.appointment.create({
+      tx.load.create({
         data: {
-          ...appointmentData(A),
+          ...arrival(A),
           carrierName: 'Trans Agro Logística',
           driverName: 'Antônio Pereira',
           driverCpf: '39053344705',
@@ -219,24 +226,25 @@ describe('logística', () => {
       }),
     );
     // A Matriz e a própria Fazenda leem o CPF; a outra Fazenda e o outro tenant não veem a linha.
-    const byMatriz = await db.run(matriz(A), (tx) => tx.appointment.findUniqueOrThrow({ where: { id: created.id } }));
+    const byMatriz = await db.run(matriz(A), (tx) => tx.load.findUniqueOrThrow({ where: { id: created.id } }));
     expect(byMatriz.driverCpf).toBe('39053344705');
-    expect(await db.run(farm(A, 1), (tx) => tx.appointment.count({ where: { id: created.id } }))).toBe(0);
-    expect(await db.run(matriz(B), (tx) => tx.appointment.count({ where: { id: created.id } }))).toBe(0);
+    expect(await db.run(farm(A, 1), (tx) => tx.load.count({ where: { id: created.id } }))).toBe(0);
+    expect(await db.run(matriz(B), (tx) => tx.load.count({ where: { id: created.id } }))).toBe(0);
   });
 
-  it('Fazenda da ordem cria agendamento; organizações são herdadas da ordem', async () => {
-    const a = await db.run(farm(A, 0), (tx) => tx.appointment.create({ data: appointmentData(A) }));
-    const read = await db.run(matriz(A), (tx) => tx.appointment.findUniqueOrThrow({ where: { id: a.id } }));
+  it('Fazenda da ordem registra a chegada; organizações são herdadas da ordem e a previsão nasce zerada', async () => {
+    const a = await db.run(farm(A, 0), (tx) => tx.load.create({ data: arrival(A) }));
+    const read = await db.run(matriz(A), (tx) => tx.load.findUniqueOrThrow({ where: { id: a.id } }));
     expect(read.sellerOrgId).toBe(A.farmOrgs[0]);
     expect(read.buyerOrgId).toBe(A.buyerOrgs[0]);
+    expect(read.expectedQty.toString()).toBe('0');
   });
 
-  it('outra Fazenda e o Comprador não criam agendamento', async () => {
+  it('outra Fazenda e o Comprador não registram chegada', async () => {
     // Negado pelo RLS ou, antes dele, pelo trigger (que também não enxerga a ordem de outra organização).
     const denied = /row-level security|Ordem inexistente/;
-    await expect(db.run(farm(A, 1), (tx) => tx.appointment.create({ data: appointmentData(A) }))).rejects.toThrow(denied);
-    await expect(db.run(buyer(A, 0), (tx) => tx.appointment.create({ data: appointmentData(A) }))).rejects.toThrow(denied);
+    await expect(db.run(farm(A, 1), (tx) => tx.load.create({ data: arrival(A) }))).rejects.toThrow(denied);
+    await expect(db.run(buyer(A, 0), (tx) => tx.load.create({ data: arrival(A) }))).rejects.toThrow(denied);
   });
 
   it('Comprador lê cargas da própria ordem, mas não de outra', async () => {
@@ -588,7 +596,7 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
     // Faturamento define vendedor e fazenda: ainda invisível à Fazenda enquanto aguarda faturamento.
     await db.run(matriz(A), (tx) => tx.loadingOrder.update({ where: { id: o.id }, data: { sellerPartnerId: A.sellers[0], farmId: A.farms[0] } }));
     expect(await visible(farm(A, 0), o.id)).toBe(0);
-    await expect(db.run(farm(A, 0), (tx) => tx.appointment.create({ data: { tenantId: A.tenantId, orderId: o.id, scheduledOn: new Date('2026-09-20T00:00:00Z'), expectedQty: '10' } }))).rejects.toThrow(
+    await expect(db.run(farm(A, 0), (tx) => tx.load.create({ data: { tenantId: A.tenantId, orderId: o.id, number: `CH-${randomUUID().slice(0, 8)}`, sequence: 1, status: 'AWAITING_LOADING' } }))).rejects.toThrow(
       /row-level security|Ordem inexistente/,
     );
 
@@ -648,32 +656,6 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
       db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'invoice', 2099, 1)`),
     ).rejects.toThrow(/row-level security/);
     await db.run(buyer(A, 0), (tx) => tx.$executeRaw`insert into tenant_sequences (tenant_id, name, year, value) values (${A.tenantId}::uuid, 'loading_order', 2099, 1) on conflict do nothing`);
-  });
-});
-
-describe('liberações', () => {
-  it('cancelamento exige motivo, é definitivo e só a Matriz altera', async () => {
-    const created = await db.run(matriz(A), (tx) =>
-      tx.loadingOrderRelease.create({ data: { tenantId: A.tenantId, orderId: A.published[0], sequence: 1000 + Math.floor(Math.random() * 1e6), quantity: '10', orderVersion: 1 } }),
-    );
-    const id = created.id;
-
-    // Sem motivo: constraint recusa.
-    await expect(db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date() } }))).rejects.toThrow();
-    // Fazenda da ordem lê, mas não cancela; outra Fazenda nem enxerga.
-    expect(await db.run(farm(A, 0), (tx) => tx.loadingOrderRelease.count({ where: { id } }))).toBe(1);
-    const byFarm = await db.run(farm(A, 0), (tx) =>
-      tx.loadingOrderRelease.updateMany({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Tentativa da fazenda' } }),
-    );
-    expect(byFarm.count).toBe(0);
-    expect(await db.run(farm(A, 1), (tx) => tx.loadingOrderRelease.count({ where: { id } }))).toBe(0);
-
-    await db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Quantidade lançada errada' } }));
-    // Não reativa nem muda a quantidade depois de cancelada (trigger).
-    await expect(
-      db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { status: 'ACTIVE', cancelledAt: null, cancelReason: null } })),
-    ).rejects.toThrow();
-    await expect(db.run(matriz(A), (tx) => tx.loadingOrderRelease.update({ where: { id }, data: { quantity: '5' } }))).rejects.toThrow();
   });
 });
 

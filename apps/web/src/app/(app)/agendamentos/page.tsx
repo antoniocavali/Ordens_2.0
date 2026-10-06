@@ -1,7 +1,6 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { AppointmentsPage } from '@/features/logistics/appointments-page';
-
+/** Tela removida: liberações e agendamentos não existem mais. Links antigos caem na lista de ordens. */
 export default function Page() {
-  return <AppointmentsPage />;
+  redirect('/ordens');
 }

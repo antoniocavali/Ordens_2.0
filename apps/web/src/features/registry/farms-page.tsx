@@ -198,7 +198,7 @@ function FarmDrawer({ id, open, initialOwner, onClose }: { id: string | null; op
               </Field>
             </FormSection>
 
-            <FormSection title="Operação de carregamento" description="Informações repassadas às transportadoras nos agendamentos.">
+            <FormSection title="Operação de carregamento" description="Informações repassadas às transportadoras para o carregamento.">
               <Field label="Ponto de carregamento" className={span[3]}>
                 {(a) => <Input {...a} {...form.register('loadingPoint')} placeholder="Armazém, silo, balança…" />}
               </Field>

@@ -10,7 +10,7 @@ import { Farol, QuantityBar, StatusBadge } from './indicators';
 import { registerView, useInvalidateOrders, useOrder, useTimeline } from './orders-api';
 import { Timeline } from './timeline';
 
-export function QuickView({ orderId, onClose, onEdit, onRelease }: { orderId: string | null; onClose: () => void; onEdit: (id: string) => void; onRelease: (id: string) => void }) {
+export function QuickView({ orderId, onClose, onEdit }: { orderId: string | null; onClose: () => void; onEdit: (id: string) => void }) {
   const order = useOrder(orderId);
   const timeline = useTimeline(orderId);
   const { data: me } = useMe();
@@ -44,11 +44,6 @@ export function QuickView({ orderId, onClose, onEdit, onRelease }: { orderId: st
             {o.allowedActions.includes('update') ? (
               <Button variant="outline" size="sm" onClick={() => onEdit(o.id)}>
                 <Pencil /> Editar
-              </Button>
-            ) : null}
-            {o.allowedActions.includes('release') ? (
-              <Button variant="soft" size="sm" onClick={() => onRelease(o.id)}>
-                <PackageCheck /> Nova liberação
               </Button>
             ) : null}
             <Button asChild size="sm" className="ml-auto">
@@ -90,7 +85,7 @@ export function QuickView({ orderId, onClose, onEdit, onRelease }: { orderId: st
             <Info icon={<Factory />} label="Fazenda" value={o.farm?.name} />
             <Info icon={<MapPin />} label="Município" value={o.farm?.city ? `${o.farm.city}/${o.farm.state}` : null} />
             <Info icon={<CalendarRange />} label="Janela" value={o.loadingStartsOn ? `${formatDate(o.loadingStartsOn)} – ${formatDate(o.loadingEndsOn)}` : null} />
-            <Info icon={<PackageCheck />} label="Liberações" value={`${o.releases.length} · ${formatQty(o.quantities.released, o.quantities.unit)}`} />
+            <Info icon={<PackageCheck />} label="Carregado" value={formatQty(o.quantities.loaded, o.quantities.unit)} />
           </div>
 
           {o.status !== 'DRAFT' ? (

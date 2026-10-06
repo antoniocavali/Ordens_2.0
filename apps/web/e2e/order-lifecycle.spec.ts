@@ -25,8 +25,7 @@ test.describe('Suspensão e cancelamento de ordens', () => {
       loadingStartsOn: addDays(1),
       loadingEndsOn: addDays(30),
     });
-    const published = await apiOk(page, 'POST', `/orders/${draft.id}/publish`, { expectedUpdatedAt: draft.updatedAt });
-    return apiOk(page, 'POST', `/orders/${draft.id}/releases`, { quantity: '60', expectedVersion: published.version });
+    return apiOk(page, 'POST', `/orders/${draft.id}/publish`, { expectedUpdatedAt: draft.updatedAt });
   }
 
   test('Matriz suspende, retoma e cancela; cancelamento exige cargas encerradas', async ({ page, browser }) => {
@@ -45,9 +44,9 @@ test.describe('Suspensão e cancelamento de ordens', () => {
     order = await apiOk(page, 'GET', `/orders/${order.id}`);
     expect(order).toMatchObject({ status: 'SUSPENDED', suspendReason: 'Aguardando confirmação de qualidade do lote' });
 
-    // Suspensa: sem liberações nem agendamentos novos.
-    expect((await api(page, 'POST', `/orders/${order.id}/releases`, { quantity: '5', expectedVersion: order.version })).status).toBe(422);
-    expect((await api(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(2), expectedQty: '5' })).status).toBe(422);
+    // Suspensa: não se informa chegada de caminhão.
+    expect(order.allowedActions).not.toContain('register_arrival');
+    expect((await api(page, 'POST', '/loads/arrival', { orderId: order.id })).status).toBe(422);
 
     // Fazenda e Comprador são avisados e veem o motivo.
     const farm = await loginAs(browser, 'fazenda.joao@graoforte.demo');
@@ -63,11 +62,8 @@ test.describe('Suspensão e cancelamento de ordens', () => {
     await expect.poll(async () => (await apiOk(page, 'GET', `/orders/${order.id}`)).status).toBe('PUBLISHED');
 
     // ─── Carga ativa bloqueia o cancelamento ───
-    const transport = { carrierName: 'Trans Agro Logística', driverName: 'Antônio Pereira', driverCpf: '39053344705', vehicles: [{ plate: 'RVG1A23', type: 'TRUCK_TRACTOR' }] };
-    const withLoad = await apiOk(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(2), expectedQty: '10', ...transport });
-    for (const to of ['CONFIRMED', 'CHECKED_IN']) await apiOk(page, 'POST', `/appointments/${withLoad.id}/transition`, { to });
-    const converted = await apiOk(page, 'POST', `/appointments/${withLoad.id}/transition`, { to: 'CONVERTED' });
-    const pendingAppointment = await apiOk(page, 'POST', '/appointments', { orderId: order.id, scheduledOn: addDays(3), expectedQty: '10', ...transport });
+    const arrived = await apiOk(page, 'POST', '/loads/arrival', { orderId: order.id });
+    const converted = { loadId: arrived.id as string };
 
     order = await apiOk(page, 'GET', `/orders/${order.id}`);
     const blocked = await api(page, 'POST', `/orders/${order.id}/cancel`, { expectedUpdatedAt: order.updatedAt, reason: 'Contrato rescindido' });
@@ -88,8 +84,6 @@ test.describe('Suspensão e cancelamento de ordens', () => {
     const cancelled = await apiOk(page, 'GET', `/orders/${order.id}`);
     expect(cancelled.status).toBe('CANCELLED');
     expect(cancelled.quantities.cancelled).toBe('100');
-    expect(cancelled.releases.every((r: any) => r.status === 'CANCELLED')).toBe(true);
-    expect((await apiOk(page, 'GET', `/appointments?orderId=${order.id}&pageSize=50`)).items.find((a: any) => a.id === pendingAppointment.id).status).toBe('CANCELLED');
     expect((await api(page, 'POST', `/orders/${order.id}/cancel`, { expectedUpdatedAt: cancelled.updatedAt, reason: 'De novo' })).status).toBe(422);
 
     const timeline = ((await apiOk(farm.page, 'GET', `/orders/${order.id}/timeline`)) as any[]).map((e) => e.action);

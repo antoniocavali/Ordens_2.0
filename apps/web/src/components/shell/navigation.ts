@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   BarChart3,
   Building2,
-  CalendarClock,
   ClipboardList,
   FileSpreadsheet,
   FileText,
@@ -13,7 +12,6 @@ import {
   KeyRound,
   LifeBuoy,
   LineChart,
-  PackageCheck,
   Receipt,
   FolderSync,
   Settings2,
@@ -21,7 +19,6 @@ import {
   SlidersHorizontal,
   Sprout,
   Timer,
-  Truck,
   UserRound,
   Users,
   UsersRound,
@@ -56,9 +53,8 @@ export const NAVIGATION: NavGroup[] = [
     label: 'Operação',
     items: [
       { label: 'Ordens de Carregamento', href: '/ordens', icon: ClipboardList, permission: 'order.read' },
-      { label: 'Liberações', href: '/liberacoes', icon: PackageCheck, permission: 'order.read' },
-      { label: 'Agendamentos', href: '/agendamentos', icon: CalendarClock, permission: 'appointment.read' },
-      { label: 'Cargas', href: '/cargas', icon: Truck, permission: 'load.read' },
+      // Liberações, agendamentos e a lista de cargas saíram: a carga nasce na ordem, quando a Fazenda
+      // informa a chegada do caminhão, e é acompanhada dentro dela.
       { label: 'Ocorrências', href: '/ocorrencias', icon: AlertTriangle, permission: 'occurrence.read' },
     ],
   },
@@ -81,7 +77,7 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Compradores', href: '/cadastros/compradores', icon: Building2, permission: 'partner.read', scopes: ['MATRIZ'] },
       { label: 'Vendedores', href: '/cadastros/vendedores', icon: UserRound, permission: 'partner.read', scopes: ['MATRIZ'] },
       { label: 'Fazendas', href: '/cadastros/fazendas', icon: Sprout, permission: 'farm.read' },
-      // Transporte e locais não têm cadastro: são digitados no agendamento e na ordem, com sugestões
+      // Transporte e locais não têm cadastro: são digitados na ordem e na carga, com sugestões
       // do que o grupo já usou antes.
     ],
   },

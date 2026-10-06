@@ -229,8 +229,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
               <Card className="p-4">
                 <LoadStepper status={l.status} />
               </Card>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <Stat label="Previsto" value={formatQty(l.expectedQty, l.order.unit)} />
+              <div className="grid grid-cols-2 gap-2">
                 <Stat label="Peso bruto" value={l.grossKg ? formatQty(l.grossKg, 'kg') : '—'} />
                 <Stat label="Peso líquido" value={l.netKg ? formatQty(l.netKg, 'kg') : '—'} />
               </div>
@@ -342,7 +341,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                   </li>
                 ))}
               </ol>
-              {l.loadingDate ? <p className="text-xs text-subtle sm:col-span-6">Carregamento previsto para {formatDate(l.loadingDate)}.</p> : null}
+              {l.loadingDate ? <p className="text-xs text-subtle sm:col-span-6">Caminhão chegou à fazenda em {formatDate(l.loadingDate)}.</p> : null}
             </FormSection>
           </form>
           </FormProvider>

@@ -3,28 +3,7 @@ import { quantityString } from '../decimal.js';
 import { isValidCpf, isValidPlate, normalizePlate, onlyDigits } from '../documents.js';
 import { LOAD_STATUSES, type LoadStatus } from '../enums.js';
 
-export const APPOINTMENT_STATUSES = ['REQUESTED', 'CONFIRMED', 'CHECKED_IN', 'CONVERTED', 'CANCELLED', 'NO_SHOW'] as const;
-export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
-
-export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
-  REQUESTED: 'Solicitado',
-  CONFIRMED: 'Confirmado',
-  CHECKED_IN: 'Chegou na fazenda',
-  CONVERTED: 'Virou carga',
-  CANCELLED: 'Cancelado',
-  NO_SHOW: 'Não compareceu',
-};
-
-export const APPOINTMENT_TRANSITIONS: Record<AppointmentStatus, readonly AppointmentStatus[]> = {
-  REQUESTED: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
-  CHECKED_IN: ['CONVERTED', 'CANCELLED'],
-  CONVERTED: [],
-  CANCELLED: [],
-  NO_SHOW: [],
-};
-
-/** Status de carga que ainda contam como "agendado" (antes da pesagem confirmada). */
+/** Status de carga antes da pesagem confirmada. */
 export const LOAD_PRE_LOADED: readonly LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 'LOADING'];
 /** Status em que a carga já foi pesada/carregada (conta em "carregado"). */
 export const LOAD_LOADED: readonly LoadStatus[] = [
@@ -122,7 +101,8 @@ export const LOAD_RECEIVED: readonly LoadStatus[] = ['RECEIVED', 'CHECKED', 'AWA
 
 /** Macro-etapas para visualização (kanban/stepper). */
 export const LOAD_STAGES = [
-  { key: 'scheduling', label: 'Agendamento', statuses: ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING'] },
+  // Caminhão na fazenda, ainda sem carregar. SCHEDULED e CONFIRMED só existem em cargas antigas.
+  { key: 'scheduling', label: 'Chegada', statuses: ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING'] },
   { key: 'loading', label: 'Carregamento', statuses: ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'] },
   { key: 'transit', label: 'Transporte', statuses: ['IN_TRANSIT', 'ARRIVED'] },
   // Não há etapa de recebimento: do transporte a carga vai direto ao faturamento. RECEIVED e CHECKED
@@ -141,7 +121,7 @@ const optQty = quantityString.or(z.literal('').transform(() => null)).nullish();
 
 // ───────────────────────────── Transporte digitado ─────────────────────────────
 // Não há cadastro de transportadora, motorista ou veículo: os dados vêm do documento que o motorista
-// apresenta na portaria e são digitados no agendamento (a API sugere o que o grupo já usou antes).
+// apresenta na portaria e são digitados na ordem ou na carga (a API sugere o que o grupo já usou antes).
 
 /** Tipos da composição, como aparecem no documento do transporte. */
 export const TRANSPORT_VEHICLE_TYPES = ['TRUCK', 'TRUCK_TRACTOR', 'SEMI_TRAILER', 'TRAILER', 'DOLLY', 'BITRAIN', 'ROAD_TRAIN', 'OTHER'] as const;
@@ -192,7 +172,7 @@ const dateOnly = z
   .transform((v) => (v === '' ? null : v))
   .nullish();
 
-/** Campos do transporte digitado, compartilhados entre ordem, agendamento e carga. */
+/** Campos do transporte digitado, compartilhados entre ordem e carga. */
 export const transportFields = {
   carrierName: text(160),
   driverName: text(160),
@@ -233,43 +213,6 @@ export function checkTransport(v: { vehicles?: { plate: string }[] | null }, ctx
     seen.add(vehicle.plate);
   });
 }
-
-export const appointmentInputSchema = z
-  .object({
-    orderId: z.uuid(),
-    scheduledOn: z.iso.date('Informe a data'),
-    windowStart: z
-      .union([z.literal(''), z.string().regex(/^\d{2}:\d{2}$/)])
-      .transform((v) => (v === '' ? null : v))
-      .nullish(),
-    windowEnd: z
-      .union([z.literal(''), z.string().regex(/^\d{2}:\d{2}$/)])
-      .transform((v) => (v === '' ? null : v))
-      .nullish(),
-    expectedQty: quantityString,
-    ...transportFields,
-    notes: text(2000),
-  })
-  .refine((v) => !v.windowStart || !v.windowEnd || v.windowStart < v.windowEnd, { message: 'Horário final deve ser após o inicial', path: ['windowEnd'] })
-  .superRefine(checkTransport);
-export type AppointmentInput = z.input<typeof appointmentInputSchema>;
-
-export const appointmentTransitionSchema = z.object({
-  to: z.enum(APPOINTMENT_STATUSES),
-  reason: text(500),
-});
-
-export const loadInputSchema = z
-  .object({
-    orderId: z.uuid(),
-    appointmentId: z.uuid().nullish(),
-    loadingDate: dateOnly,
-    expectedQty: quantityString,
-    ...transportFields,
-    notes: text(2000),
-  })
-  .superRefine(checkTransport);
-export type LoadInput = z.input<typeof loadInputSchema>;
 
 export const loadUpdateSchema = z
   .object({
@@ -343,26 +286,10 @@ export interface TransportSuggestions {
   vehicles: TransportVehicle[];
 }
 
-export interface AppointmentDto extends TransportDto {
-  id: string;
-  order: { id: string; number: string; commodity: string | null; farm: string | null; unit: string };
-  scheduledOn: string;
-  windowStart: string | null;
-  windowEnd: string | null;
-  expectedQty: string;
-  status: AppointmentStatus;
-  loadId: string | null;
-  notes: string | null;
-  createdBy: string | null;
-  updatedAt: string;
-  allowedTransitions: AppointmentStatus[];
-}
-
 export interface LoadDto extends TransportDto {
   id: string;
   number: string;
   order: { id: string; number: string; commodity: string | null; farm: string | null; buyer: string | null; unit: string };
-  appointmentId: string | null;
   loadingDate: string | null;
   expectedQty: string;
   grossKg: string | null;
@@ -389,8 +316,6 @@ export interface LoadHistoryItem {
 }
 
 export interface LogisticsSummary {
-  appointmentsToday: number;
-  appointmentsWithoutCarrier: number;
   loadsByStage: Record<(typeof LOAD_STAGES)[number]['key'], number>;
   inTransitKg: string;
   lateLoads: number;

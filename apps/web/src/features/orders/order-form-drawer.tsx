@@ -43,7 +43,6 @@ interface FormValues extends TransportValues {
   loadingStartsOn: string;
   loadingEndsOn: string;
   tolerancePct: string;
-  initialReleaseQty: string;
   destinationName: string;
   destinationAddress: string;
   destinationCity: string;
@@ -84,7 +83,6 @@ function fromDetail(o: OrderDetail | null): FormValues {
     loadingStartsOn: o?.loadingStartsOn ?? '',
     loadingEndsOn: o?.loadingEndsOn ?? '',
     tolerancePct: toDecimalInput(o?.tolerancePct && o.tolerancePct !== '0' ? o.tolerancePct : ''),
-    initialReleaseQty: toDecimalInput(o?.initialReleaseQty),
     destinationName: o?.destinationName ?? '',
     destinationAddress: o?.destinationAddress ?? '',
     destinationCity: o?.destinationCity ?? '',
@@ -125,7 +123,6 @@ function toPayload(v: FormValues): OrderDraftPayload {
     loadingStartsOn: v.loadingStartsOn || null,
     loadingEndsOn: v.loadingEndsOn || null,
     tolerancePct: dec(v.tolerancePct),
-    initialReleaseQty: dec(v.initialReleaseQty),
     destinationName: txt(v.destinationName),
     destinationAddress: txt(v.destinationAddress),
     destinationCity: txt(v.destinationCity),
@@ -164,7 +161,6 @@ const FIELD_SECTION: Partial<Record<keyof FormValues, (typeof SECTIONS)[number][
   quantity: 'quantidades',
   unitId: 'quantidades',
   unitPrice: 'quantidades',
-  initialReleaseQty: 'logistica',
   loadingStartsOn: 'logistica',
   loadingEndsOn: 'logistica',
 };
@@ -452,7 +448,7 @@ export function OrderFormDrawer({ open, order, onClose, onPublished }: { open: b
                 </motion.div>
               ) : null}
             </AnimatePresence>
-            <OrderFormSections form={form} orderId={current?.id ?? null} onNotice={setNotice} isDraft={isDraft} />
+            <OrderFormSections form={form} orderId={current?.id ?? null} onNotice={setNotice} />
           </form>
           </FormProvider>
         </div>
@@ -539,7 +535,7 @@ const OPERATION_LABEL: Record<string, string> = { PURCHASE: 'Compra', SALE: 'Ven
 const FREIGHT_LABEL: Record<string, string> = { CIF: 'CIF', FOB: 'FOB', THIRD_PARTY: 'Terceiros', TO_DEFINE: 'A definir' };
 const PRIORITY_LABEL: Record<string, string> = { LOW: 'Baixa', NORMAL: 'Normal', HIGH: 'Alta', URGENT: 'Urgente' };
 
-function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseFormReturn<FormValues>; orderId: string | null; onNotice: (m: string | null) => void; isDraft: boolean }) {
+function OrderFormSections({ form, orderId, onNotice }: { form: UseFormReturn<FormValues>; orderId: string | null; onNotice: (m: string | null) => void }) {
   const { control, register, setValue, formState } = form;
   const errors = formState.errors;
   const [seller, farm, buyer, quantity, unitPrice, unitId, currency] = useWatch({
@@ -740,7 +736,7 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
       </Section>
 
-      <Section id="logistica" title="Logística" description="O transporte é digitado aqui; o agendamento de cada carga nasce com estes dados e pode corrigi-los na portaria.">
+      <Section id="logistica" title="Logística" description="O transporte é digitado aqui; cada carga nasce com estes dados quando o caminhão chega e pode corrigi-los na fazenda.">
         <Field label="Início do carregamento" required className={col[2]} error={err('loadingStartsOn')}>
           {(a) => <Input {...a} type="date" {...register('loadingStartsOn')} />}
         </Field>
@@ -755,14 +751,6 @@ function OrderFormSections({ form, orderId, onNotice, isDraft }: { form: UseForm
         </Field>
         <Field label="Frete estimado (R$)" className={col[3]}>
           {(a) => <Input {...a} inputMode="decimal" className="text-right tabular" {...register('freightEstimate')} placeholder="0,00" />}
-        </Field>
-        <Field
-          label={isDraft ? 'Liberação inicial na publicação' : 'Liberação inicial'}
-          className={col[3]}
-          error={err('initialReleaseQty')}
-          hint={isDraft ? 'Cria a Liberação 01 automaticamente ao publicar' : 'Novas liberações são feitas no detalhe da ordem'}
-        >
-          {(a) => <Input {...a} inputMode="decimal" disabled={!isDraft} className="text-right tabular" {...register('initialReleaseQty')} placeholder="0,000" />}
         </Field>
         <TransportFields />
       </Section>

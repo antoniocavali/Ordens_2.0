@@ -51,7 +51,7 @@ flowchart TD
 - Permissão `order.billing.manage` (papel **Faturamento**, Gestor e Administrador): `POST /orders/:id/billing/assign`, `POST /orders/:id/billing/publish` e `POST /orders/:id/billing/return` (devolver ao Comprador com motivo; descarta a análise).
 - Publicação pelo Faturamento não passa pela dupla checagem da Q40.
 - Correções adicionais usam o formulário interno (`order.update`); o comprador de uma solicitação do portal não pode ser trocado.
-- A Matriz mantém suspensão, cancelamento, liberações, correções e auditoria.
+- A Matriz mantém suspensão, cancelamento, correções e auditoria.
 
 ## Matriz (ordem interna)
 
@@ -62,13 +62,11 @@ flowchart TD
   C --> D[Vendedor, comprador e commodity]
   D --> E[Vendedor → filtra fazendas]
   E --> F[Quantidade, preço, janela, transporte digitado]
-  F --> G[Liberação inicial opcional]
-  G --> H[Publicar ou Solicitar publicação Q40]
+  F --> H[Publicar ou Solicitar publicação Q40]
   H --> I[Versão 1 + audit + outbox order.published]
   I --> J[Notificações Fazenda e Comprador]
   J --> K[Acompanhar faróis e exceções]
-  K --> L[Novas liberações parciais]
-  L --> M[Agendamentos / Cargas]
+  K --> M[Fazenda informa a chegada de cada caminhão → cargas]
   M --> N[Faturamento da Matriz e conclusão]
   N --> O[Conclusão da OC]
   K -->|alteração material| P[Nova versão → faróis amarelos]
@@ -79,10 +77,8 @@ flowchart TD
 ```mermaid
 flowchart TD
   A[Notificação: ordem publicada para a fazenda] --> B[Abre detalhe → farol verde]
-  B --> C[Consulta liberações e saldo liberado]
-  C --> D[Agendamento: confirmar motorista e veículo]
-  D --> E[Veículo chegou: CHECKED_IN]
-  E --> F[Carga criada: Aguardando carregamento]
+  B --> E[Caminhão chegou: "Informar chegada do caminhão"]
+  E --> F[Carga criada: Aguardando carregamento<br/>transporte herdado da ordem, corrigível na carga]
   F --> G[Em carregamento]
   G --> H[Confirmar carregamento: peso bruto e tara obrigatórios]
   H --> I[Aguardando documentação fiscal]

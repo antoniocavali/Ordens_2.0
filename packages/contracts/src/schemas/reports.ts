@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Relatórios exportáveis (Q38). Recorte de linhas sempre pelo RLS da organização ativa. */
-export const REPORT_KINDS = ['orders', 'requests', 'loads', 'releases', 'carriers', 'occurrences'] as const;
+export const REPORT_KINDS = ['orders', 'requests', 'loads', 'carriers', 'occurrences'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
 /**
@@ -12,7 +12,6 @@ export const REPORT_INFO: Record<ReportKind, { label: string; description: strin
   orders: { label: 'Posição das ordens', description: 'Quantidades por etapa, saldo e valor das ordens publicadas no período.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
   requests: { label: 'Solicitações do Comprador', description: 'Solicitações enviadas no período: devoluções, cancelamentos e tempo até a publicação (Q41).', scopes: ['MATRIZ', 'BUYER'] },
   loads: { label: 'Cargas', description: 'Cargas do período com transportadora, placas, pesos e recebimento.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
-  releases: { label: 'Liberações', description: 'Liberações criadas no período, com validade e cancelamentos.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
   carriers: { label: 'Desempenho de transportadoras', description: 'Cargas, volume líquido e divergências de peso por transportadora (Q24).', scopes: ['MATRIZ'] },
   occurrences: { label: 'Ocorrências', description: 'Ocorrências abertas no período, com responsável, prazo e resolução.', scopes: ['MATRIZ', 'FARM', 'BUYER'] },
 };

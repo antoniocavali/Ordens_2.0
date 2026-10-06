@@ -26,13 +26,10 @@ export interface OrderRow {
   unit_id: string | null;
   unit_code: string | null;
   unit_name: string | null;
-  released_qty: Prisma.Decimal;
-  scheduled_qty: Prisma.Decimal;
   loaded_qty: Prisma.Decimal;
   in_transit_qty: Prisma.Decimal;
   received_qty: Prisma.Decimal;
   cancelled_qty: Prisma.Decimal;
-  initial_release_qty: Prisma.Decimal | null;
   unit_price: Prisma.Decimal | null;
   currency: string;
   freight_mode: string | null;
@@ -135,8 +132,8 @@ export function orderSelectSql(opts: { slaHours: number; where: Prisma.Sql; orde
         lo.buyer_partner_id, coalesce(bp.trade_name, bp.legal_name) as buyer_name,
         lo.commodity_id, c.name as commodity_name, lo.crop_year,
         lo.quantity, lo.unit_id, u.code as unit_code, u.name as unit_name,
-        lo.released_qty, lo.scheduled_qty, lo.loaded_qty, lo.in_transit_qty, lo.received_qty, lo.cancelled_qty,
-        lo.initial_release_qty, lo.unit_price, lo.currency, lo.freight_mode::text as freight_mode, lo.freight_estimate,
+        lo.loaded_qty, lo.in_transit_qty, lo.received_qty, lo.cancelled_qty,
+        lo.unit_price, lo.currency, lo.freight_mode::text as freight_mode, lo.freight_estimate,
         lo.carrier_name, lo.driver_name, lo.driver_cpf, lo.driver_rg, lo.driver_phone, lo.driver_birth_date,
         lo.driver_cnh, lo.driver_cnh_category, lo.driver_cnh_expires_at, lo.driver_cnh_restrictions, lo.vehicles,
         coalesce((select array_agg(v->>'plate' order by ord) from jsonb_array_elements(lo.vehicles) with ordinality as t(v, ord)), '{}') as plates,

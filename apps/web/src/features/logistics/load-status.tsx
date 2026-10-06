@@ -1,8 +1,8 @@
 'use client';
 
-import { APPOINTMENT_STATUS_LABELS, LOAD_STAGES, LOAD_STATUS_LABELS, type AppointmentStatus, type LoadStatus } from '@ordens/contracts';
+import { LOAD_STAGES, LOAD_STATUS_LABELS, type LoadStatus } from '@ordens/contracts';
 import { Badge, cn } from '@ordens/ui';
-import { Ban, CalendarCheck, CheckCircle2, CircleDot, Clock, PackageCheck, Receipt, Truck, Warehouse, type LucideIcon } from 'lucide-react';
+import { Ban, CalendarCheck, CheckCircle2, CircleDot, PackageCheck, Receipt, Truck, Warehouse, type LucideIcon } from 'lucide-react';
 
 type Tone = 'neutral' | 'primary' | 'info' | 'warning' | 'success' | 'danger';
 
@@ -38,24 +38,6 @@ export function LoadStatusBadge({ status, size = 'sm' }: { status: LoadStatus; s
   return (
     <Badge tone={cfg.tone} size={size}>
       <cfg.icon /> {LOAD_STATUS_LABELS[status]}
-    </Badge>
-  );
-}
-
-const APPT_TONE: Record<AppointmentStatus, Tone> = {
-  REQUESTED: 'neutral',
-  CONFIRMED: 'primary',
-  CHECKED_IN: 'info',
-  CONVERTED: 'success',
-  CANCELLED: 'danger',
-  NO_SHOW: 'warning',
-};
-
-export function AppointmentStatusBadge({ status }: { status: AppointmentStatus }) {
-  return (
-    <Badge tone={APPT_TONE[status]} size="sm">
-      {status === 'REQUESTED' ? <Clock /> : status === 'CONVERTED' ? <Truck /> : status === 'CANCELLED' ? <Ban /> : <CalendarCheck />}
-      {APPOINTMENT_STATUS_LABELS[status]}
     </Badge>
   );
 }

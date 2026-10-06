@@ -1,4 +1,4 @@
-import type { OrderDetail, OrderListItem, ReleaseDto, Scope, ViewSignalInfo } from '@ordens/contracts';
+import type { OrderDetail, OrderListItem, Scope, ViewSignalInfo } from '@ordens/contracts';
 import { Prisma } from '@ordens/db';
 import { transportDto } from '../logistics/logistics.util.js';
 import type { OrderRow } from './orders.queries.js';
@@ -45,8 +45,6 @@ export function toListItem(row: OrderRow, scope: Scope): OrderListItem {
     cropYear: row.crop_year,
     quantities: {
       total: dec(row.quantity) ?? '0',
-      released: dec(row.released_qty)!,
-      scheduled: dec(row.scheduled_qty)!,
       loaded: dec(row.loaded_qty)!,
       inTransit: dec(row.in_transit_qty)!,
       received: dec(row.received_qty)!,
@@ -80,7 +78,7 @@ export function toListItem(row: OrderRow, scope: Scope): OrderListItem {
   };
 }
 
-export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, allowedActions: string[]): OrderDetail {
+export function toDetail(row: OrderRow, scope: Scope, allowedActions: string[]): OrderDetail {
   const internal = scope === 'MATRIZ';
   return {
     ...toListItem(row, scope),
@@ -103,7 +101,6 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     internalNotes: internal ? row.internal_notes : null,
     farmNotes: scope === 'BUYER' ? null : row.farm_notes,
     buyerNotes: scope === 'FARM' ? null : row.buyer_notes,
-    initialReleaseQty: internal ? dec(row.initial_release_qty) : null,
     publishedAt: iso(row.published_at),
     createdAt: row.created_at.toISOString(),
     createdBy: row.created_by_name,
@@ -121,7 +118,6 @@ export function toDetail(row: OrderRow, releases: ReleaseDto[], scope: Scope, al
     completionReason: row.completion_reason,
     suspendedAt: row.status === 'SUSPENDED' ? iso(row.suspended_at) : null,
     suspendReason: row.status === 'SUSPENDED' ? row.suspend_reason : null,
-    releases,
     allowedActions,
   } as OrderDetail;
 }

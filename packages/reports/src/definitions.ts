@@ -4,7 +4,6 @@ import {
   OCCURRENCE_STATUS_LABELS,
   OCCURRENCE_TYPE_LABELS,
   ORDER_STATUS_LABELS,
-  RELEASE_STATUS_LABELS,
   type ReportColumn,
   type ReportKind,
 } from '@ordens/contracts';
@@ -48,8 +47,6 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       { key: 'contract', label: 'Contrato', type: 'text' },
       { key: 'unit', label: 'Unidade', type: 'text' },
       { key: 'quantity', label: 'Quantidade', type: 'qty' },
-      { key: 'released', label: 'Liberado', type: 'qty' },
-      { key: 'scheduled', label: 'Agendado', type: 'qty' },
       { key: 'loaded', label: 'Carregado', type: 'qty' },
       { key: 'in_transit', label: 'Em trânsito', type: 'qty' },
       { key: 'received', label: 'Recebido', type: 'qty' },
@@ -62,7 +59,7 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
     sql: (p) => Prisma.sql`
       select lo.number, lo.status::text as status, lo.published_at, c.name as commodity,
         ${partner('sp')} as seller, f.name as farm, ${partner('bp')} as buyer, lo.contract_number as contract, ${unit} as unit,
-        lo.quantity, lo.released_qty as released, lo.scheduled_qty as scheduled, lo.loaded_qty as loaded,
+        lo.quantity, lo.loaded_qty as loaded,
         lo.in_transit_qty as in_transit, lo.received_qty as received, lo.cancelled_qty as cancelled,
         greatest(coalesce(lo.quantity, 0) - lo.loaded_qty - lo.cancelled_qty, 0) as balance,
         lo.unit_price, round(lo.quantity * lo.unit_price, 2) as total_value, lo.currency,
@@ -131,7 +128,6 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       { key: 'driver', label: 'Motorista', type: 'text' },
       { key: 'plates', label: 'Placas', type: 'text' },
       { key: 'unit', label: 'Unidade', type: 'text' },
-      { key: 'expected_qty', label: 'Previsto', type: 'qty' },
       { key: 'net_kg', label: 'Peso líquido (kg)', type: 'qty' },
       { key: 'received_qty', label: 'Recebido', type: 'qty' },
       { key: 'loaded_at', label: 'Carregada em', type: 'datetime' },
@@ -151,35 +147,6 @@ export const REPORTS: Record<ReportKind, ReportDefinition> = {
       where coalesce(l.loading_date, (l.created_at at time zone ${TZ})::date) between ${p.from}::date and ${p.to}::date
         ${commodity(p)}
       order by coalesce(l.loading_date, (l.created_at at time zone ${TZ})::date) desc, l.number desc
-      limit ${p.limit}`,
-  },
-
-  releases: {
-    columns: [
-      { key: 'order_number', label: 'Ordem', type: 'text' },
-      { key: 'sequence', label: 'Liberação', type: 'number' },
-      { key: 'status', label: 'Status', type: 'text', labels: RELEASE_STATUS_LABELS },
-      { key: 'unit', label: 'Unidade', type: 'text' },
-      { key: 'quantity', label: 'Quantidade', type: 'qty' },
-      { key: 'valid_until', label: 'Validade', type: 'date' },
-      { key: 'created_at', label: 'Criada em', type: 'datetime' },
-      { key: 'created_by', label: 'Criada por', type: 'text', hiddenFor: ['FARM', 'BUYER'] },
-      { key: 'cancelled_at', label: 'Cancelada em', type: 'datetime' },
-      { key: 'cancelled_by', label: 'Cancelada por', type: 'text', hiddenFor: ['FARM', 'BUYER'] },
-      { key: 'cancel_reason', label: 'Motivo do cancelamento', type: 'text' },
-      { key: 'notes', label: 'Observação', type: 'text' },
-    ],
-    sql: (p) => Prisma.sql`
-      select lo.number as order_number, r.sequence, r.status::text as status, ${unit} as unit, r.quantity, r.valid_until,
-        r.created_at, cu.name as created_by, r.cancelled_at, xu.name as cancelled_by, r.cancel_reason, r.notes,
-        count(*) over () as total_count
-      from loading_order_releases r
-      join loading_orders lo on lo.id = r.order_id
-      left join units u on u.id = lo.unit_id
-      left join users cu on cu.id = r.created_by
-      left join users xu on xu.id = r.cancelled_by
-      where r.created_at >= ${start(p)} and r.created_at < ${end(p)} ${commodity(p)}
-      order by r.created_at desc
       limit ${p.limit}`,
   },
 

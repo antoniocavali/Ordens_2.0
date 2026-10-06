@@ -11,12 +11,9 @@ import type {
   OrderVersionDto,
   OrderViewHistoryItem,
   Page,
-  ReleaseListItem,
-  ReleaseListQuery,
-  ReleasesSummary,
   TimelineEventDto,
 } from '@ordens/contracts';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, patch, post } from '@/lib/api';
 
 export type ListParams = Partial<Omit<OrderListQuery, 'status'>> & { status?: string[] };
@@ -77,41 +74,6 @@ export const cancelBuyerOrder = (id: string, expectedUpdatedAt: string, reason: 
 export const billingPublish =(id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/billing/publish`, { expectedUpdatedAt });
 
 export const requestPublishOrder =(id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/publish-request`, { expectedUpdatedAt });
-
-export function useCreateRelease(orderId: string) {
-  const invalidate = useInvalidateOrders();
-  return useMutation({
-    mutationFn: (body: { quantity: string; validUntil?: string | null; notes?: string | null; expectedVersion: number }) =>
-      post<OrderDetail>(`/orders/${orderId}/releases`, body),
-    onSuccess: (d) => invalidate(d),
-  });
-}
-
-// ─── Liberações (chaves sob ['orders'] para o tempo real invalidar junto) ───
-export type ReleaseParams = Partial<Omit<ReleaseListQuery, 'status'>> & { status?: string[] };
-
-export function useReleases(params: ReleaseParams) {
-  return useQuery({
-    queryKey: ['orders', 'releases', params],
-    queryFn: ({ signal }) => get<Page<ReleaseListItem>>('/orders/releases', params as Record<string, string>, signal),
-    placeholderData: keepPreviousData,
-  });
-}
-
-export const useReleasesSummary = () => useQuery({ queryKey: ['orders', 'releases-summary'], queryFn: () => get<ReleasesSummary>('/orders/releases/summary') });
-
-export function useCancelRelease() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ orderId, releaseId, ...body }: { orderId: string; releaseId: string; reason: string; expectedVersion: number }) =>
-      post<OrderDetail>(`/orders/${orderId}/releases/${releaseId}/cancel`, body),
-    onSuccess: (d) => {
-      qc.setQueryData(orderKeys.detail(d.id), d);
-      void qc.invalidateQueries({ queryKey: ['orders'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
-    },
-  });
-}
 
 /** Registra visualização efetiva (abertura de detalhe/quick view). A API ignora escopo Matriz. */
 export const registerView = (id: string) => post<{ recorded: boolean }>(`/orders/${id}/views`);

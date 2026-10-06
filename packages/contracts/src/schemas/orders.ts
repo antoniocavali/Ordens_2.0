@@ -9,7 +9,6 @@ import {
   type OrderOrigin,
   type OrderPriority,
   type OrderStatus,
-  type ReleaseStatus,
   type ViewSignal,
 } from '../enums.js';
 import { moneyString, percentString, priceString, quantityString } from '../decimal.js';
@@ -104,7 +103,6 @@ export const orderDraftSchema = z
     internalNotes: optionalText(4000),
     farmNotes: optionalText(4000),
     buyerNotes: optionalText(4000),
-    initialReleaseQty: quantityString.nullish(),
   })
   .refine((v) => !v.loadingStartsOn || !v.loadingEndsOn || v.loadingStartsOn <= v.loadingEndsOn, {
     message: 'A data limite deve ser posterior à data inicial',
@@ -236,67 +234,6 @@ export const publishOrderSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
 });
 
-export const createReleaseSchema = z.object({
-  quantity: quantityString,
-  validUntil: dateOnly.nullish(),
-  notes: optionalText(1000),
-  expectedVersion: z.number().int().min(1),
-});
-export type CreateReleaseInput = z.infer<typeof createReleaseSchema>;
-
-export const cancelReleaseSchema = z.object({
-  reason: z.string().trim().min(3, 'Informe o motivo do cancelamento').max(500),
-  expectedVersion: z.number().int().min(1),
-});
-export type CancelReleaseInput = z.infer<typeof cancelReleaseSchema>;
-
-export const RELEASE_STATUS_LABELS: Record<ReleaseStatus, string> = {
-  ACTIVE: 'Ativa',
-  CONSUMED: 'Consumida',
-  EXPIRED: 'Expirada',
-  CANCELLED: 'Cancelada',
-};
-
-/** Janela de "vence em breve" da tela de liberações. */
-export const RELEASE_EXPIRING_DAYS = 7;
-
-export const releaseListQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(10).max(200).default(50),
-  q: z.string().trim().max(60).optional(),
-  status: z
-    .union([z.enum(['ACTIVE', 'CONSUMED', 'EXPIRED', 'CANCELLED']), z.array(z.enum(['ACTIVE', 'CONSUMED', 'EXPIRED', 'CANCELLED']))])
-    .transform((v) => (Array.isArray(v) ? v : [v]))
-    .optional(),
-  /** ACTIVE com validade vencida (overdue) ou vencendo nos próximos dias (expiring). */
-  validity: z.enum(['overdue', 'expiring']).optional(),
-  orderId: z.uuid().optional(),
-  from: dateOnly.optional(),
-  to: dateOnly.optional(),
-});
-export type ReleaseListQuery = z.infer<typeof releaseListQuerySchema>;
-
-export interface ReleaseListItem extends ReleaseDto {
-  order: { id: string; number: string; status: OrderStatus; version: number };
-  farm: Ref | null;
-  buyer: Ref | null;
-  commodity: Ref | null;
-  unit: string;
-  /** Validade já passou e a liberação segue ativa. */
-  overdue: boolean;
-  /** Pode ser cancelada por quem consulta (permissão + status da liberação e da ordem). */
-  cancellable: boolean;
-}
-
-export interface ReleasesSummary {
-  active: number;
-  expiring: number;
-  overdue: number;
-  cancelled: number;
-  /** Quantidade ativa por unidade (ex.: { t: "1200.0000" }). */
-  activeQtyByUnit: Record<string, string>;
-}
-
 export const orderListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(10).max(200).default(50),
@@ -339,8 +276,6 @@ export interface Ref {
 
 export interface OrderQuantities {
   total: string;
-  released: string;
-  scheduled: string;
   loaded: string;
   inTransit: string;
   received: string;
@@ -404,7 +339,6 @@ export interface OrderDetail extends OrderListItem {
   internalNotes: string | null;
   farmNotes: string | null;
   buyerNotes: string | null;
-  initialReleaseQty: string | null;
   publishedAt: string | null;
   createdAt: string;
   createdBy: string | null;
@@ -425,7 +359,6 @@ export interface OrderDetail extends OrderListItem {
   /** Suspensão vigente (status SUSPENDED). */
   suspendedAt: string | null;
   suspendReason: string | null;
-  releases: ReleaseDto[];
   allowedActions: string[];
   /** Somente Matriz: fluxo de publicação (Q40). */
   workflow: OrderWorkflowInfo | null;
@@ -450,21 +383,6 @@ export const workflowSettingsSchema = z.object({
 });
 export type WorkflowSettingsInput = z.infer<typeof workflowSettingsSchema>;
 export type WorkflowSettingsDto = WorkflowSettingsInput;
-
-export interface ReleaseDto {
-  id: string;
-  sequence: number;
-  quantity: string;
-  validUntil: string | null;
-  status: ReleaseStatus;
-  notes: string | null;
-  orderVersion: number;
-  createdAt: string;
-  createdBy: string | null;
-  cancelledAt: string | null;
-  cancelledBy: string | null;
-  cancelReason: string | null;
-}
 
 export interface OrderVersionDto {
   version: number;
@@ -500,7 +418,6 @@ export interface OrdersSummary {
   awaitingFarmView: number;
   awaitingBuyerView: number;
   totalQty: string;
-  releasedQty: string;
   loadedQty: string;
   receivedQty: string;
   balanceQty: string;

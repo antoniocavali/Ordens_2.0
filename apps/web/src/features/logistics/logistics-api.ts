@@ -1,9 +1,6 @@
 'use client';
 
 import type {
-  AppointmentDto,
-  AppointmentInput,
-  AppointmentStatus,
   CursorPage,
   LoadDto,
   LoadHistoryItem,
@@ -14,7 +11,7 @@ import type {
   TransportSuggestions,
 } from '@ordens/contracts';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { get, patch, post, put } from '@/lib/api';
+import { get, patch, post } from '@/lib/api';
 
 export interface LogisticsParams {
   q?: string;
@@ -27,9 +24,6 @@ export interface LogisticsParams {
 }
 
 const toQuery = (p: LogisticsParams) => ({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 100 }) as Record<string, string | number | string[] | undefined>;
-
-export const useAppointments = (p: LogisticsParams) =>
-  useQuery({ queryKey: ['logistics', 'appointments', p], queryFn: ({ signal }) => get<Page<AppointmentDto>>('/appointments', toQuery(p), signal), placeholderData: keepPreviousData });
 
 export const useLoads = (p: LogisticsParams) =>
   useQuery({ queryKey: ['logistics', 'loads', p], queryFn: ({ signal }) => get<Page<LoadDto>>('/loads', toQuery(p), signal), placeholderData: keepPreviousData });
@@ -45,18 +39,10 @@ export function useInvalidateLogistics() {
   };
 }
 
-export function useAppointmentMutations() {
+/** A Fazenda informa a chegada do caminhão; a carga nasce daqui. */
+export function useRegisterArrival() {
   const invalidate = useInvalidateLogistics();
-  return {
-    save: useMutation({
-      mutationFn: ({ id, data }: { id: string | null; data: AppointmentInput }) => (id ? put<AppointmentDto>(`/appointments/${id}`, data) : post<AppointmentDto>('/appointments', data)),
-      onSuccess: invalidate,
-    }),
-    transition: useMutation({
-      mutationFn: ({ id, to, reason }: { id: string; to: AppointmentStatus; reason?: string | null }) => post<AppointmentDto>(`/appointments/${id}/transition`, { to, reason }),
-      onSuccess: invalidate,
-    }),
-  };
+  return useMutation({ mutationFn: (orderId: string) => post<LoadDto>('/loads/arrival', { orderId }), onSuccess: invalidate });
 }
 
 export function useLoadMutations() {
@@ -88,7 +74,7 @@ export const useTransportSuggestions = () =>
   });
 
 export const fleetLookups = {
-  /** Ordens aptas a receber agendamentos/cargas. */
+  /** Ordens em execução, para vincular uma ocorrência. */
   orders:
     (): Fetch =>
     async ({ q }) => {
@@ -100,8 +86,6 @@ export const fleetLookups = {
           label: o.number,
           description: `${o.commodity?.name ?? '—'} · ${o.farm?.name ?? o.seller?.name ?? '—'} → ${o.buyer?.name ?? '—'}`,
           meta: {
-            released: o.quantities.released,
-            scheduled: o.quantities.scheduled,
             loaded: o.quantities.loaded,
             unit: o.quantities.unit,
           },
