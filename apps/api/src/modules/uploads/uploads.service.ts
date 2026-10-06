@@ -97,6 +97,16 @@ export class UploadsService {
     const multipartId = multipart ? await this.storage.createMultipart(bucket, objectKey, input.mimeType) : null;
 
     const record = await this.db.write(async (scope) => {
+      // Nota da carga (PDF ou XML): a da Fazenda é só dela; a que a Matriz emite é só do Comprador.
+      // Enviada pela Fazenda, é dela. Enviada pela Matriz, é a nota da Fazenda (anexada em nome dela)
+      // enquanto a carga não saiu para transporte, e a nota da Matriz depois — mesmo critério do
+      // checklist. Para o XML, o worker confirma pela origem lida na própria nota.
+      let fiscalVisibility: 'FARM' | 'BUYER' | null = null;
+      if (input.entityType === 'load' && (input.kind === 'PDF' || input.kind === 'NFE_XML')) {
+        const inTransit =
+          m.scope === 'FARM' ? null : await scope.tx.loadStatusHistory.findFirst({ where: { loadId: input.entityId, toStatus: 'IN_TRANSIT' }, select: { id: true } });
+        fiscalVisibility = inTransit ? 'BUYER' : 'FARM';
+      }
       const created = await scope.tx.fileUpload.create({
         data: {
           tenantId: m.tenantId,
@@ -113,15 +123,9 @@ export class UploadsService {
           sha256Declared: input.sha256 ?? null,
           status: multipart ? 'UPLOADING' : 'PENDING',
           idempotencyKey: input.idempotencyKey,
-          // Q18/Q41: documentos fiscais da carga (XML e PDF da nota) para todas as partes; Fazenda compartilha com a Matriz;
-          // Matriz mantém interno; cadastros sempre internos.
-          visibility: !['loading_order', 'load', 'occurrence'].includes(input.entityType)
-            ? 'INTERNAL'
-            : input.kind === 'NFE_XML' || (input.entityType === 'load' && input.kind === 'PDF')
-              ? 'PARTIES'
-              : m.scope === 'FARM'
-                ? 'FARM'
-                : 'INTERNAL',
+          // Q18: o que a Fazenda envia ela compartilha com a Matriz; o que a Matriz envia fica interno até ela
+          // decidir compartilhar; cadastros sempre internos. Notas da carga seguem a regra acima.
+          visibility: !['loading_order', 'load', 'occurrence'].includes(input.entityType) ? 'INTERNAL' : (fiscalVisibility ?? (m.scope === 'FARM' ? 'FARM' : 'INTERNAL')),
           createdBy: auth.userId,
         },
       });

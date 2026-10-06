@@ -354,8 +354,10 @@ export class LoadsService {
         notes: r.notes,
         updatedAt: r.updatedAt.toISOString(),
         allowedTransitions: canManage ? LOAD_TRANSITIONS[r.status].filter((to) => canTransitionLoad(r.status, to, scopeName)) : [],
-        fiscalChecklist: checklists.get(r.id) ?? null,
-        matrizChecklist: matriz.get(r.id) ?? null,
+        // Pelo mesmo motivo, o Comprador não recebe o checklist da nota da Fazenda.
+        fiscalChecklist: scopeName === 'BUYER' ? null : (checklists.get(r.id) ?? null),
+        // A Fazenda não enxerga a nota da Matriz: sem os arquivos, o checklist dela sairia como "faltando".
+        matrizChecklist: scopeName === 'FARM' ? null : (matriz.get(r.id) ?? null),
         ...transportDto(r),
       };
     });

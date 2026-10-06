@@ -29,6 +29,8 @@ overrides:
   proxy-addr: '>=2.0.8'
   # GHSA-68fv-2mgg-jv7q (negação de serviço em source maps), via next > postcss.
   source-map-js: '>=1.2.2'
+  # GHSA-wq5f-xc86-pv6w (falha na librsvg embutida), via next.
+  sharp: '>=0.35.5'
 
 minimumReleaseAgeExclude:
   - zod@4.6.1

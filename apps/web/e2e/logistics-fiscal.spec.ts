@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, loginAs, login, nfeKey, nfeXml, password, PDF, prepareLoad } from './helpers';
+import { api, apiOk, loginAs, login, MATRIZ_RECIPIENT_DOC, nfeKey, nfeXml, password, PDF, prepareLoad } from './helpers';
 
 /**
  * Logística + fiscal (Q41): veículo na fazenda → carga → carregamento → pesagem obrigatória → documentação fiscal
@@ -9,7 +9,8 @@ import { api, apiOk, loginAs, login, nfeKey, nfeXml, password, PDF, prepareLoad 
 test.describe('Logística e fiscal', () => {
   test.skip(!password, 'Defina E2E_PASSWORD com a senha demo');
 
-  test('carga só segue para transporte com pesagem, PDF e XML válidos da mesma carga', async ({ page, browser }) => {
+  test('carga só segue para transporte com pesagem, PDF e XML válidos; cada parte vê só a própria nota', async ({ page, browser }) => {
+    test.setTimeout(300_000);
     await login(page, 'admin@graoforte.demo');
     const setup = await prepareLoad(page);
     const getLoad = () => apiOk(page, 'GET', `/loads/${setup.loadId}`);
@@ -103,19 +104,67 @@ test.describe('Logística e fiscal', () => {
     const actions = timeline.map((e) => e.action);
     expect(actions).toEqual(expect.arrayContaining(['order.load_document_attached', 'order.invoice_attached', 'order.load_documents_validated', 'order.load_status']));
 
-    // Comprador da ordem vê a carga, o PDF compartilhado e só a NF-e válida; o outro comprador não vê nada.
+    // ─── Quem vê o quê (decisão de 06/10/2026) ───
+    // A nota da Fazenda é só dela e da Matriz: o Comprador da ordem vê a carga, mas não a nota nem os arquivos.
     const buyerEmail = /nutri/i.test(setup.buyerName) ? 'comprador.nutri@graoforte.demo' : 'comprador.abc@graoforte.demo';
     const otherEmail = buyerEmail.includes('nutri') ? 'comprador.abc@graoforte.demo' : 'comprador.nutri@graoforte.demo';
 
     const buyer = await loginAs(browser, buyerEmail);
-    const invoices = (await apiOk(buyer.page, 'GET', `/invoices?loadId=${setup.loadId}`)).items as any[];
-    expect(invoices.map((i) => i.status)).toEqual(['VALID']);
-    const uploads = (await apiOk(buyer.page, 'GET', `/uploads?entityType=load&entityId=${setup.loadId}`)) as any[];
-    expect(uploads.some((u) => u.kind === 'PDF')).toBe(true);
+    const buyerInvoices = async () => (await apiOk(buyer.page, 'GET', `/invoices?loadId=${setup.loadId}`)).items as any[];
+    const buyerUploads = async () => ((await apiOk(buyer.page, 'GET', `/uploads?entityType=load&entityId=${setup.loadId}`)) as any[]).filter((u) => u.kind === 'PDF' || u.kind === 'NFE_XML');
+    expect(await buyerInvoices(), 'Comprador não vê a NF-e da Fazenda').toHaveLength(0);
+    expect(await buyerUploads(), 'Comprador não vê o PDF nem o XML da Fazenda').toHaveLength(0);
+    expect((await apiOk(buyer.page, 'GET', `/loads/${setup.loadId}`)).fiscalChecklist).toBeNull();
     await buyer.page.goto(`/cargas?abrir=${setup.loadId}`);
-    await expect(buyer.page.getByRole('dialog').getByText('Válida').first()).toBeVisible();
-    await expect(buyer.page.getByRole('dialog').getByText('Rejeitada')).toHaveCount(0);
+    const buyerDrawer = buyer.page.getByRole('dialog').first();
+    await expect(buyerDrawer.getByText('Nota da Matriz para o Comprador')).toBeVisible({ timeout: 20_000 });
+    await expect(buyerDrawer.getByText('Documentação fiscal da Fazenda')).toHaveCount(0);
+
+    // A Fazenda da ordem vê a própria nota (inclusive o XML rejeitado, para corrigir).
+    const farm = await loginAs(browser, /maria/i.test(setup.sellerName) ? 'fazenda.maria@graoforte.demo' : 'fazenda.joao@graoforte.demo');
+    const farmInvoices = async () => (await apiOk(farm.page, 'GET', `/invoices?loadId=${setup.loadId}`)).items as any[];
+    const farmUploads = async () => ((await apiOk(farm.page, 'GET', `/uploads?entityType=load&entityId=${setup.loadId}`)) as any[]).filter((u) => u.kind === 'PDF' || u.kind === 'NFE_XML');
+    const farmInvoicesBefore = await farmInvoices();
+    const farmUploadsBefore = (await farmUploads()).map((u) => u.id).sort();
+    expect(farmInvoicesBefore.length).toBeGreaterThan(0);
+    expect(farmInvoicesBefore.every((i) => i.origin === 'FARM')).toBe(true);
+    expect(farmUploadsBefore.length).toBeGreaterThan(0);
+
+    // ─── A Matriz anexa a nota que emite para o Comprador ───
+    // Emitente diferente do vendedor da ordem: é isso que faz o XML ser a nota da Matriz.
+    const matrizDoc = MATRIZ_RECIPIENT_DOC;
+    const matrizKey = nfeKey(matrizDoc);
+    await page.goto(`/cargas?abrir=${setup.loadId}`);
+    const matrizInput = page.getByRole('dialog').first().locator('input[type="file"]').last();
+    await matrizInput.setInputFiles({ name: 'nota-matriz.pdf', mimeType: 'application/pdf', buffer: PDF });
+    await expect.poll(async () => (await getLoad()).matrizChecklist?.pdf, { timeout: 45_000 }).toBe('OK');
+    await matrizInput.setInputFiles({
+      name: `NFe${matrizKey}.xml`,
+      mimeType: 'application/xml',
+      buffer: Buffer.from(nfeXml({ key: matrizKey, issuerDoc: matrizDoc, plate: setup.plate, netKg: 10_000 })),
+    });
+    await expect.poll(async () => (await getLoad()).matrizChecklist?.ready, { timeout: 45_000 }).toBe(true);
+
+    // O Comprador passa a ver a nota da Matriz — PDF e XML — e só ela.
+    await expect.poll(async () => (await buyerInvoices()).map((i) => `${i.origin}:${i.accessKey}`), { timeout: 30_000 }).toEqual([`MATRIZ:${matrizKey}`]);
+    expect((await buyerUploads()).map((u) => u.kind).sort()).toEqual(['NFE_XML', 'PDF']);
+    await buyer.page.reload();
+    await expect(buyer.page.getByRole('dialog').first().getByText('Válida').first()).toBeVisible({ timeout: 20_000 });
     await buyer.context.close();
+
+    // A Fazenda continua vendo só o que é dela: nada da nota da Matriz.
+    expect((await farmInvoices()).map((i) => i.id).sort()).toEqual(farmInvoicesBefore.map((i) => i.id).sort());
+    expect((await farmUploads()).map((u) => u.id).sort()).toEqual(farmUploadsBefore);
+    expect((await apiOk(farm.page, 'GET', `/loads/${setup.loadId}`)).matrizChecklist).toBeNull();
+    await farm.page.goto(`/cargas?abrir=${setup.loadId}`);
+    const farmDrawer = farm.page.getByRole('dialog').first();
+    await expect(farmDrawer.getByText('Documentação fiscal da Fazenda')).toBeVisible({ timeout: 20_000 });
+    await expect(farmDrawer.getByText('Nota da Matriz para o Comprador')).toHaveCount(0);
+    await farm.context.close();
+
+    // A Matriz vê tudo.
+    const all = (await apiOk(page, 'GET', `/invoices?loadId=${setup.loadId}`)).items as any[];
+    expect(new Set(all.map((i) => i.origin))).toEqual(new Set(['FARM', 'MATRIZ']));
 
     const other = await loginAs(browser, otherEmail);
     expect((await api(other.page, 'GET', `/loads/${setup.loadId}`)).status).toBe(404);

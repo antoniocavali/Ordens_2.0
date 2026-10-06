@@ -1,9 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, login, nfeKey, nfeXml, password } from './helpers';
+import { api, apiOk, login, MATRIZ_RECIPIENT_DOC, nfeKey, nfeXml, password } from './helpers';
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n%%EOF\n');
-/** CNPJ da Matriz emitente (a NF-e de venda ao Comprador não é da Fazenda). */
-const MATRIZ_DOC = '11222333000181';
+/**
+ * CNPJ da Matriz emitente (a NF-e de venda ao Comprador não é da Fazenda). Tem de ser diferente do de
+ * qualquer vendedor: um XML emitido pelo vendedor da ordem é, corretamente, a nota da Fazenda.
+ */
+const MATRIZ_DOC = MATRIZ_RECIPIENT_DOC;
 
 /** Q47: a carga só é faturada e concluída com PDF e XML da nota emitida pela Matriz. */
 test.describe('Faturamento da Matriz na carga', () => {
@@ -12,8 +15,19 @@ test.describe('Faturamento da Matriz na carga', () => {
   test('Sem a nota da Matriz o faturamento é recusado; com PDF e XML válidos a carga conclui', async ({ page }) => {
     await login(page, 'admin@graoforte.demo');
     const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
-    const chosen = loads[0];
-    expect(chosen, 'carga em trânsito no seed').toBeTruthy();
+    // Outras suítes também deixam cargas em trânsito, algumas já com a nota da Matriz: aqui interessa uma sem nada.
+    // E com a saída para transporte já ocorrida: o que conta como nota da Matriz é o que entra depois dela,
+    // e o seed tem cargas com o histórico datado adiante.
+    let chosen: any = null;
+    for (const l of loads.filter((x) => x.matrizChecklist?.pdf === 'MISSING' && x.matrizChecklist?.xml === 'MISSING')) {
+      const detail = await apiOk(page, 'GET', `/loads/${l.id}`);
+      const transit = (detail.history as any[]).find((h) => h.to === 'IN_TRANSIT');
+      if (transit && new Date(transit.occurredAt).getTime() < Date.now()) {
+        chosen = l;
+        break;
+      }
+    }
+    expect(chosen, 'carga em trânsito sem nota da Matriz').toBeTruthy();
     const getLoad = () => apiOk(page, 'GET', `/loads/${chosen.id}`);
 
     // Do trânsito a Matriz fatura direto: não há recebimento nem "encerrar transporte".

@@ -4,14 +4,14 @@ import { FISCAL_DOC_STATE_LABELS, LOAD_STATUS_LABELS, type FiscalDocState, type 
 import { Button, Card, cn, Drawer, Field, Input, Skeleton, Textarea } from '@ordens/ui';
 import { ArrowRight, Check, CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { FormSection, handleSaveError, span, Stat } from '@/features/registry/form-utils';
 import { ApiRequestError } from '@/lib/api';
 import { subDec } from '@/lib/decimal';
 import { formatDate, formatDateTime, formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
-import { useCan } from '@/lib/session';
+import { useCan, useMe } from '@/lib/session';
 import { TransportFields, transportFromDto, transportPayload, type TransportValues } from './transport-fields';
 import { LoadStatusBadge, LoadStepper } from './load-status';
 import { useLoad, useLoadMutations } from './logistics-api';
@@ -96,6 +96,8 @@ function FiscalChecklist({ c, party = 'FARM' }: { c: LoadFiscalChecklist; party?
 
 export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const can = useCan();
+  // Cada parte vê só a documentação que é dela: a Fazenda, a nota que emite; o Comprador, a da Matriz.
+  const scope = useMe().data?.activeMembership?.scope;
   const load = useLoad(id);
   const { update, transition } = useLoadMutations();
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -111,17 +113,28 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const tareN = parseDecimalInput(tare ?? '');
   const net = grossN && tareN ? subDec(grossN, tareN) : null;
 
+  // A carga é recarregada sozinha (depois de avançar a etapa, por aviso em tempo real, ao processar um
+  // anexo). Ao trocar de carga o formulário recomeça; na mesma carga, só os campos que a pessoa não
+  // tocou acompanham o servidor — senão o peso que ela está digitando some no meio.
+  const shownId = useRef<string | null>(null);
   useEffect(() => {
     if (!l) return;
-    form.reset({
-      ...transportFromDto(l),
-      loadingDate: l.loadingDate ?? '',
-      grossKg: toDecimalInput(l.grossKg),
-      tareKg: toDecimalInput(l.tareKg),
-      notes: l.notes ?? '',
-    });
+    const sameLoad = shownId.current === l.id;
+    shownId.current = l.id;
+    form.reset(
+      {
+        ...transportFromDto(l),
+        loadingDate: l.loadingDate ?? '',
+        grossKg: toDecimalInput(l.grossKg),
+        tareKg: toDecimalInput(l.tareKg),
+        notes: l.notes ?? '',
+      },
+      { keepDirtyValues: sameLoad },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [l?.id, l?.updatedAt]);
+  /** O que estava digitado foi gravado: deixa de ser "alteração pendente" e volta a acompanhar o servidor. */
+  const markSaved = () => form.reset(form.getValues());
 
   const payload = (v: Values) => ({
     expectedUpdatedAt: l!.updatedAt,
@@ -135,6 +148,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const save = form.handleSubmit(async (v) => {
     try {
       await update.mutateAsync({ id: l!.id, data: payload(v) });
+      markSaved();
       toast.success('Carga atualizada');
     } catch (err) {
       handleSaveError(err, (name, e) => form.setError(String(name) as keyof Values, e));
@@ -162,6 +176,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : null,
         ...(acceptMissingMatrizInvoice ? { acceptMissingMatrizInvoice: true } : {}),
       });
+      markSaved();
       toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
       setCancelOpen(false);
     } catch (err) {
@@ -273,6 +288,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
               </FormSection>
             </fieldset>
 
+            {scope !== 'BUYER' ? (
             <FormSection
               title="Documentação fiscal da Fazenda"
               description="Após confirmar o carregamento, anexe o PDF da nota fiscal e o XML da NF-e. A carga só segue para transporte com os dois documentos e o XML validado."
@@ -291,7 +307,9 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                 <InvoiceList loadId={l.id} />
               </div>
             </FormSection>
+            ) : null}
 
+            {scope !== 'FARM' ? (
             <FormSection
               title="Nota da Matriz para o Comprador"
               description="Com a carga em trânsito, anexe o PDF e o XML da NF-e emitida pela Matriz. A carga só é faturada e concluída com os dois documentos e o XML validado."
@@ -308,7 +326,14 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                   />
                 </div>
               ) : null}
+              {/* O Comprador não tem a seção da Fazenda: a lista das notas dele (as da Matriz) fica aqui. */}
+              {scope === 'BUYER' ? (
+                <div className="sm:col-span-6">
+                  <InvoiceList loadId={l.id} />
+                </div>
+              ) : null}
             </FormSection>
+            ) : null}
 
             {can('occurrence.read') ? (
               <FormSection title="Ocorrências">

@@ -104,14 +104,30 @@ export function invoiceProcessingHandler(ctx: WorkerContext) {
         if (duplicate) reject = 'DUPLICATE';
       }
       const status = reject ? 'REJECTED' : divergences.length ? 'DIVERGENT' : 'VALID';
+      // De quem é a nota. Enviada pela Fazenda, é dela. Enviada pela Matriz, decide o emitente lido no
+      // XML: o vendedor da ordem (a Matriz anexou em nome da Fazenda) ou outro (a nota da própria Matriz).
+      // Quando o arquivo nem pôde ser lido, não há emitente: vale a fase em que foi anexado, já gravada
+      // na visibilidade do envio — senão um XML inválido da fase da Fazenda viraria "nota da Matriz".
+      const issuer = nfe?.issuer.document ?? null;
+      const origin: 'FARM' | 'MATRIZ' = source.uploaderIsFarm
+        ? 'FARM'
+        : issuer
+          ? issuer === source.sellerDocument
+            ? 'FARM'
+            : 'MATRIZ'
+          : source.upload.visibility === 'BUYER'
+            ? 'MATRIZ'
+            : 'FARM';
+      // O arquivo acompanha a nota: a da Fazenda só ela vê; a da Matriz só o Comprador. Se a Matriz já
+      // ajustou a visibilidade à mão (interno), isso é respeitado.
+      await tx.fileUpload.updateMany({ where: { id: uploadId, visibility: { in: ['FARM', 'BUYER', 'PARTIES'] } }, data: { visibility: origin === 'FARM' ? 'FARM' : 'BUYER' } });
       const invoice = await tx.invoice.create({
         data: {
           tenantId,
           loadId: source.load.id,
           orderId: source.load.orderId,
           fileUploadId: uploadId,
-          // Nota da Fazenda: enviada por ela ou emitida pelo vendedor da ordem (Matriz pode anexar em nome dela).
-          origin: source.uploaderIsFarm || (nfe?.issuer.document && nfe.issuer.document === source.sellerDocument) ? 'FARM' : 'MATRIZ',
+          origin,
           status,
           ...(nfe
             ? {
