@@ -4,7 +4,7 @@ import { FISCAL_DOC_STATE_LABELS, LOAD_STATUS_LABELS, type FiscalDocState, type 
 import { Button, Card, cn, Drawer, Field, Input, Skeleton, Textarea } from '@ordens/ui';
 import { ArrowRight, Check, CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { FormSection, handleSaveError, span, Stat } from '@/features/registry/form-utils';
@@ -113,17 +113,28 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const tareN = parseDecimalInput(tare ?? '');
   const net = grossN && tareN ? subDec(grossN, tareN) : null;
 
+  // A carga é recarregada sozinha (depois de avançar a etapa, por aviso em tempo real, ao processar um
+  // anexo). Ao trocar de carga o formulário recomeça; na mesma carga, só os campos que a pessoa não
+  // tocou acompanham o servidor — senão o peso que ela está digitando some no meio.
+  const shownId = useRef<string | null>(null);
   useEffect(() => {
     if (!l) return;
-    form.reset({
-      ...transportFromDto(l),
-      loadingDate: l.loadingDate ?? '',
-      grossKg: toDecimalInput(l.grossKg),
-      tareKg: toDecimalInput(l.tareKg),
-      notes: l.notes ?? '',
-    });
+    const sameLoad = shownId.current === l.id;
+    shownId.current = l.id;
+    form.reset(
+      {
+        ...transportFromDto(l),
+        loadingDate: l.loadingDate ?? '',
+        grossKg: toDecimalInput(l.grossKg),
+        tareKg: toDecimalInput(l.tareKg),
+        notes: l.notes ?? '',
+      },
+      { keepDirtyValues: sameLoad },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [l?.id, l?.updatedAt]);
+  /** O que estava digitado foi gravado: deixa de ser "alteração pendente" e volta a acompanhar o servidor. */
+  const markSaved = () => form.reset(form.getValues());
 
   const payload = (v: Values) => ({
     expectedUpdatedAt: l!.updatedAt,
@@ -137,6 +148,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const save = form.handleSubmit(async (v) => {
     try {
       await update.mutateAsync({ id: l!.id, data: payload(v) });
+      markSaved();
       toast.success('Carga atualizada');
     } catch (err) {
       handleSaveError(err, (name, e) => form.setError(String(name) as keyof Values, e));
@@ -164,6 +176,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         tareKg: v.tareKg ? parseDecimalInput(v.tareKg) : null,
         ...(acceptMissingMatrizInvoice ? { acceptMissingMatrizInvoice: true } : {}),
       });
+      markSaved();
       toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
       setCancelOpen(false);
     } catch (err) {
