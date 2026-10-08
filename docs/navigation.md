@@ -52,10 +52,30 @@ Documentos        /documentos  (somente autorizados)
 
 ```
 /login  /login/2fa  /recuperar-senha  /redefinir-senha?token=…  /convite?token=…
+/apresentacao      apresentação institucional (sem login; link na tela de entrada)
 ```
+
+## Ajuda (todos os perfis, com login)
+
+```
+Guia de uso        /guia             (capítulos por tipo de usuário; destaca o perfil de quem está logado)
+                   /guia/<perfil>    (passo a passo, com capturas de tela)
+```
+
+O texto do guia fica em `apps/web/src/features/guide/guide-content.ts` e o roteiro da apresentação em
+`presentation-content.ts`. As capturas (`apps/web/public/guia/*.webp`) são geradas contra o ambiente local de
+demonstração:
+
+```
+cd apps/web
+E2E_PASSWORD=<senha demo> WEB_URL=http://localhost:3020 npx playwright test --config playwright.guia.config.ts
+```
+
+Ao mudar uma tela ou uma regra, ajuste o texto e gere as capturas de novo. Um teste unitário falha se o guia
+citar uma captura que não existe ou se um papel de Matriz, Fazenda ou Comprador ficar sem capítulo.
 
 ## Elementos globais
 
 - **Sidebar** recolhível (ícone + texto / ícones com tooltip), itens filtrados por permissão (apenas UX — a API sempre valida).
-- **Header**: breadcrumb, busca global (Ctrl/Cmd+K), criação rápida, notificações, tema, ajuda, avatar, seletor de tenant/organização.
+- **Header**: breadcrumb, busca global (Ctrl/Cmd+K), criação rápida, notificações, tema, ajuda (abre o Guia de uso), avatar, seletor de tenant/organização.
 - **Command Palette** (Ctrl/Cmd+K): navegação, ações ("Nova Ordem"), busca futura por OC, contrato, placa, NF-e, motorista.

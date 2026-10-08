@@ -305,7 +305,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
             {scope !== 'BUYER' ? (
             <FormSection
               title="Documentação fiscal da Fazenda"
-              description="Após confirmar o carregamento, anexe o PDF da nota fiscal e o XML da NF-e. A carga só segue para transporte com os dois documentos e o XML validado."
+              description="Após confirmar o carregamento, anexe o PDF da nota fiscal e o XML da NF-e. Com os dois documentos e o XML validado, conclua a validação fiscal: a carga segue para o faturamento da Matriz."
             >
               {l.fiscalChecklist ? <FiscalChecklist c={l.fiscalChecklist} /> : null}
               <div className="space-y-3 sm:col-span-6">

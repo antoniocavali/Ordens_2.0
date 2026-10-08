@@ -122,6 +122,11 @@ function LoginForm() {
       </form>
 
       <p className="text-center text-xs text-subtle">Protegido por passkeys, verificação em duas etapas e bloqueio progressivo.</p>
+      <p className="text-center text-sm">
+        <Link href="/apresentacao" className="font-medium text-primary hover:underline">
+          Conheça a plataforma
+        </Link>
+      </p>
     </div>
   );
 }

@@ -4,6 +4,16 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Barra de tempo da tela atual em /apresentacao. */
+@keyframes apresentacao-progresso {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 /* ─── Tokens (docs/design-system.md). Light e dark têm paletas próprias. ─── */
 :root {
   --bg: #f5f5f8;

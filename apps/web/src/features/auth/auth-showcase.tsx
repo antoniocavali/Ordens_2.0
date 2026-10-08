@@ -1,4 +1,4 @@
-import { Eye, Route, ShieldCheck, Truck } from 'lucide-react';
+import { Eye, FileCheck2, ShieldCheck, Truck } from 'lucide-react';
 
 /** Painel visual da tela de login (desktop): identidade TMS com dados ilustrativos. */
 export function AuthShowcase() {
@@ -16,10 +16,10 @@ export function AuthShowcase() {
         <div className="space-y-8">
           <div className="max-w-md space-y-3">
             <h2 className="text-[32px] font-semibold leading-tight tracking-tight">
-              Do contrato à carga recebida, <span className="text-violet-300">em tempo real.</span>
+              Do pedido ao caminhão na estrada, <span className="text-violet-300">em tempo real.</span>
             </h2>
             <p className="text-[15px] leading-relaxed text-white/65">
-              Ordens, liberações, agendamentos, NF-e e rastreabilidade completa entre Matriz, Fazendas e Compradores.
+              Ordens, cargas, notas fiscais e rastreabilidade completa entre Matriz, Fazendas e Compradores.
             </p>
           </div>
 
@@ -37,9 +37,9 @@ export function AuthShowcase() {
               <div className="w-[8%] bg-emerald-400" />
             </div>
             <div className="mt-2 flex gap-4 text-[11px] text-white/60">
-              <span>Liberado 300 t</span>
-              <span>Carregado 120 t</span>
-              <span>Recebido 80 t</span>
+              <span>Carregado 300 t</span>
+              <span>Faturado 120 t</span>
+              <span>Liberado 80 t</span>
             </div>
           </div>
 
@@ -47,8 +47,8 @@ export function AuthShowcase() {
             {[
               [ShieldCheck, 'Isolamento por tenant e organização'],
               [Eye, 'Faróis de visualização por versão'],
-              [Route, 'Liberações parciais e saldo'],
-              [Truck, 'Agendamentos e cargas'],
+              [Truck, 'Carga criada na chegada do caminhão'],
+              [FileCheck2, 'Notas fiscais conferidas pelo XML'],
             ].map(([Icon, label]) => {
               const I = Icon as typeof ShieldCheck;
               return (
