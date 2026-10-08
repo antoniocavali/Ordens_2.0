@@ -85,11 +85,12 @@ flowchart TD
   I --> J[Anexar PDF da nota + XML da NF-e na carga<br/>upload direto, visibilidade PARTIES]
   J --> K[Worker valida XML → NF-e VALID/DIVERGENT]
   K --> L[Validar documentação fiscal]
-  L --> M[Liberar para transporte]
+  L --> M[Matriz registra o faturamento: PDF + XML da nota dela]
+  M --> M2[Matriz libera para trânsito → carga concluída]
 ```
 
 - A Fazenda **não enxerga** ordens em rascunho, aguardando faturamento ou sem fazenda definida (RLS).
-- "Validar documentação fiscal" e "Liberar para transporte" exigem pesagem, PDF disponível e o XML mais recente processado com NF-e válida ou com divergência; qualquer arquivo em envio/processamento, rejeitado ou infectado bloqueia (`FISCAL_DOCUMENTS_REQUIRED`).
+- "Validar documentação fiscal" (e, como reconferência, o faturamento da Matriz e a liberação para trânsito) exigem pesagem, PDF disponível e o XML mais recente processado com NF-e válida ou com divergência; qualquer arquivo em envio/processamento, rejeitado ou infectado bloqueia (`FISCAL_DOCUMENTS_REQUIRED`).
 - A Fazenda **não cria nem altera** ordens.
 
 ## Autenticação

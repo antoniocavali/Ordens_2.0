@@ -84,17 +84,19 @@ test.describe('Logística e fiscal', () => {
     await expect(drawer.getByRole('button', { name: 'Validar documentação fiscal', exact: true })).toBeVisible();
 
     expect((await advance('Validar documentação fiscal')).ok()).toBe(true);
-    await expect(drawer.getByRole('button', { name: 'Liberar para transporte', exact: true })).toBeVisible();
-    expect((await advance('Liberar para transporte')).ok()).toBe(true);
+    // Validada a documentação da Fazenda, o passo seguinte é o faturamento da Matriz — o caminhão ainda não sai.
+    await expect(drawer.getByRole('button', { name: 'Registrar faturamento da Matriz', exact: true })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: /Liberar para tr/ })).toHaveCount(0);
 
-    const final = await getLoad();
-    expect(final.status).toBe('IN_TRANSIT');
-    expect(final.history.map((h: any) => h.to)).toEqual(expect.arrayContaining(['FARM_INVOICED', 'IN_TRANSIT']));
+    const validated = await getLoad();
+    expect(validated.status).toBe('FARM_INVOICED');
+    expect(validated.allowedTransitions).toEqual(['MATRIZ_INVOICED']);
+    expect((await api(page, 'POST', `/loads/${setup.loadId}/transition`, { to: 'IN_TRANSIT', expectedUpdatedAt: validated.updatedAt })).status).toBe(422);
 
     // Não há tela geral de cargas: a carga aparece dentro da ordem, na aba Cargas, filtrável por etapa.
     await page.goto(`/ordens/${setup.orderId}`);
     await page.getByRole('tab', { name: 'Cargas', exact: true }).click();
-    await page.getByRole('tab', { name: /Transporte/ }).click();
+    await page.getByRole('tab', { name: /Carregamento/ }).click();
     await expect(page.getByRole('row', { name: new RegExp(setup.loadNumber) })).toBeVisible();
     const dashboard = await apiOk(page, 'GET', '/dashboard');
     expect((dashboard.attention as any[]).find((a) => a.key === 'awaiting_invoice')?.href).toBe('/ordens?status=IN_PROGRESS');
@@ -165,6 +167,17 @@ test.describe('Logística e fiscal', () => {
     // A Matriz vê tudo.
     const all = (await apiOk(page, 'GET', `/invoices?loadId=${setup.loadId}`)).items as any[];
     expect(new Set(all.map((i) => i.origin))).toEqual(new Set(['FARM', 'MATRIZ']));
+
+    // ─── Matriz fatura e libera para trânsito: é o fim da carga ───
+    await page.reload();
+    expect((await advance('Registrar faturamento da Matriz')).ok()).toBe(true);
+    expect((await getLoad()).status).toBe('MATRIZ_INVOICED');
+    await expect(drawer.getByRole('button', { name: 'Liberar para trânsito', exact: true })).toBeVisible();
+    expect((await advance('Liberar para trânsito')).ok()).toBe(true);
+    const final = await getLoad();
+    expect(final.status).toBe('COMPLETED');
+    expect(final.allowedTransitions).toEqual([]);
+    expect(final.history.map((h: any) => h.to).slice(-4)).toEqual(['FARM_INVOICED', 'MATRIZ_INVOICED', 'IN_TRANSIT', 'COMPLETED']);
 
     const other = await loginAs(browser, otherEmail);
     expect((await api(other.page, 'GET', `/loads/${setup.loadId}`)).status).toBe(404);

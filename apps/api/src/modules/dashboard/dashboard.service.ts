@@ -318,8 +318,9 @@ export class DashboardService {
       left join commodities c on c.id = lo.commodity_id
       left join farms f on f.id = lo.farm_id
       left join units u on u.id = lo.unit_id
-      where l.status in ('IN_TRANSIT', 'ARRIVED') ${commodity}
-      order by since asc nulls last
+      -- A liberação para trânsito conclui a carga: "a caminho" é o que saiu da fazenda nos últimos 7 dias.
+      where (l.status in ('IN_TRANSIT', 'ARRIVED') or (l.status = 'COMPLETED' and l.received_at >= now() - interval '7 days')) ${commodity}
+      order by since desc nulls last
       limit 8
     `);
     return {

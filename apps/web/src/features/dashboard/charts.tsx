@@ -63,7 +63,7 @@ export function DailyChart({ points }: { points: { day: string; loadedT: string;
 
   return (
     <figure>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-52 w-full" role="img" aria-label="Toneladas carregadas e recebidas por dia">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-52 w-full" role="img" aria-label="Toneladas carregadas e liberadas para trânsito por dia">
         {[0, 0.5, 1].map((f) => (
           <g key={f}>
             <line x1={left} x2={W} y1={y(max * f)} y2={y(max * f)} className="stroke-border" strokeDasharray="3 4" />
@@ -114,7 +114,7 @@ export function DailyChart({ points }: { points: { day: string; loadedT: string;
           <span className="size-2.5 rounded-sm bg-primary" /> Carregado
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-2.5 rounded-sm bg-success/70" /> Recebido
+          <span className="size-2.5 rounded-sm bg-success/70" /> Liberado para trânsito
         </span>
       </figcaption>
       {/* sr-only no wrapper: no <table> a <caption> escapa do recorte (Firefox) e estica a página. */}
@@ -125,7 +125,7 @@ export function DailyChart({ points }: { points: { day: string; loadedT: string;
             <tr>
               <th>Dia</th>
               <th>Carregado</th>
-              <th>Recebido</th>
+              <th>Liberado para trânsito</th>
             </tr>
           </thead>
           <tbody>

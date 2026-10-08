@@ -241,7 +241,9 @@ export async function notificationPlan(tx: Tx, type: string, p: Record<string, u
     }
 
     case 'load.status_changed': {
-      if (p.to !== 'IN_TRANSIT') return null;
+      // A liberação para trânsito conclui a carga no mesmo passo: o evento chega com `to: COMPLETED`.
+      const steps = Array.isArray(p.steps) ? p.steps : [];
+      if (p.to !== 'IN_TRANSIT' && !steps.includes('IN_TRANSIT')) return null;
       const orderId = str(p.orderId);
       const order = orderId ? await tx.loadingOrder.findUnique({ where: { id: orderId }, select: { buyerOrgId: true } }) : null;
       if (!order) return null;

@@ -505,7 +505,7 @@ export function OrdersCenter() {
           <>
             <KpiCard label="Abertas" value={s.open} hint={`${s.publishedToday} publicadas hoje`} icon={<ClipboardList />} active={filters.status.join() === 'PUBLISHED,IN_PROGRESS,SUSPENDED'} onClick={() => setFilters({ status: ['PUBLISHED', 'IN_PROGRESS', 'SUSPENDED'], farmSignal: '', buyerSignal: '' })} />
             <KpiCard label="Volume em aberto" value={formatQtyCompact(s.totalQty, 't')} hint={`${formatQtyCompact(s.balanceQty, 't')} de saldo`} icon={<Scale />} />
-            <KpiCard label="Carregado" value={formatQtyCompact(s.loadedQty, 't')} hint={`${formatQtyCompact(s.receivedQty, 't')} recebidas`} icon={<Truck />} tone="success" progress={{ value: s.loadedQty, total: s.totalQty }} />
+            <KpiCard label="Carregado" value={formatQtyCompact(s.loadedQty, 't')} hint={`${formatQtyCompact(s.receivedQty, 't')} liberadas para trânsito`} icon={<Truck />} tone="success" progress={{ value: s.loadedQty, total: s.totalQty }} />
             {scope === 'MATRIZ' ? (
               <>
                 <KpiCard

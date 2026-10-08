@@ -99,13 +99,13 @@ export class UploadsService {
     const record = await this.db.write(async (scope) => {
       // Nota da carga (PDF ou XML): a da Fazenda é só dela; a que a Matriz emite é só do Comprador.
       // Enviada pela Fazenda, é dela. Enviada pela Matriz, é a nota da Fazenda (anexada em nome dela)
-      // enquanto a carga não saiu para transporte, e a nota da Matriz depois — mesmo critério do
+      // enquanto a documentação dela não foi validada, e a nota da Matriz depois — mesmo critério do
       // checklist. Para o XML, o worker confirma pela origem lida na própria nota.
       let fiscalVisibility: 'FARM' | 'BUYER' | null = null;
       if (input.entityType === 'load' && (input.kind === 'PDF' || input.kind === 'NFE_XML')) {
-        const inTransit =
-          m.scope === 'FARM' ? null : await scope.tx.loadStatusHistory.findFirst({ where: { loadId: input.entityId, toStatus: 'IN_TRANSIT' }, select: { id: true } });
-        fiscalVisibility = inTransit ? 'BUYER' : 'FARM';
+        const farmValidated =
+          m.scope === 'FARM' ? null : await scope.tx.loadStatusHistory.findFirst({ where: { loadId: input.entityId, toStatus: 'FARM_INVOICED' }, select: { id: true } });
+        fiscalVisibility = farmValidated ? 'BUYER' : 'FARM';
       }
       const created = await scope.tx.fileUpload.create({
         data: {
@@ -260,7 +260,7 @@ export class UploadsService {
           throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'A carga já foi encerrada: os documentos dela não podem mais ser removidos.');
         }
         if (auth.membership!.scope !== 'MATRIZ' && !EXTERNAL_CAN_REMOVE.includes(load.status)) {
-          throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Após o envio para transporte, somente a Matriz remove documentos desta carga.');
+          throw AppError.domain(ErrorCode.INVALID_TRANSITION, 'Depois de validada a documentação fiscal, somente a Matriz remove documentos desta carga.');
         }
       }
 

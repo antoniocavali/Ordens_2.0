@@ -26,9 +26,10 @@ export function canTransitionOrder(from: OrderStatus, to: OrderStatus): boolean 
  * → aguardando documentação fiscal da Fazenda (PDF + XML) → documentação validada → trânsito → faturamento
  * da Matriz → concluída.
  *
- * Não há etapa de recebimento no destino: do trânsito a carga vai direto para o faturamento. Os status
- * ARRIVED, RECEIVED e CHECKED continuam no enum por causa do histórico de cargas antigas, e a única saída
- * deles é o faturamento da Matriz — nenhuma carga nova entra nesses estados.
+ * Ordem das etapas (08/10/2026): documentação fiscal da Fazenda validada → faturamento da Matriz →
+ * liberação para trânsito, que encerra a carga. O caminhão só sai depois que a Matriz fatura, e não há
+ * etapa de recebimento no destino. ARRIVED, RECEIVED, CHECKED e AWAITING_MATRIZ_INVOICE continuam no
+ * enum por causa do histórico de cargas antigas — nenhuma carga nova entra nesses estados.
  */
 export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   SCHEDULED: ['CONFIRMED', 'CANCELLED'],
@@ -37,15 +38,16 @@ export const LOAD_TRANSITIONS: Transitions<LoadStatus> = {
   LOADING: ['LOADED', 'CANCELLED'],
   LOADED: ['AWAITING_FARM_INVOICE'],
   AWAITING_FARM_INVOICE: ['FARM_INVOICED'],
-  FARM_INVOICED: ['IN_TRANSIT'],
-  // Do trânsito a Matriz fatura direto: não há um passo de "encerrar transporte" no meio.
-  IN_TRANSIT: ['MATRIZ_INVOICED'],
+  FARM_INVOICED: ['MATRIZ_INVOICED'],
+  MATRIZ_INVOICED: ['IN_TRANSIT'],
+  // Liberar para trânsito já conclui a carga (a API grava os dois passos de uma vez). Uma carga só
+  // fica parada em IN_TRANSIT se veio do fluxo antigo; dali ela apenas conclui.
+  IN_TRANSIT: ['COMPLETED'],
   // Saídas só para cargas antigas, que pararam em etapas que não existem mais.
-  ARRIVED: ['MATRIZ_INVOICED'],
-  RECEIVED: ['MATRIZ_INVOICED'],
-  CHECKED: ['MATRIZ_INVOICED'],
+  ARRIVED: ['COMPLETED'],
+  RECEIVED: ['COMPLETED'],
+  CHECKED: ['COMPLETED'],
   AWAITING_MATRIZ_INVOICE: ['MATRIZ_INVOICED'],
-  MATRIZ_INVOICED: ['COMPLETED'],
   COMPLETED: [],
   CANCELLED: [],
 };
@@ -59,7 +61,7 @@ export const LOAD_TRANSITION_SCOPES: Record<LoadStatus, readonly Scope[]> = {
   LOADED: ['MATRIZ', 'FARM'],
   AWAITING_FARM_INVOICE: ['MATRIZ', 'FARM'],
   FARM_INVOICED: ['MATRIZ', 'FARM'],
-  IN_TRANSIT: ['MATRIZ', 'FARM'],
+  IN_TRANSIT: ['MATRIZ'],
   ARRIVED: ['MATRIZ'],
   RECEIVED: ['MATRIZ'],
   CHECKED: ['MATRIZ'],

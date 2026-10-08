@@ -120,7 +120,7 @@ export function Farol({
   );
 }
 
-/** Barra segmentada: recebido ⊂ carregado ⊂ total. Passa de 100% quando a Fazenda carrega além da ordem. */
+/** Barra segmentada: liberado para trânsito ⊂ carregado ⊂ total. Passa de 100% quando a Fazenda carrega além da ordem. */
 export function QuantityBar({ q, className, showLegend }: { q: OrderQuantities; className?: string; showLegend?: boolean }) {
   const received = ratio(q.received, q.total);
   const loaded = Math.max(0, ratio(q.loaded, q.total) - received);
@@ -130,9 +130,7 @@ export function QuantityBar({ q, className, showLegend }: { q: OrderQuantities; 
       <span className="text-right">{formatQty(q.total, q.unit)}</span>
       <span>Carregado</span>
       <span className="text-right">{formatQty(q.loaded, q.unit)}</span>
-      <span>Em trânsito</span>
-      <span className="text-right">{formatQty(q.inTransit, q.unit)}</span>
-      <span>Recebido</span>
+      <span>Liberado para trânsito</span>
       <span className="text-right">{formatQty(q.received, q.unit)}</span>
       <span className="font-medium">Saldo</span>
       <span className="text-right font-medium">{formatQty(q.balance, q.unit)}</span>
@@ -144,7 +142,7 @@ export function QuantityBar({ q, className, showLegend }: { q: OrderQuantities; 
         <div
           className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-3"
           role="img"
-          aria-label={`Carregado ${formatQty(q.loaded, q.unit)}, recebido ${formatQty(q.received, q.unit)} de ${formatQty(q.total, q.unit)}`}
+          aria-label={`Carregado ${formatQty(q.loaded, q.unit)}, liberado para trânsito ${formatQty(q.received, q.unit)} de ${formatQty(q.total, q.unit)}`}
         >
           <motion.div className="h-full bg-success" initial={{ width: 0 }} animate={{ width: `${received}%` }} transition={{ duration: 0.6 }} />
           <motion.div className="h-full bg-accent" initial={{ width: 0 }} animate={{ width: `${loaded}%` }} transition={{ duration: 0.6, delay: 0.05 }} />
@@ -153,7 +151,7 @@ export function QuantityBar({ q, className, showLegend }: { q: OrderQuantities; 
       {showLegend ? (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
           <Legend cls="bg-accent" label="Carregado" value={formatQty(q.loaded, q.unit)} />
-          <Legend cls="bg-success" label="Recebido" value={formatQty(q.received, q.unit)} />
+          <Legend cls="bg-success" label="Liberado para trânsito" value={formatQty(q.received, q.unit)} />
         </div>
       ) : null}
     </div>

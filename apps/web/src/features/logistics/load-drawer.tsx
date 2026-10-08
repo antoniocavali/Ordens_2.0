@@ -35,7 +35,7 @@ const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
   LOADING: 'Iniciar carregamento',
   LOADED: 'Confirmar carregamento',
   FARM_INVOICED: 'Validar documentação fiscal',
-  IN_TRANSIT: 'Liberar para transporte',
+  IN_TRANSIT: 'Liberar para trânsito',
   ARRIVED: 'Registrar chegada',
   RECEIVED: 'Confirmar recebimento',
   CHECKED: 'Confirmar conferência',
@@ -44,8 +44,13 @@ const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
   COMPLETED: 'Concluir carga',
 };
 
-function actionLabel(_from: LoadStatus, to: LoadStatus) {
+/** Também usado no botão da próxima etapa, no topo da ordem. */
+export function loadActionLabel(to: LoadStatus) {
   return ACTION_LABELS[to] ?? LOAD_STATUS_LABELS[to];
+}
+
+function actionLabel(_from: LoadStatus, to: LoadStatus) {
+  return loadActionLabel(to);
 }
 
 function DocState({ state }: { state: FiscalDocState }) {
@@ -86,8 +91,8 @@ function FiscalChecklist({ c, party = 'FARM' }: { c: LoadFiscalChecklist; party?
       <p className={cn('text-xs', c.ready ? 'text-success' : 'text-muted')}>
         {c.ready
           ? matriz
-            ? 'Nota da Matriz validada: a carga pode ser faturada e concluída.'
-            : 'Documentação completa: a carga pode ser liberada para transporte.'
+            ? 'Nota da Matriz validada: a carga pode ser faturada e liberada para trânsito.'
+            : 'Documentação completa: a carga pode seguir para o faturamento da Matriz.'
           : c.issues.join(' ')}
       </p>
     </div>
@@ -158,8 +163,8 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
   const move = async (to: LoadStatus, notes?: string, acceptMissingMatrizInvoice = false) => {
     if (!l) return;
     if (to === 'CANCELLED' && !notes) return setCancelOpen(true);
-    // Q47: sem PDF e XML da nota da Matriz, faturar ou concluir pede confirmação.
-    if ((to === 'MATRIZ_INVOICED' || to === 'COMPLETED') && l.matrizChecklist && !l.matrizChecklist.ready && !acceptMissingMatrizInvoice) {
+    // Q47: sem PDF e XML da nota da Matriz, faturar pede confirmação.
+    if (to === 'MATRIZ_INVOICED' && l.matrizChecklist && !l.matrizChecklist.ready && !acceptMissingMatrizInvoice) {
       return setWithoutMatrizInvoice(to);
     }
     const v = form.getValues();
@@ -312,7 +317,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
             {scope !== 'FARM' ? (
             <FormSection
               title="Nota da Matriz para o Comprador"
-              description="Com a carga em trânsito, anexe o PDF e o XML da NF-e emitida pela Matriz. A carga só é faturada e concluída com os dois documentos e o XML validado."
+              description="Depois de validada a documentação da Fazenda, anexe o PDF e o XML da NF-e emitida pela Matriz. Com os dois documentos e o XML validado, registre o faturamento e libere a carga para trânsito."
             >
               {l.matrizChecklist ? <FiscalChecklist c={l.matrizChecklist} party="MATRIZ" /> : null}
               {can('invoice.upload') && l.status !== 'CANCELLED' ? (
@@ -322,7 +327,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
                     entityId={l.id}
                     accept=".xml,.pdf"
                     title="Arraste o PDF e o XML da nota da Matriz"
-                    hint="Anexos da Matriz enviados depois da liberação para transporte contam como nota da Matriz"
+                    hint="Anexos da Matriz enviados depois da validação fiscal da Fazenda contam como nota da Matriz"
                   />
                 </div>
               ) : null}
@@ -376,7 +381,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         open={withoutMatrizInvoice !== null}
         title="Seguir sem a nota da Matriz?"
         description="Esta carga não tem o PDF e o XML validados da nota que a Matriz emite para o Comprador. Confirme apenas se esta venda não tem essa nota. A confirmação fica registrada na auditoria."
-        confirmLabel={withoutMatrizInvoice === 'COMPLETED' ? 'Concluir sem a nota' : 'Faturar sem a nota'}
+        confirmLabel="Faturar sem a nota"
         cancelLabel="Voltar e anexar"
         tone="primary"
         onCancel={() => setWithoutMatrizInvoice(null)}

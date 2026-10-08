@@ -25,9 +25,10 @@ test.describe('Painel do Comprador', () => {
     expect(after.buyer.requests.draft).toBe(before.buyer.requests.draft);
 
     // Cargas a caminho: só do próprio Comprador.
-    const transit = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&status=ARRIVED&pageSize=100')).items as any[];
-    expect(after.buyer.inbound.length).toBe(Math.min(transit.length, 8));
-    for (const l of after.buyer.inbound) expect(transit.map((t) => t.id)).toContain(l.id);
+    // Liberar para trânsito conclui a carga: "a caminho" são as que saíram da fazenda nos últimos dias.
+    const released = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&status=ARRIVED&status=COMPLETED&pageSize=200')).items as any[];
+    expect(after.buyer.inbound.length).toBeLessThanOrEqual(8);
+    for (const l of after.buyer.inbound) expect(released.map((t) => t.id)).toContain(l.id);
 
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Minhas solicitações' })).toBeVisible();
