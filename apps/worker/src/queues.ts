@@ -42,6 +42,7 @@ export const ROUTES: Record<string, string[]> = {
   'order.suspended': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.resumed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.cancelled': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
+  'order.deleted': [QUEUE.REALTIME],
   'order.completed': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.cancelled_by_buyer': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],
   'order.publish_requested': [QUEUE.NOTIFICATIONS, QUEUE.REALTIME],

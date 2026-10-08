@@ -12,6 +12,7 @@ import { ApiRequestError } from '@/lib/api';
 import { subDec } from '@/lib/decimal';
 import { formatDate, formatDateTime, formatQty, parseDecimalInput, toDecimalInput } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
+import { LoadHolderBanner } from './load-holder';
 import { TransportFields, transportFromDto, transportPayload, type TransportValues } from './transport-fields';
 import { LoadStatusBadge, LoadStepper } from './load-status';
 import { useLoad, useLoadMutations } from './logistics-api';
@@ -34,7 +35,7 @@ const PRE_LOADED: LoadStatus[] = ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING', 
 const ACTION_LABELS: Partial<Record<LoadStatus, string>> = {
   LOADING: 'Iniciar carregamento',
   LOADED: 'Confirmar carregamento',
-  FARM_INVOICED: 'Validar documentação fiscal',
+  FARM_INVOICED: 'Concluir validação fiscal',
   IN_TRANSIT: 'Liberar para trânsito',
   ARRIVED: 'Registrar chegada',
   RECEIVED: 'Confirmar recebimento',
@@ -182,8 +183,15 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
         ...(acceptMissingMatrizInvoice ? { acceptMissingMatrizInvoice: true } : {}),
       });
       markSaved();
-      toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
       setCancelOpen(false);
+      // Validar a documentação fiscal encerra a parte da Fazenda: dizer isso com todas as letras e, para
+      // quem não é da Matriz, fechar a carga — não há mais nada a fazer nela.
+      if (to === 'FARM_INVOICED') {
+        toast.success('Etapa da Fazenda concluída', { description: `Carga ${l.number} enviada para o faturamento da Matriz.` });
+        if (scope !== 'MATRIZ') onClose();
+        return;
+      }
+      toast.success(`Carga ${l.number}: ${LOAD_STATUS_LABELS[(moved as { status?: LoadStatus }).status ?? to]}`);
     } catch (err) {
       if (err instanceof ApiRequestError) {
         if (err.code === 'FISCAL_DOCUMENTS_REQUIRED' || err.code === 'MATRIZ_INVOICE_MISSING') toast.error(err.message);
@@ -246,6 +254,7 @@ export function LoadDrawer({ id, onClose }: { id: string | null; onClose: () => 
           <FormProvider {...form}>
           <form onSubmit={save} noValidate>
             <div className="space-y-4 px-5 pt-5 sm:px-7">
+              <LoadHolderBanner status={l.status} scope={scope} />
               <Card className="p-4">
                 <LoadStepper status={l.status} />
               </Card>

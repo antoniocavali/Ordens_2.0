@@ -2,13 +2,14 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, ArrowRight, CheckCircle2, FileText, GitCommitVertical, Hourglass, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, FileText, GitCommitVertical, Hourglass, PauseCircle, Pencil, PlayCircle, Send, Sprout, Trash2, Truck, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { LoadsPage } from '@/features/logistics/loads-page';
 import { loadActionLabel } from '@/features/logistics/load-drawer';
+import { LoadHolderBanner } from '@/features/logistics/load-holder';
 import { useLoadMutations, useLoads, useRegisterArrival } from '@/features/logistics/logistics-api';
 import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
@@ -23,6 +24,7 @@ import {
   cancelBuyerOrder,
   cancelOrder,
   completeOrder,
+  deleteOrder,
   resumeOrder,
   returnToBuyer,
   suspendOrder,
@@ -112,6 +114,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       const to = l.allowedTransitions.find((t) => t !== 'CANCELLED');
       return to ? [{ load: l, to }] : [];
     })[0];
+  // Sem passo ao alcance de quem olha, a ordem diz com quem a carga está — é o que mostra à Fazenda que
+  // a parte dela terminou depois de concluir a validação fiscal.
+  const waitingLoad = nextStep
+    ? undefined
+    : (loads.data?.items ?? []).filter((l) => !['COMPLETED', 'CANCELLED'].includes(l.status)).sort((a, b) => a.number.localeCompare(b.number))[0];
   const openLoad = (loadId: string) => {
     setTab('cargas');
     router.replace(`/ordens/${id}?carga=${loadId}`, { scroll: false });
@@ -127,7 +134,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     if (needsScreen) return openLoad(load.id);
     try {
       await moveLoad.mutateAsync({ id: load.id, to, expectedUpdatedAt: load.updatedAt });
-      toast.success(`Carga ${load.number}: ${loadActionLabel(to)}`);
+      if (to === 'FARM_INVOICED') toast.success('Etapa da Fazenda concluída', { description: `Carga ${load.number} enviada para o faturamento da Matriz.` });
+      else toast.success(`Carga ${load.number}: ${loadActionLabel(to)}`);
     } catch (err) {
       toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível avançar a carga.');
       openLoad(load.id);
@@ -148,6 +156,20 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [assigning, setAssigning] = useState(false);
   const [reasonAction, setReasonAction] = useState<ReasonAction | null>(null);
   const [completing, setCompleting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const removeOrder = async (updatedAt: string, reason: string) => {
+    setDeleteBusy(true);
+    try {
+      const d = await deleteOrder(id, updatedAt, reason);
+      toast.success(`Ordem ${d.number} excluída`);
+      invalidate();
+      router.replace('/ordens');
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível excluir a ordem.');
+      setDeleteBusy(false);
+    }
+  };
   const [confirmDestination, destinationDialog] = useNoDestinationConfirm('Continuar sem destino');
   const [acting, setActing] = useState<'submit' | 'publish' | 'reason' | 'resume' | 'complete' | null>(null);
   const act = async (kind: 'submit' | 'publish' | 'reason' | 'resume' | 'complete', fn: () => Promise<OrderDetail>) => {
@@ -325,8 +347,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <XCircle /> Cancelar solicitação
             </Button>
           ) : null}
+          {o.allowedActions.includes('delete') ? (
+            <Button variant="ghost" className="text-danger hover:text-danger" onClick={() => setDeleting(true)}>
+              <Trash2 /> Excluir
+            </Button>
+          ) : null}
         </div>
       </div>
+
+      {waitingLoad ? <LoadHolderBanner status={waitingLoad.status} scope={scope} loadNumber={waitingLoad.number} /> : null}
 
       {o.status === 'DRAFT' && o.workflow && (o.workflow.publishRequestedAt || o.workflow.blockedByFourEyes) ? (
         <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-soft/50 px-4 py-3 text-sm ring-1 ring-warning/20">
@@ -530,6 +559,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               return d;
             })
           }
+        />
+      ) : null}
+      {deleting ? (
+        <ReasonDialog
+          open
+          title={o.status === 'DRAFT' ? 'Excluir rascunho' : 'Excluir ordem'}
+          description="A ordem some de todas as telas, junto com as cargas, notas fiscais, ocorrências e anexos dela. Não há como desfazer. O motivo e quem excluiu ficam na auditoria. Para apenas encerrar a ordem mantendo o histórico, use Cancelar."
+          confirmLabel="Excluir definitivamente"
+          confirmText={o.number}
+          loading={deleteBusy}
+          onCancel={() => setDeleting(false)}
+          onConfirm={(reason) => void removeOrder(o.updatedAt, reason)}
         />
       ) : null}
       {reasonAction ? (

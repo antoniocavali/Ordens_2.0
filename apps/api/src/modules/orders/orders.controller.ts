@@ -139,6 +139,14 @@ export class OrdersController {
     return this.orders.cancelOrder(id, body);
   }
 
+  /** Exclusão definitiva, com motivo. POST (e não DELETE) para levar corpo e seguir o padrão das outras ações. */
+  @Post(':id/delete')
+  @HttpCode(200)
+  @RequirePermission('order.delete')
+  remove(@Param('id', uuid) id: string, @Body(new ZodPipe(orderReasonActionSchema)) body: OrderReasonActionInput) {
+    return this.orders.deleteOrder(id, body);
+  }
+
   @Post(':id/billing/return')
   @HttpCode(200)
   @RequirePermission('order.billing.manage')

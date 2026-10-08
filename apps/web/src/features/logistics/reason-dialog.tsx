@@ -1,7 +1,7 @@
 'use client';
 
 import * as Dialog from '@radix-ui/react-dialog';
-import { Button, Field, Textarea } from '@ordens/ui';
+import { Button, Field, Input, Textarea } from '@ordens/ui';
 import { useEffect, useState } from 'react';
 
 /** Confirmação com motivo obrigatório (cancelamentos, não comparecimento). */
@@ -15,6 +15,7 @@ export function ReasonDialog({
   loading,
   tone = 'danger',
   fieldLabel = 'Motivo',
+  confirmText,
 }: {
   open: boolean;
   title: string;
@@ -26,11 +27,18 @@ export function ReasonDialog({
   /** `primary` para confirmações não destrutivas (ex.: resolver ocorrência). */
   tone?: 'danger' | 'primary';
   fieldLabel?: string;
+  /** Texto que a pessoa precisa digitar para liberar o botão (ações que não têm volta). */
+  confirmText?: string;
 }) {
   const [reason, setReason] = useState('');
+  const [typed, setTyped] = useState('');
   useEffect(() => {
-    if (open) setReason('');
+    if (open) {
+      setReason('');
+      setTyped('');
+    }
   }, [open]);
+  const typedOk = !confirmText || typed.trim() === confirmText;
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onCancel()}>
       <Dialog.Portal>
@@ -41,11 +49,16 @@ export function ReasonDialog({
           <Field label={fieldLabel} required className="mt-4">
             {(a) => <Textarea {...a} autoFocus rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />}
           </Field>
+          {confirmText ? (
+            <Field label={`Digite ${confirmText} para confirmar`} required className="mt-3">
+              {(a) => <Input {...a} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" className="font-mono" />}
+            </Field>
+          ) : null}
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="ghost" onClick={onCancel}>
               Voltar
             </Button>
-            <Button variant={tone === 'primary' ? 'primary' : 'danger'} disabled={reason.trim().length < 3} loading={loading} onClick={() => onConfirm(reason.trim())}>
+            <Button variant={tone === 'primary' ? 'primary' : 'danger'} disabled={reason.trim().length < 3 || !typedOk} loading={loading} onClick={() => onConfirm(reason.trim())}>
               {confirmLabel}
             </Button>
           </div>

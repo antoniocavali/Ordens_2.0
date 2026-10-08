@@ -37,7 +37,7 @@ test.describe('Logística e fiscal', () => {
     await drawer.getByLabel('Peso bruto (kg)').fill('48500');
     await drawer.getByLabel('Tara (kg)').fill('38500');
     expect((await advance('Confirmar carregamento')).ok()).toBe(true);
-    await expect(drawer.getByRole('button', { name: 'Validar documentação fiscal', exact: true })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Concluir validação fiscal', exact: true })).toBeVisible();
 
     let load = await getLoad();
     expect(load.status).toBe('AWAITING_FARM_INVOICE');
@@ -46,7 +46,7 @@ test.describe('Logística e fiscal', () => {
     expect(load.fiscalChecklist).toMatchObject({ weighed: true, pdf: 'MISSING', xml: 'MISSING', ready: false });
 
     // Sem documentos: validação bloqueada e transporte direto não existe nesta etapa.
-    const blocked = await advance('Validar documentação fiscal');
+    const blocked = await advance('Concluir validação fiscal');
     expect(blocked.status()).toBe(422);
     expect((await blocked.json()).error.code).toBe('FISCAL_DOCUMENTS_REQUIRED');
     expect((await api(page, 'POST', `/loads/${setup.loadId}/transition`, { to: 'IN_TRANSIT', expectedUpdatedAt: load.updatedAt })).status).toBe(422);
@@ -81,9 +81,9 @@ test.describe('Logística e fiscal', () => {
     await expect(drawer.getByText('Válida').first()).toBeVisible({ timeout: 45_000 });
     await expect.poll(async () => (await getLoad()).fiscalChecklist?.ready, { timeout: 45_000 }).toBe(true);
     await page.reload();
-    await expect(drawer.getByRole('button', { name: 'Validar documentação fiscal', exact: true })).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Concluir validação fiscal', exact: true })).toBeVisible();
 
-    expect((await advance('Validar documentação fiscal')).ok()).toBe(true);
+    expect((await advance('Concluir validação fiscal')).ok()).toBe(true);
     // Validada a documentação da Fazenda, o passo seguinte é o faturamento da Matriz — o caminhão ainda não sai.
     await expect(drawer.getByRole('button', { name: 'Registrar faturamento da Matriz', exact: true })).toBeVisible();
     await expect(drawer.getByRole('button', { name: /Liberar para tr/ })).toHaveCount(0);

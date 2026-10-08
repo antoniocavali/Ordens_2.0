@@ -706,6 +706,94 @@ describe('portal do Comprador e Faturamento (Q41)', () => {
   });
 });
 
+describe('exclusão de ordem', () => {
+  /** Ordem publicada da fazenda 0 com carga, histórico, nota, ocorrência, anexo e um aviso para outro usuário. */
+  async function orderWithEverything(f: TenantFixture) {
+    const sys = systemContext(f.tenantId);
+    const otherUser = randomUUID();
+    return db.run(sys, async (tx) => {
+      const order = await tx.loadingOrder.create({
+        data: { tenantId: f.tenantId, number: `X-${randomUUID().slice(0, 8)}`, status: 'PUBLISHED', version: 1, sellerPartnerId: f.sellers[0], farmId: f.farms[0], buyerPartnerId: f.buyers[0], commodityId: f.commodity, unitId: f.unit, quantity: '100' },
+      });
+      const load = await tx.load.create({ data: { tenantId: f.tenantId, orderId: order.id, number: `${order.number}-C01`, sequence: 1, status: 'AWAITING_LOADING' } });
+      await tx.loadStatusHistory.create({ data: { tenantId: f.tenantId, loadId: load.id, fromStatus: null, toStatus: 'AWAITING_LOADING' } });
+      const upload = await tx.fileUpload.create({
+        data: {
+          tenantId: f.tenantId,
+          organizationId: f.matrizOrg,
+          entityType: 'load',
+          entityId: load.id,
+          kind: 'NFE_XML',
+          originalName: 'nota.xml',
+          declaredMime: 'application/xml',
+          sizeBytes: 10n,
+          bucket: 'ordens-documents',
+          objectKey: `t/${f.tenantId}/test/${randomUUID()}`,
+          idempotencyKey: randomUUID(),
+          createdBy: randomUUID(),
+          status: 'AVAILABLE',
+          visibility: 'FARM',
+        },
+      });
+      const invoice = await tx.invoice.create({ data: { tenantId: f.tenantId, loadId: load.id, orderId: order.id, origin: 'FARM', status: 'VALID', accessKey: Array.from({ length: 44 }, () => Math.floor(Math.random() * 10)).join(''), number: '1', fileUploadId: upload.id } });
+      const occurrence = await tx.occurrence.create({ data: { tenantId: f.tenantId, orderId: order.id, loadId: load.id, number: `OCR-${randomUUID().slice(0, 8)}`, type: 'QUALITY', title: 'Teste', visibility: 'INTERNAL' } });
+      const notification = await tx.notification.create({ data: { tenantId: f.tenantId, userId: otherUser, type: 'order.published', title: 'Nova ordem', data: { orderId: order.id } } });
+      const unrelated = await tx.notification.create({ data: { tenantId: f.tenantId, userId: otherUser, type: 'order.published', title: 'Outra ordem', data: { orderId: f.published[1] } } });
+      return { order, load, upload, invoice, occurrence, notification, unrelated };
+    });
+  }
+  const remove = (ctx: DbContext, orderId: string) =>
+    db.run(ctx, async (tx) => {
+      const [row] = await tx.$queryRaw<{ r: { number: string; counts: Record<string, number>; files: { bucket: string; key: string }[] } }[]>`select delete_loading_order(${orderId}::uuid) as r`;
+      // O escopo elevado dentro da função não pode vazar para o resto da transação de quem chamou.
+      const [scope] = await tx.$queryRaw<{ s: string }[]>`select app_scope() as s`;
+      return { ...row!.r, scopeAfter: scope!.s };
+    });
+
+  it('Fazenda e Comprador da ordem não excluem; Matriz de outro tenant não a encontra', async () => {
+    const x = await orderWithEverything(A);
+    await expect(remove(farm(A, 0), x.order.id)).rejects.toThrow(/Somente a Matriz/);
+    await expect(remove(buyer(A, 0), x.order.id)).rejects.toThrow(/Somente a Matriz/);
+    await expect(remove(matriz(B), x.order.id)).rejects.toThrow(/Ordem não encontrada/);
+    expect(await db.run(matriz(A), (tx) => tx.loadingOrder.count({ where: { id: x.order.id } }))).toBe(1);
+  });
+
+  it('Matriz exclui a ordem com tudo dentro, inclusive avisos de outros usuários, e nada além dela', async () => {
+    const x = await orderWithEverything(A);
+    const result = await remove(matriz(A), x.order.id);
+    expect(result.number).toBe(x.order.number);
+    expect(result.counts).toMatchObject({ loads: 1, invoices: 1, occurrences: 1, files: 1 });
+    expect(result.files).toEqual([{ bucket: 'ordens-documents', key: x.upload.objectKey }]);
+    expect(result.scopeAfter).toBe('MATRIZ');
+
+    const left = await db.run(systemContext(A.tenantId), async (tx) => ({
+      order: await tx.loadingOrder.count({ where: { id: x.order.id } }),
+      loads: await tx.load.count({ where: { orderId: x.order.id } }),
+      history: await tx.loadStatusHistory.count({ where: { loadId: x.load.id } }),
+      invoices: await tx.invoice.count({ where: { id: x.invoice.id } }),
+      occurrences: await tx.occurrence.count({ where: { id: x.occurrence.id } }),
+      uploads: await tx.fileUpload.count({ where: { id: x.upload.id } }),
+      notification: await tx.notification.count({ where: { id: x.notification.id } }),
+      unrelated: await tx.notification.count({ where: { id: x.unrelated.id } }),
+      otherOrders: await tx.loadingOrder.count({ where: { id: { in: [...A.published] } } }),
+    }));
+    expect(left).toEqual({ order: 0, loads: 0, history: 0, invoices: 0, occurrences: 0, uploads: 0, notification: 0, unrelated: 1, otherOrders: 2 });
+  });
+
+  it('fora da função, ninguém apaga carga nem histórico — nem ligando a variável à mão', async () => {
+    const x = await orderWithEverything(A);
+    await expect(db.run(matriz(A), (tx) => tx.$executeRaw`delete from loads where id = ${x.load.id}::uuid`)).rejects.toThrow(/permission denied/);
+    await expect(
+      db.run(matriz(A), async (tx) => {
+        await tx.$executeRaw`select set_config('app.deleting_order', 'on', true)`;
+        return tx.$executeRaw`delete from load_status_history where load_id = ${x.load.id}::uuid`;
+      }),
+    ).rejects.toThrow(/permission denied/);
+    // O histórico segue sem aceitar alteração.
+    await expect(db.run(systemContext(A.tenantId), (tx) => tx.$executeRaw`update load_status_history set notes = 'x' where load_id = ${x.load.id}::uuid`)).rejects.toThrow(/append-only|permission denied/);
+  });
+});
+
 describe('integridade', () => {
   it('rejeita fazenda que não pertence ao vendedor (trigger)', async () => {
     await expect(

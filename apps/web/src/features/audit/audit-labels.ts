@@ -10,6 +10,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'order.suspended': 'Ordem suspensa',
   'order.resumed': 'Ordem retomada',
   'order.cancelled': 'Ordem cancelada',
+  'order.deleted': 'Ordem excluída',
   'order.cancelled_by_buyer': 'Solicitação cancelada pelo Comprador',
   'order.load_document_attached': 'Documento fiscal anexado à carga',
   'order.load_documents_validated': 'Documentação fiscal da carga validada',
