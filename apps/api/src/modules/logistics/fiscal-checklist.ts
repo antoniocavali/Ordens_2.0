@@ -36,8 +36,8 @@ export async function fiscalChecklists(
  * para a etapa do carregamento; aqui contam só os da Matriz:
  * - o arquivo não foi enviado por uma organização Fazenda;
  * - o XML não é uma NF-e de origem FARM (a Matriz pode anexar a nota da Fazenda em nome dela);
- * - o arquivo foi anexado depois que a carga saiu para transporte — até ali a documentação exigida é a
- *   da Fazenda, então o que entra depois é a nota da Matriz.
+ * - o arquivo foi anexado depois que a documentação da Fazenda foi validada — até ali o que se anexa é
+ *   a nota dela, então o que entra depois é a nota da Matriz.
  */
 export async function matrizChecklists(
   tx: Tx,
@@ -49,7 +49,7 @@ export async function matrizChecklists(
   const ids = target.map((r) => r.id);
   const [transitStartedAt, uploads, invoices] = await Promise.all([
     tx.loadStatusHistory.findMany({
-      where: { loadId: { in: ids }, toStatus: 'IN_TRANSIT' },
+      where: { loadId: { in: ids }, toStatus: 'FARM_INVOICED' },
       select: { loadId: true, occurredAt: true },
       orderBy: { occurredAt: 'asc' },
     }),
@@ -68,7 +68,7 @@ export async function matrizChecklists(
     ).map((o) => o.id),
   );
   const farmXml = new Set(invoices.filter((i) => i.origin === 'FARM').map((i) => i.fileUploadId));
-  // Primeira saída para transporte (a lista vem ordenada por data).
+  // Primeira validação da documentação da Fazenda (a lista vem ordenada por data).
   const since = new Map<string, Date>();
   for (const h of transitStartedAt) if (!since.has(h.loadId)) since.set(h.loadId, h.occurredAt);
   return new Map(

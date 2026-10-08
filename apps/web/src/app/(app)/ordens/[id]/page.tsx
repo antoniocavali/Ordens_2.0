@@ -2,13 +2,14 @@
 
 import * as Tabs from '@radix-ui/react-tabs';
 import { Badge, Button, Card, cn, EmptyState, Skeleton } from '@ordens/ui';
-import { ArrowLeft, CheckCircle2, FileText, GitCommitVertical, Hourglass, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, FileText, GitCommitVertical, Hourglass, PauseCircle, Pencil, PlayCircle, Send, Sprout, Truck, Undo2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, use, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { LoadsPage } from '@/features/logistics/loads-page';
-import { useRegisterArrival } from '@/features/logistics/logistics-api';
+import { loadActionLabel } from '@/features/logistics/load-drawer';
+import { useLoadMutations, useLoads, useRegisterArrival } from '@/features/logistics/logistics-api';
 import { DocumentsPage } from '@/features/fiscal/documents-page';
 import { OccurrencesPage } from '@/features/fiscal/occurrences-page';
 import { OrderFormDrawer } from '@/features/orders/order-form-drawer';
@@ -98,6 +99,40 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   // `?carga=` (links de documentos e avisos) já abre na aba das cargas.
   const [tab, setTab] = useState(search.get('carga') ? 'cargas' : 'resumo');
   const arrival = useRegisterArrival();
+
+  // Próxima etapa no topo da ordem: a carga mais antiga em andamento que tenha um passo ao alcance de
+  // quem está olhando. Quem acompanha várias ordens (Matriz, principalmente) vê ali o que falta fazer
+  // sem precisar abrir a aba de cargas.
+  const loads = useLoads({ orderId: id, pageSize: 200 });
+  const { transition: moveLoad } = useLoadMutations();
+  const nextStep = (loads.data?.items ?? [])
+    .filter((l) => !['COMPLETED', 'CANCELLED'].includes(l.status))
+    .sort((a, b) => a.number.localeCompare(b.number))
+    .flatMap((l) => {
+      const to = l.allowedTransitions.find((t) => t !== 'CANCELLED');
+      return to ? [{ load: l, to }] : [];
+    })[0];
+  const openLoad = (loadId: string) => {
+    setTab('cargas');
+    router.replace(`/ordens/${id}?carga=${loadId}`, { scroll: false });
+  };
+  const runNextStep = async () => {
+    if (!nextStep) return;
+    const { load, to } = nextStep;
+    // Etapas que pedem dados ou conferência abrem a carga no ponto certo; as demais andam com um clique.
+    const needsScreen =
+      (to === 'LOADED' && !(load.grossKg && load.tareKg)) ||
+      (to === 'FARM_INVOICED' && !load.fiscalChecklist?.ready) ||
+      (to === 'MATRIZ_INVOICED' && !load.matrizChecklist?.ready);
+    if (needsScreen) return openLoad(load.id);
+    try {
+      await moveLoad.mutateAsync({ id: load.id, to, expectedUpdatedAt: load.updatedAt });
+      toast.success(`Carga ${load.number}: ${loadActionLabel(to)}`);
+    } catch (err) {
+      toast.error(err instanceof ApiRequestError ? err.message : 'Não foi possível avançar a carga.');
+      openLoad(load.id);
+    }
+  };
   const registerArrival = async () => {
     try {
       const load = await arrival.mutateAsync(id);
@@ -173,8 +208,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {o.allowedActions.includes('register_arrival') ? (
-            <Button onClick={() => void registerArrival()} loading={arrival.isPending}>
+            <Button variant={nextStep ? 'outline' : undefined} onClick={() => void registerArrival()} loading={arrival.isPending}>
               <Truck /> Informar chegada do caminhão
+            </Button>
+          ) : null}
+          {nextStep ? (
+            <Button onClick={() => void runNextStep()} loading={moveLoad.isPending} title={`Carga ${nextStep.load.number}`}>
+              <ArrowRight /> {loadActionLabel(nextStep.to)}
+              <span className="font-mono text-xs opacity-80">{nextStep.load.number.split('-').pop()}</span>
             </Button>
           ) : null}
           {o.allowedActions.includes('update') ? (
@@ -440,8 +481,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/60 pt-4 text-sm">
               {[
                 ['Carregado', o.quantities.loaded],
-                ['Em trânsito', o.quantities.inTransit],
-                ['Recebido', o.quantities.received],
+                ['Liberado para trânsito', o.quantities.received],
                 ['Cancelado', o.quantities.cancelled],
               ].map(([l, v]) => (
                 <div key={l} className="flex justify-between gap-2">

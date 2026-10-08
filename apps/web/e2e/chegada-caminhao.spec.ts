@@ -77,7 +77,17 @@ test.describe('Chegada do caminhão', () => {
       const current = await apiOk(farm.page, 'GET', `/loads/${load.id}`);
       return api(farm.page, 'POST', `/loads/${load.id}/transition`, { to, expectedUpdatedAt: current.updatedAt, ...extra });
     };
-    expect((await move('LOADING')).status).toBe(200);
+    // ─── Botão da próxima etapa, no topo da ordem ───
+    await farm.page.keyboard.press('Escape');
+    await expect(farm.page).not.toHaveURL(/carga=/);
+    const started = farm.page.waitForResponse((r) => r.url().includes(`/loads/${load.id}/transition`) && r.request().method() === 'POST');
+    // Etapa que não pede dados anda com um clique…
+    await farm.page.getByRole('button', { name: /Iniciar carregamento\s*C01/ }).click();
+    expect((await started).ok()).toBe(true);
+    // …e a que pede (peso bruto e tara) abre a carga no ponto certo.
+    await farm.page.getByRole('button', { name: /Confirmar carregamento\s*C01/ }).click();
+    await expect(farm.page).toHaveURL(new RegExp(`carga=${load.id}`));
+    await expect(farm.page.getByRole('dialog').first().getByLabel('Peso bruto (kg)')).toBeVisible();
     // 40 t líquidas numa ordem de 30 t.
     const loaded = await move('LOADED', { grossKg: '58000', tareKg: '18000' });
     expect(loaded.status, JSON.stringify(loaded.json)).toBe(200);

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, login, MATRIZ_RECIPIENT_DOC, nfeKey, nfeXml, password } from './helpers';
+import { api, apiOk, login, MATRIZ_RECIPIENT_DOC, nfeKey, nfeXml, password, prepareValidatedLoad } from './helpers';
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n%%EOF\n');
 /**
@@ -12,45 +12,35 @@ const MATRIZ_DOC = MATRIZ_RECIPIENT_DOC;
 test.describe('Faturamento da Matriz na carga', () => {
   test.skip(!password, 'Defina E2E_PASSWORD com a senha demo');
 
-  test('Sem a nota da Matriz o faturamento é recusado; com PDF e XML válidos a carga conclui', async ({ page }) => {
+  test('Sem a nota da Matriz o faturamento é recusado; com ela a Matriz fatura, libera para trânsito e a carga conclui', async ({ page }) => {
+    test.setTimeout(300_000);
     await login(page, 'admin@graoforte.demo');
-    const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
-    // Outras suítes também deixam cargas em trânsito, algumas já com a nota da Matriz: aqui interessa uma sem nada.
-    // E com a saída para transporte já ocorrida: o que conta como nota da Matriz é o que entra depois dela,
-    // e o seed tem cargas com o histórico datado adiante.
-    let chosen: any = null;
-    for (const l of loads.filter((x) => x.matrizChecklist?.pdf === 'MISSING' && x.matrizChecklist?.xml === 'MISSING')) {
-      const detail = await apiOk(page, 'GET', `/loads/${l.id}`);
-      const transit = (detail.history as any[]).find((h) => h.to === 'IN_TRANSIT');
-      if (transit && new Date(transit.occurredAt).getTime() < Date.now()) {
-        chosen = l;
-        break;
-      }
-    }
-    expect(chosen, 'carga em trânsito sem nota da Matriz').toBeTruthy();
+    // Carga com a documentação da Fazenda validada: é dali que a Matriz fatura.
+    const setup = await prepareValidatedLoad(page);
+    const chosen = { id: setup.loadId };
     const getLoad = () => apiOk(page, 'GET', `/loads/${chosen.id}`);
-
-    // Do trânsito a Matriz fatura direto: não há recebimento nem "encerrar transporte".
     const move = async (to: string, extra: Record<string, unknown> = {}) => {
       const current = await getLoad();
       return api(page, 'POST', `/loads/${chosen.id}/transition`, { to, expectedUpdatedAt: current.updatedAt, ...extra });
     };
+
+    let load = await getLoad();
+    expect(load.status).toBe('FARM_INVOICED');
+    expect(load.allowedTransitions).toEqual(['MATRIZ_INVOICED']);
+    expect(load.matrizChecklist).toMatchObject({ pdf: 'MISSING', xml: 'MISSING', ready: false });
+    // O caminhão não sai antes do faturamento da Matriz, e etapas antigas não existem.
+    expect((await move('IN_TRANSIT')).status, 'trânsito só depois do faturamento da Matriz').toBe(422);
     expect((await move('ARRIVED')).status, 'chegada ao destino não existe mais').toBe(422);
     expect((await move('AWAITING_MATRIZ_INVOICE')).status, 'a etapa de encerrar transporte não existe mais').toBe(422);
 
-    let load = await getLoad();
-    expect(load.status).toBe('IN_TRANSIT');
-    expect(load.allowedTransitions).toContain('MATRIZ_INVOICED');
-    expect(load.matrizChecklist).toMatchObject({ pdf: 'MISSING', xml: 'MISSING', ready: false });
-
-    // Sem a nota da Matriz: faturar e concluir são recusados.
+    // Sem a nota da Matriz: faturar é recusado.
     const refused = await move('MATRIZ_INVOICED');
     expect(refused.status).toBe(422);
     expect(refused.json.error.code).toBe('MATRIZ_INVOICE_MISSING');
     expect(JSON.stringify(refused.json)).toContain('Nota da Matriz');
 
     // Documentos da Matriz anexados pela tela da carga.
-    await page.goto(`/cargas?abrir=${chosen.id}`);
+    await page.reload();
     const drawer = page.getByRole('dialog');
     await expect(drawer.getByText('Nota da Matriz para o Comprador')).toBeVisible();
     const fileInput = drawer.locator('input[type="file"]').last();
@@ -61,19 +51,26 @@ test.describe('Faturamento da Matriz na carga', () => {
     await fileInput.setInputFiles({
       name: `NFe${key}.xml`,
       mimeType: 'application/xml',
-      buffer: Buffer.from(nfeXml({ key, issuerDoc: MATRIZ_DOC, plate: chosen.plates[0] ?? 'ABC1D23', netKg: Number(load.netKg ?? 10_000) })),
+      buffer: Buffer.from(nfeXml({ key, issuerDoc: MATRIZ_DOC, plate: setup.plate, netKg: Number(load.netKg ?? 10_000) })),
     });
     await expect.poll(async () => (await getLoad()).matrizChecklist?.ready, { timeout: 45_000 }).toBe(true);
 
-    // A nota entra como origem Matriz e libera faturamento e conclusão.
+    // A nota entra como origem Matriz e libera o faturamento.
     const invoices = (await apiOk(page, 'GET', `/invoices?loadId=${chosen.id}&origin=MATRIZ`)).items as any[];
     expect(invoices.length).toBeGreaterThan(0);
 
     expect((await move('MATRIZ_INVOICED')).status).toBeLessThan(300);
-    expect((await move('COMPLETED')).status).toBeLessThan(300);
+    load = await getLoad();
+    expect(load.status).toBe('MATRIZ_INVOICED');
+    expect(load.allowedTransitions).toEqual(['IN_TRANSIT']);
+    // Não se conclui direto: o último passo é liberar para trânsito, e é ele que conclui a carga.
+    expect((await move('COMPLETED')).status).toBe(422);
+    const released = await move('IN_TRANSIT');
+    expect(released.status).toBeLessThan(300);
+    expect(released.json.status).toBe('COMPLETED');
     load = await getLoad();
     expect(load.status).toBe('COMPLETED');
-    expect(load.history.map((h: any) => h.to)).toEqual(expect.arrayContaining(['MATRIZ_INVOICED', 'COMPLETED']));
+    expect(load.history.map((h: any) => h.to).slice(-4)).toEqual(['FARM_INVOICED', 'MATRIZ_INVOICED', 'IN_TRANSIT', 'COMPLETED']);
     expect(load.history.map((h: any) => h.to)).not.toContain('AWAITING_MATRIZ_INVOICE');
 
     const audit = await apiOk(page, 'GET', '/audit?action=load.matriz_invoice_validated&pageSize=5');

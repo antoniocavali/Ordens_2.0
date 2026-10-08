@@ -271,7 +271,7 @@ export function DashboardPage() {
               icon={<Truck />}
               progress={{ value: d.kpis.loadedT, total: d.kpis.orderedT }}
             />
-            <KpiCard label="Em trânsito" value={formatQtyCompact(d.kpis.inTransitT, 't')} hint={`${formatQtyCompact(d.kpis.receivedT, 't')} recebidas`} icon={<TrendingUp />} tone="success" />
+            <KpiCard label="Liberado para trânsito" value={formatQtyCompact(d.kpis.receivedT, 't')} hint="cargas que já saíram da fazenda" icon={<TrendingUp />} tone="success" />
             <KpiCard label="Saldo a carregar" value={formatQtyCompact(d.kpis.balanceT, 't')} icon={<Scale />} tone="warning" />
             {isMatriz && d.kpis.loadedValue !== null ? (
               <KpiCard label="Valor carregado" value={formatMoney(d.kpis.loadedValue, 'BRL', true)} hint="Ordens em BRL" icon={<Wallet />} />
@@ -360,8 +360,7 @@ export function DashboardPage() {
                   {[
                     ['Em ordens', d.kpis.orderedT],
                     ['Carregado', d.kpis.loadedT],
-                    ['Em trânsito', d.kpis.inTransitT],
-                    ['Recebido', d.kpis.receivedT],
+                    ['Liberado para trânsito', d.kpis.receivedT],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-md bg-surface-2 px-3 py-2.5">
                       <dt className="text-xs text-muted">{label}</dt>

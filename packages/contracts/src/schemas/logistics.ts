@@ -22,7 +22,7 @@ export const LOAD_LOADED: readonly LoadStatus[] = [
 export const LOAD_FISCAL_CHECK_STATUSES: readonly LoadStatus[] = ['LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'];
 
 /** Q47: etapas em que a nota da Matriz para o Comprador é exigida. */
-export const LOAD_MATRIZ_CHECK_STATUSES: readonly LoadStatus[] = ['IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED'];
+export const LOAD_MATRIZ_CHECK_STATUSES: readonly LoadStatus[] = ['FARM_INVOICED', 'MATRIZ_INVOICED', 'IN_TRANSIT', 'ARRIVED', 'RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE'];
 
 /** Situação de cada documento exigido para liberar a carga para transporte (Q41). */
 export type FiscalDocState = 'MISSING' | 'PENDING' | 'PROCESSING' | 'OK' | 'REJECTED' | 'INFECTED';
@@ -96,18 +96,19 @@ export function evaluateFiscalDocuments(input: FiscalDocumentsInput): LoadFiscal
   return { weighed, pdf, xml, ready: weighed && pdf === 'OK' && xml === 'OK', issues };
 }
 export const LOAD_IN_TRANSIT: readonly LoadStatus[] = ['IN_TRANSIT', 'ARRIVED'];
-/** Da chegada ao destino em diante. RECEIVED e CHECKED só existem no histórico de cargas antigas. */
-export const LOAD_RECEIVED: readonly LoadStatus[] = ['RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'];
+/** Carga que já saiu para o destino. RECEIVED, CHECKED e AWAITING_MATRIZ_INVOICE só existem em cargas antigas. */
+export const LOAD_RECEIVED: readonly LoadStatus[] = ['RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'COMPLETED'];
 
 /** Macro-etapas para visualização (kanban/stepper). */
 export const LOAD_STAGES = [
   // Caminhão na fazenda, ainda sem carregar. SCHEDULED e CONFIRMED só existem em cargas antigas.
   { key: 'scheduling', label: 'Chegada', statuses: ['SCHEDULED', 'CONFIRMED', 'AWAITING_LOADING'] },
   { key: 'loading', label: 'Carregamento', statuses: ['LOADING', 'LOADED', 'AWAITING_FARM_INVOICE', 'FARM_INVOICED'] },
-  { key: 'transit', label: 'Transporte', statuses: ['IN_TRANSIT', 'ARRIVED'] },
-  // Não há etapa de recebimento: do transporte a carga vai direto ao faturamento. RECEIVED e CHECKED
-  // aparecem aqui só para que cargas antigas continuem visíveis em alguma etapa.
-  { key: 'billing', label: 'Faturamento', statuses: ['RECEIVED', 'CHECKED', 'AWAITING_MATRIZ_INVOICE', 'MATRIZ_INVOICED', 'COMPLETED'] },
+  // A Matriz fatura antes de o caminhão sair. AWAITING_MATRIZ_INVOICE, RECEIVED e CHECKED aparecem aqui
+  // só para que cargas antigas continuem visíveis em alguma etapa.
+  { key: 'billing', label: 'Faturamento', statuses: ['MATRIZ_INVOICED', 'AWAITING_MATRIZ_INVOICE', 'RECEIVED', 'CHECKED'] },
+  // Liberar para trânsito é o último passo e já conclui a carga.
+  { key: 'transit', label: 'Trânsito', statuses: ['IN_TRANSIT', 'ARRIVED', 'COMPLETED'] },
 ] as const satisfies readonly { key: string; label: string; statuses: readonly LoadStatus[] }[];
 
 const text = (max: number) =>

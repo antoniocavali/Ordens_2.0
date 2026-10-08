@@ -199,9 +199,10 @@ export class LoadsService {
         }
       }
 
-      // Q41: documentação fiscal validada (e o trânsito) exigem pesagem, PDF e XML válidos da mesma carga.
+      // Q41: validar a documentação fiscal exige pesagem, PDF e XML válidos da mesma carga. O faturamento da
+      // Matriz e a liberação para trânsito reconferem: um documento pode ter sido removido no caminho.
       let checklist: LoadFiscalChecklist | null = null;
-      if (to === 'FARM_INVOICED' || to === 'IN_TRANSIT') {
+      if (to === 'FARM_INVOICED' || to === 'MATRIZ_INVOICED' || to === 'IN_TRANSIT') {
         checklist = (await fiscalChecklists(tx, [load], true)).get(id)!;
         if (!checklist.ready) {
           throw AppError.domain(ErrorCode.FISCAL_DOCUMENTS_REQUIRED, `Documentação fiscal incompleta. ${checklist.issues.join(' ')}`, { checklist });
@@ -210,7 +211,7 @@ export class LoadsService {
 
       // Q47: faturamento da Matriz exige PDF e XML da nota emitida para o Comprador.
       let matrizChecklist: LoadFiscalChecklist | null = null;
-      if (to === 'MATRIZ_INVOICED' || to === 'COMPLETED') {
+      if (to === 'MATRIZ_INVOICED') {
         matrizChecklist = (await matrizChecklists(tx, [load], true)).get(id)!;
         // Q47: documentos da Matriz são o padrão; sem eles, só com confirmação explícita (auditada abaixo).
         if (!matrizChecklist.ready && !input.acceptMissingMatrizInvoice) {
@@ -236,12 +237,12 @@ export class LoadsService {
         // Não há teto: a Fazenda carrega o que chegou e a ordem mostra quando passou da quantidade.
         data.loadedAt = new Date();
       }
-      // Do trânsito a carga vai direto ao faturamento: faturar na Matriz é o próprio fim do transporte.
-      if (to === 'MATRIZ_INVOICED' && !load.receivedAt) data.receivedAt = new Date();
-
-      // Carregamento confirmado segue direto para "Aguardando documentação fiscal da Fazenda".
-      const steps: LoadStatus[] = to === 'LOADED' ? ['LOADED', 'AWAITING_FARM_INVOICE'] : [to];
+      // Carregamento confirmado segue direto para "Aguardando documentação fiscal da Fazenda"; liberar para
+      // trânsito é o último passo e já conclui a carga (o histórico guarda os dois momentos).
+      const steps: LoadStatus[] = to === 'LOADED' ? ['LOADED', 'AWAITING_FARM_INVOICE'] : to === 'IN_TRANSIT' ? ['IN_TRANSIT', 'COMPLETED'] : [to];
       const finalStatus = steps[steps.length - 1]!;
+      // Saída da fazenda: a data em que a carga foi liberada para o destino.
+      if (finalStatus === 'COMPLETED' && !load.receivedAt) data.receivedAt = new Date();
       data.status = finalStatus;
       await tx.load.update({ where: { id }, data });
 
@@ -285,7 +286,7 @@ export class LoadsService {
       // Q45: encerrada a última carga, a ordem conclui sozinha quando nada mais está pendente.
       if (finalStatus === 'COMPLETED' || finalStatus === 'CANCELLED') await autoCompleteIfFinished(scope, load.orderId);
 
-      await outbox({ type: 'load.status_changed', aggregateType: 'load', aggregateId: id, payload: { loadId: id, orderId: load.orderId, number: load.number, from: load.status, to: finalStatus } });
+      await outbox({ type: 'load.status_changed', aggregateType: 'load', aggregateId: id, payload: { loadId: id, orderId: load.orderId, number: load.number, from: load.status, to: finalStatus, steps } });
       return this.dto(tx, id);
     });
   }

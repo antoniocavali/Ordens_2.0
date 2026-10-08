@@ -117,6 +117,35 @@ export interface LoadSetup {
 
 export const PDF = Buffer.from('%PDF-1.4\n1 0 obj<< /Type /Catalog >>endobj\ntrailer<< /Root 1 0 R >>\n%%EOF\n');
 
+/**
+ * Carga pronta para o faturamento da Matriz: carregada, com PDF e XML da Fazenda anexados pela tela e a
+ * documentação fiscal validada. Deixa a carga aberta em `page`.
+ */
+export async function prepareValidatedLoad(page: Page): Promise<LoadSetup> {
+  const setup = await prepareLoad(page);
+  const getLoad = () => apiOk(page, 'GET', `/loads/${setup.loadId}`);
+  await page.goto(`/cargas?abrir=${setup.loadId}`);
+  const drawer = page.getByRole('dialog').first();
+  const advance = async (label: string) => {
+    const response = page.waitForResponse((r) => r.url().includes(`/loads/${setup.loadId}/transition`) && r.request().method() === 'POST');
+    await drawer.getByRole('button', { name: label, exact: true }).click();
+    return response;
+  };
+  expect((await advance('Iniciar carregamento')).ok()).toBe(true);
+  await drawer.getByLabel('Peso bruto (kg)').fill('48500');
+  await drawer.getByLabel('Tara (kg)').fill('38500');
+  expect((await advance('Confirmar carregamento')).ok()).toBe(true);
+
+  const input = drawer.locator('input[type="file"]').first();
+  await input.setInputFiles({ name: 'danfe.pdf', mimeType: 'application/pdf', buffer: PDF });
+  const key = nfeKey(setup.sellerDoc);
+  await input.setInputFiles({ name: `NFe${key}.xml`, mimeType: 'application/xml', buffer: Buffer.from(nfeXml({ key, issuerDoc: setup.sellerDoc, plate: setup.plate, netKg: 10_000 })) });
+  await expect.poll(async () => (await getLoad()).fiscalChecklist?.ready, { timeout: 60_000 }).toBe(true);
+  await page.reload();
+  expect((await advance('Validar documentação fiscal')).ok()).toBe(true);
+  return setup;
+}
+
 /** Carga criada pela chegada do caminhão (aguardando carregamento), com o transporte conferido na fazenda. */
 export async function prepareLoad(page: Page): Promise<LoadSetup> {
   const orders = (await apiOk(page, 'GET', '/orders?status=PUBLISHED&status=IN_PROGRESS&pageSize=100')).items as any[];

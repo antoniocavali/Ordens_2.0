@@ -64,9 +64,9 @@ stateDiagram-v2
   LOADING --> LOADED: confirmar carregamento (bruto e tara)
   LOADED --> AWAITING_FARM_INVOICE: automático
   AWAITING_FARM_INVOICE --> FARM_INVOICED: PDF + XML válidos
-  FARM_INVOICED --> IN_TRANSIT: liberar para transporte (reconfere documentos)
-  IN_TRANSIT --> MATRIZ_INVOICED: PDF + XML da nota da Matriz (Q47)
-  MATRIZ_INVOICED --> COMPLETED: nota da Matriz validada
+  FARM_INVOICED --> MATRIZ_INVOICED: PDF + XML da nota da Matriz (Q47)
+  MATRIZ_INVOICED --> IN_TRANSIT: liberar para trânsito (Matriz)
+  IN_TRANSIT --> COMPLETED: automático, no mesmo passo
   SCHEDULED --> CANCELLED
   CONFIRMED --> CANCELLED
   AWAITING_LOADING --> CANCELLED
@@ -84,15 +84,15 @@ stateDiagram-v2
 | LOADED | Carregada | FARM, MATRIZ (peso bruto e tara obrigatórios; saldo liberado validado) | −scheduled, +loaded (peso líquido) |
 | AWAITING_FARM_INVOICE | Aguardando documentação fiscal | automático após LOADED | — |
 | FARM_INVOICED | Documentação fiscal validada | FARM, MATRIZ (checklist fiscal) | — |
-| IN_TRANSIT | Em trânsito | MATRIZ, FARM (checklist fiscal reconferido) | +in_transit |
-| MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ, direto do trânsito | −in_transit, +received; PDF e XML da nota da Matriz validados (Q47) |
+| MATRIZ_INVOICED | Faturada pela Matriz | MATRIZ, logo após a validação fiscal da Fazenda | PDF e XML da nota da Matriz validados (Q47); o caminhão ainda não saiu |
+| IN_TRANSIT | Em trânsito | MATRIZ ("Liberar para trânsito") | passagem: a API grava IN_TRANSIT e COMPLETED no mesmo passo. Só cargas do fluxo antigo ficam paradas aqui |
 | AWAITING_MATRIZ_INVOICE | Aguardando faturamento da Matriz | ninguém (só cargas antigas) | etapa removida em 02/10/2026: não havia o que fazer entre o trânsito e o faturamento. Cargas que estavam nela seguem para MATRIZ_INVOICED |
-| COMPLETED | Concluída | MATRIZ | — |
+| COMPLETED | Concluída | automático ao liberar para trânsito | +received ("liberado para trânsito") |
 | CANCELLED | Cancelada | MATRIZ (FARM antes de LOADING) | estorna scheduled; +cancelled |
 
 ### Checklist fiscal (Q41)
 
-Regra única `evaluateFiscalDocuments` (`@ordens/contracts`), usada pela API e pela tela da carga. Para `FARM_INVOICED` e `IN_TRANSIT` (erro `FISCAL_DOCUMENTS_REQUIRED`):
+Regra única `evaluateFiscalDocuments` (`@ordens/contracts`), usada pela API e pela tela da carga. Para `FARM_INVOICED` e, como reconferência, `MATRIZ_INVOICED` e `IN_TRANSIT` (erro `FISCAL_DOCUMENTS_REQUIRED`):
 
 1. peso bruto e tara informados;
 2. PDF da nota (`file_uploads.kind = PDF`) vinculado à carga, disponível;

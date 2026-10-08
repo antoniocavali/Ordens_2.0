@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, apiOk, login, loginAs, password } from './helpers';
+import { api, apiOk, login, loginAs, password, prepareValidatedLoad } from './helpers';
 
 const addDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
@@ -85,10 +85,12 @@ test.describe('Decisões revisadas', () => {
   });
 
   test('Q47 — faturar sem a nota da Matriz exige confirmação e fica auditado', async ({ page }) => {
+    test.setTimeout(300_000);
     await login(page, 'admin@graoforte.demo');
-    const loads = (await apiOk(page, 'GET', '/loads?status=IN_TRANSIT&pageSize=50')).items as any[];
-    const load = loads.find((l) => l.matrizChecklist && !l.matrizChecklist.ready);
-    test.skip(!load, 'nenhuma carga em trânsito sem a nota da Matriz');
+    // Carga com a documentação da Fazenda validada e ainda sem a nota da Matriz.
+    const setup = await prepareValidatedLoad(page);
+    const load = await apiOk(page, 'GET', `/loads/${setup.loadId}`);
+    expect(load.matrizChecklist?.ready).toBe(false);
 
     // Sem confirmação: recusado com código próprio.
     const refused = await api(page, 'POST', `/loads/${load.id}/transition`, { to: 'MATRIZ_INVOICED', expectedUpdatedAt: load.updatedAt });
