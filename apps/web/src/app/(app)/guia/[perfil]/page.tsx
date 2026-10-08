@@ -1,11 +1,36 @@
 'use client';
 
 import { Badge, Button, Card, EmptyState } from '@ordens/ui';
-import { ArrowLeft, BookOpen, Check, Info, Minus } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, Info, Minus, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { use } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, use } from 'react';
 import { GUIDE_PROFILES, guideProfile } from '@/features/guide/guide-content';
 import { Shot } from '@/features/guide/shot';
+import { useMe } from '@/lib/session';
+
+/** Faixa do primeiro acesso: a pessoa foi trazida ao guia do perfil dela logo depois de entrar. */
+function Welcome() {
+  const welcome = useSearchParams().get('boas-vindas');
+  const { data: me } = useMe();
+  if (!welcome) return null;
+  return (
+    <div role="status" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary-soft px-5 py-4 ring-1 ring-primary/20">
+      <div className="flex items-start gap-3">
+        <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" />
+        <div>
+          <div className="font-semibold">Bem-vindo{me?.user.name ? `, ${me.user.name.split(' ')[0]}` : ''}!</div>
+          <p className="text-sm text-muted">Este é o guia do seu perfil, com o passo a passo das suas tarefas. Ele fica sempre no menu, em Ajuda › Guia de uso.</p>
+        </div>
+      </div>
+      <Button asChild>
+        <Link href="/">
+          Ir para a Visão geral <ArrowRight />
+        </Link>
+      </Button>
+    </div>
+  );
+}
 
 export default function GuideProfilePage({ params }: { params: Promise<{ perfil: string }> }) {
   const { perfil } = use(params);
@@ -34,6 +59,9 @@ export default function GuideProfilePage({ params }: { params: Promise<{ perfil:
       <Link href="/guia" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-text">
         <ArrowLeft className="size-4" /> Guia de uso
       </Link>
+      <Suspense fallback={null}>
+        <Welcome />
+      </Suspense>
 
       <div className="mt-3 grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
         {/* Sumário do capítulo */}

@@ -450,6 +450,7 @@ export class AuthService {
         twoFactorEnabled,
         theme: (prefs?.theme as Theme) ?? 'system',
         sidebarCollapsed: prefs?.sidebarCollapsed ?? false,
+        guideSeen: Boolean((prefs?.data as Record<string, unknown> | null)?.guideSeenAt),
       },
       stage: auth.stage,
       activeMembership: active,

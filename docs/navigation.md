@@ -62,6 +62,11 @@ Guia de uso        /guia             (capítulos por tipo de usuário; destaca o
                    /guia/<perfil>    (passo a passo, com capturas de tela)
 ```
 
+**Primeiro acesso:** com a conta liberada (depois da troca de senha e da 2FA, se exigidas), a pessoa é levada uma
+única vez ao capítulo do próprio papel (`/guia/<perfil>?boas-vindas=1`). A marca fica na conta
+(`user_preferences.data.guideSeenAt`, gravada por `POST /me/guide-seen`), não no navegador. As contas do seed de
+demonstração já nascem marcadas.
+
 O texto do guia fica em `apps/web/src/features/guide/guide-content.ts` e o roteiro da apresentação em
 `presentation-content.ts`. As capturas (`apps/web/public/guia/*.webp`) são geradas contra o ambiente local de
 demonstração:
