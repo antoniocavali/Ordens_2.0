@@ -368,6 +368,23 @@ export class MeController {
     );
   }
 
+  /**
+   * Primeiro acesso: a tela leva a pessoa ao Guia de uso do perfil dela, uma única vez. Aqui fica
+   * marcado que isso já aconteceu (vale para a conta, em qualquer navegador).
+   */
+  @Post('guide-seen')
+  @HttpCode(204)
+  async guideSeen() {
+    const { userId } = currentAuth();
+    await this.db.self(async ({ tx }) => {
+      const current = await tx.userPreference.findUnique({ where: { userId }, select: { data: true } });
+      const data = (current?.data as Record<string, unknown> | null) ?? {};
+      if (data.guideSeenAt) return;
+      const next = { ...data, guideSeenAt: new Date().toISOString() };
+      await tx.userPreference.upsert({ where: { userId }, create: { userId, data: next }, update: { data: next } });
+    });
+  }
+
   /** Q44: e-mails dos avisos, por tipo (o aviso no sistema continua sempre ativo). */
   @Get('notification-preferences')
   async notificationPreferences() {

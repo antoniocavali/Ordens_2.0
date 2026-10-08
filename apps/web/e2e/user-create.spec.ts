@@ -48,7 +48,7 @@ test.describe('Criar usuário', () => {
     await np.getByLabel('Nova senha', { exact: true }).fill(newPassword);
     await np.getByLabel('Confirmar nova senha').fill(newPassword);
     await np.getByRole('button', { name: 'Salvar nova senha' }).click();
-    await expect(np).toHaveURL('/');
+    await expect(np).toHaveURL(/\/guia\/operador-matriz/);
     const me = await apiOk(np, 'GET', '/auth/me');
     expect(me.permissions).toContain('order.create');
     await ctx.close();
@@ -84,7 +84,7 @@ test.describe('Criar usuário', () => {
     await np.getByLabel('Nova senha', { exact: true }).fill(newPassword);
     await np.getByLabel('Confirmar nova senha').fill(newPassword);
     await np.getByRole('button', { name: 'Salvar nova senha' }).click();
-    await expect(np).toHaveURL('/');
+    await expect(np).toHaveURL(/\/guia\/comprador/);
 
     const me = await apiOk(np, 'GET', '/auth/me');
     expect(me.activeMembership.organization.id).toBe(buyerOrg.id);

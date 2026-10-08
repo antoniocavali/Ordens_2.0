@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { login, loginAs, password } from './helpers';
+import { apiOk, login, loginAs, password, submitLogin } from './helpers';
 
 /** Nenhuma imagem visível da página pode estar quebrada. */
 async function expectImagesLoaded(page: Page) {
@@ -89,5 +89,43 @@ test.describe('Guia de uso', () => {
     await buyer.page.goto('/guia/nao-existe');
     await expect(buyer.page.getByText('Capítulo não encontrado')).toBeVisible();
     await buyer.context.close();
+  });
+
+  test('no primeiro acesso a pessoa é levada, uma única vez, ao guia do próprio perfil', async ({ page, browser }) => {
+    const stamp = Date.now();
+    await login(page, 'gestor@graoforte.demo');
+    const orgs = (await apiOk(page, 'GET', '/organizations')) as { id: string; kind: string }[];
+    const email = `primeiro.acesso.${stamp}@graoforte.demo`;
+    const provisional = `Provisoria-${stamp}-abc!`;
+    await apiOk(page, 'POST', '/users', { name: 'Bianca Primeiro Acesso', email, organizationId: orgs.find((o) => o.kind === 'BUYER')!.id, roles: ['BUYER_USER'], temporaryPassword: provisional });
+
+    const ctx = await browser.newContext();
+    const np = await ctx.newPage();
+    await submitLogin(np, email, provisional, /\/login\/nova-senha/);
+    const newPassword = `Pessoal-${stamp}-xyz!`;
+    await np.getByLabel('Senha provisória').fill(provisional);
+    await np.getByLabel('Nova senha', { exact: true }).fill(newPassword);
+    await np.getByLabel('Confirmar nova senha').fill(newPassword);
+    await np.getByRole('button', { name: 'Salvar nova senha' }).click();
+
+    // Conta liberada: cai no guia do papel dela (Comprador), com as boas-vindas.
+    await expect(np).toHaveURL(/\/guia\/comprador\?boas-vindas=1$/);
+    await expect(np.getByRole('heading', { level: 1, name: 'Comprador' })).toBeVisible();
+    const welcome = np.getByRole('status').filter({ hasText: 'Bem-vindo, Bianca' });
+    await expect(welcome).toContainText('guia do seu perfil');
+    expect((await apiOk(np, 'GET', '/auth/me')).user.guideSeen).toBe(true);
+
+    // Dali segue para o sistema, e o desvio não se repete — nem recarregando, nem entrando de novo.
+    await welcome.getByRole('link', { name: 'Ir para a Visão geral' }).click();
+    await expect(np).toHaveURL('/');
+    await np.reload();
+    await expect(np.getByRole('heading', { name: /Bianca/ })).toBeVisible();
+    await expect(np).toHaveURL('/');
+    await ctx.close();
+    const again = await (await browser.newContext()).newPage();
+    await submitLogin(again, email, newPassword, '/');
+    await again.waitForTimeout(1500);
+    await expect(again).toHaveURL('/');
+    await again.context().close();
   });
 });

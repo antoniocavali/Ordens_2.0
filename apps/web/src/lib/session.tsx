@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useRef } from 'react';
+import { profileForUser } from '@/features/guide/guide-content';
 import { ApiRequestError, get, post } from './api';
 
 export const ME_KEY = ['auth', 'me'] as const;
@@ -49,6 +50,19 @@ export function useSessionGuard() {
     if (me.data?.stage === 'PENDING_PASSWORD_CHANGE') router.replace('/login/nova-senha');
     else if (me.data?.stage === 'PENDING_2FA_SETUP') router.replace('/conta/seguranca?obrigatorio=1');
   }, [me.error, me.data, router]);
+
+  // Primeiro acesso: com a conta liberada, a pessoa é levada uma única vez ao Guia de uso do perfil
+  // dela. A marca fica na conta (não no navegador), então não se repete em outro computador.
+  const guideOffered = useRef(false);
+  useEffect(() => {
+    const data = me.data;
+    if (!data || data.stage !== 'ACTIVE' || !data.activeMembership || data.user.guideSeen || guideOffered.current) return;
+    guideOffered.current = true;
+    qc.setQueryData<MeResponse>(ME_KEY, { ...data, user: { ...data.user, guideSeen: true } });
+    post('/me/guide-seen', {}).catch(() => undefined);
+    const profile = profileForUser(data.activeMembership.roles, data.activeMembership.scope);
+    router.replace(profile ? `/guia/${profile.slug}?boas-vindas=1` : '/guia');
+  }, [me.data, qc, router]);
 
   // setTheme do next-themes muda de identidade a cada troca de tema; com ele nas dependências o
   // efeito reaplicava o tema salvo (antigo) logo após o usuário escolher outro. Usa ref.

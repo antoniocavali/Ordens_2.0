@@ -77,6 +77,7 @@ export async function seedDemo(db: Database, password: string): Promise<{ create
     const user = await tx.user.create({
       data: { email: 'admin@horizonte.demo', name: 'Marcos Tavares', passwordHash },
     });
+    await tx.userPreference.create({ data: { userId: user.id, data: { guideSeenAt: 'seed' } } });
     const m = await tx.membership.create({
       data: { tenantId: otherId, userId: user.id, organizationId: matriz.id, scope: 'MATRIZ' },
     });
@@ -269,6 +270,8 @@ async function seedTenant(tx: Tx, tenantId: string, passwordHash: string): Promi
     });
     await tx.membershipRole.createMany({ data: u.roles.map((roleCode) => ({ membershipId: m.id, roleCode, tenantId })) });
     userIds[u.email] = { userId: user.id, membershipId: m.id };
+    // Contas de demonstração não passam pelo desvio de primeiro acesso para o Guia de uso.
+    await tx.userPreference.create({ data: { userId: user.id, data: { guideSeenAt: 'seed' } } });
   }
   const admin = userIds['admin@graoforte.demo']!;
   const gestor = userIds['gestor@graoforte.demo']!;

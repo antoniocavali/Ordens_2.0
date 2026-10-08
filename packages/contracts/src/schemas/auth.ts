@@ -118,6 +118,8 @@ export interface MeResponse {
     twoFactorEnabled: boolean;
     theme: (typeof THEMES)[number];
     sidebarCollapsed: boolean;
+    /** Já foi levado ao Guia de uso (no primeiro acesso a tela abre no guia do perfil). */
+    guideSeen: boolean;
   };
   stage: SessionStage;
   activeMembership: MembershipSummary | null;
