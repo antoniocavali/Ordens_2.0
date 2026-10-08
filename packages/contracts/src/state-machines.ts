@@ -98,7 +98,7 @@ export const LOAD_STATUS_LABELS: Record<LoadStatus, string> = {
   LOADING: 'Em carregamento',
   LOADED: 'Carregada',
   AWAITING_FARM_INVOICE: 'Aguardando documentação fiscal',
-  FARM_INVOICED: 'Documentação fiscal validada',
+  FARM_INVOICED: 'Aguardando faturamento da Matriz',
   IN_TRANSIT: 'Em trânsito',
   // Etapas descontinuadas: só aparecem no histórico de cargas anteriores.
   ARRIVED: 'Chegada ao destino',

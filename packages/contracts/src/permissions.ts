@@ -26,6 +26,7 @@ export const PERMISSIONS = {
   'order.update': 'Alterar ordens de carregamento',
   'order.publish': 'Publicar ordens de carregamento',
   'order.cancel': 'Cancelar ou suspender ordens',
+  'order.delete': 'Excluir ordens e rascunhos (apaga cargas, notas e anexos)',
   'order.submit': 'Criar, editar os próprios rascunhos e enviar solicitações de ordem ao Faturamento (Comprador)',
   'order.billing.manage': 'Tratar solicitações do Comprador: definir vendedor e fazenda e publicar (Faturamento)',
   'load.read': 'Visualizar cargas',
@@ -82,6 +83,8 @@ const MATRIZ_MANAGE: Permission[] = [
   'commodity.manage',
   'order.publish',
   'order.cancel',
+  // Gestor e Administrador excluem ordens (decisão de 08/10/2026).
+  'order.delete',
   'order.billing.manage',
   'report.export',
   'support.manage',
@@ -250,7 +253,7 @@ export function permissionsAllowedForScope(scope: string): Permission[] {
 
 /** Agrupamento das permissões para escolha na tela de papéis. */
 export const PERMISSION_GROUPS: { key: string; label: string; permissions: Permission[] }[] = [
-  { key: 'orders', label: 'Ordens de carregamento', permissions: ['order.read', 'order.create', 'order.update', 'order.publish', 'order.cancel', 'order.submit', 'order.billing.manage'] },
+  { key: 'orders', label: 'Ordens de carregamento', permissions: ['order.read', 'order.create', 'order.update', 'order.publish', 'order.cancel', 'order.delete', 'order.submit', 'order.billing.manage'] },
   {
     key: 'logistics',
     label: 'Logística',

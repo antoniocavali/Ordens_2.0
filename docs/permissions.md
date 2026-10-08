@@ -80,6 +80,7 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `order.update` | — | ● | ● | ● | — | — | — | — |
 | `order.publish` | — | ● | ● | — | — | — | — | — |
 | `order.cancel` | — | ● | ● | — | — | — | — | — |
+| `order.delete` (excluir ordem ou rascunho com tudo dentro — Q53) | — | ● | ● | — | — | — | — | — |
 | `order.submit` (portal: criar, editar próprios rascunhos, enviar ao Faturamento, cancelar antes da análise) | — | — | — | — | — | — | — | ○ |
 | `order.billing.manage` (definir vendedor/fazenda, publicar ou devolver solicitações; também papel Faturamento) | — | ● | ● | — | — | — | — | — |
 | `load.read` | — | ● | ● | ● | ● | ○ | ○ | ○ |
@@ -95,7 +96,7 @@ Legenda: ● permitido · ○ restrito ao próprio escopo/organização · — n
 | `report.export` (Q38: fora dos papéis do sistema, pode ser incluída em papéis personalizados de Fazenda e Comprador — dados e colunas restritos ao perfil) | — | ● | ● | — | — | — | — | — |
 | `settings.manage` | — | ● | — | — | — | — | — | — |
 
-Transições de carga possuem permissão por transição (ver [state-machines.md](state-machines.md)); "Documentação fiscal validada" e "Em trânsito" só por FARM ou MATRIZ e com o checklist fiscal completo.
+Transições de carga possuem permissão por transição (ver [state-machines.md](state-machines.md)); "Concluir validação fiscal" só por FARM ou MATRIZ, "Liberar para trânsito" só pela MATRIZ, e com o checklist fiscal completo.
 
 ## Portal do Comprador e Faturamento (Q41)
 

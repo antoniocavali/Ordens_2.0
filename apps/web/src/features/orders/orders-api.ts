@@ -66,6 +66,9 @@ export const submitOrder = (id: string, expectedUpdatedAt: string) => post<Order
 export const assignFarm = (id: string, body: Record<string, unknown>) => post<OrderDetail>(`/orders/${id}/billing/assign`, body);
 export const suspendOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/suspend`, { expectedUpdatedAt, reason });
 export const resumeOrder = (id: string, expectedUpdatedAt: string) => post<OrderDetail>(`/orders/${id}/resume`, { expectedUpdatedAt });
+/** Exclusão definitiva: apaga a ordem com cargas, notas, ocorrências e anexos. */
+export const deleteOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<{ number: string }>(`/orders/${id}/delete`, { expectedUpdatedAt, reason });
+
 export const cancelOrder = (id: string, expectedUpdatedAt: string, reason: string) => post<OrderDetail>(`/orders/${id}/cancel`, { expectedUpdatedAt, reason });
 export const completeOrder = (id: string, expectedUpdatedAt: string, input: { reason: string | null; acceptPendingDocuments: boolean }) =>
   post<OrderDetail>(`/orders/${id}/complete`, { expectedUpdatedAt, ...input });

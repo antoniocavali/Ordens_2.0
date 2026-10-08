@@ -20,6 +20,10 @@ export async function realtimeTarget(tx: Tx, type: string, payload: Record<strin
     return o && o.status !== 'DRAFT' ? orgs(o.sellerOrgId, o.buyerOrgId) : [];
   };
 
+  // A ordem já não existe: as organizações vêm no próprio evento.
+  if (type === 'order.deleted') {
+    return { keys: [['orders'], ['logistics'], ['fiscal'], ['dashboard']], orgIds: orgs(id('sellerOrgId'), id('buyerOrgId')) };
+  }
   if (type.startsWith('order.')) return { keys: [['orders'], ['dashboard']], orgIds: await orderOrgs() };
   if (type.startsWith('load.')) return { keys: [['logistics'], ['orders'], ['dashboard']], orgIds: await orderOrgs() };
 

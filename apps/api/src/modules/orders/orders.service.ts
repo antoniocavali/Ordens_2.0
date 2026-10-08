@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   BUYER_SUBMIT_REQUIRED,
   ErrorCode,
@@ -25,6 +25,7 @@ import { nextSequence, Prisma, shallowDiff, type Tx, type UnitOfWorkScope } from
 import { AppError } from '../../common/errors.js';
 import { readVehicles } from '../logistics/logistics.util.js';
 import { currentAuth, currentRequest } from '../../common/request-context.js';
+import { StorageService } from '../../infra/storage.service.js';
 import { TenantDb } from '../../infra/tenant-db.service.js';
 import { day, toDetail, toListItem } from './orders.mapper.js';
 import { buildListFilters, orderCountSql, orderIdsSql, orderSelectSql, type OrderRow } from './orders.queries.js';
@@ -140,7 +141,12 @@ function snapshot(order: Record<string, unknown>) {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly db: TenantDb) {}
+  private readonly logger = new Logger(OrdersService.name);
+
+  constructor(
+    private readonly db: TenantDb,
+    private readonly storage: StorageService,
+  ) {}
 
   // ───────────────────────────── Leitura ─────────────────────────────
 
@@ -673,6 +679,56 @@ export class OrdersService {
    * carga ativa; o saldo não carregado vira "cancelado".
    * Cargas concluídas são mantidas.
    */
+  /**
+   * Exclui a ordem com tudo o que nasceu dela: cargas e histórico, notas fiscais, ocorrências, anexos,
+   * versões e avisos. Diferente de cancelar, não sobra nada nas telas — serve para rascunhos e para
+   * ordens lançadas por engano. Quem apaga é uma função do banco restrita à Matriz e ao tenant; o
+   * motivo e um retrato do que existia ficam na auditoria, na mesma transação. Os arquivos saem do
+   * armazenamento depois que a transação fecha.
+   */
+  async deleteOrder(id: string, input: OrderReasonActionInput): Promise<{ number: string }> {
+    this.assertInternal();
+    const removed = await this.db.write(async (scope) => {
+      const { tx } = scope;
+      const order = await this.lockForWrite(tx, id, null);
+      this.assertExpected(order, input.expectedUpdatedAt);
+      const [result] = await tx.$queryRaw<{ r: { number: string; status: string; counts: Record<string, number>; files: { bucket: string; key: string }[] } }[]>`
+        select delete_loading_order(${id}::uuid) as r
+      `;
+      const { counts, files } = result!.r;
+      await scope.audit({
+        entityType: 'loading_order',
+        entityId: id,
+        action: 'order.deleted',
+        before: {
+          number: order.number,
+          status: order.status,
+          origin: order.origin,
+          sellerPartnerId: order.sellerPartnerId,
+          farmId: order.farmId,
+          buyerPartnerId: order.buyerPartnerId,
+          commodityId: order.commodityId,
+          quantity: order.quantity?.toString() ?? null,
+          loadedQty: order.loadedQty.toString(),
+          contractNumber: order.contractNumber,
+        },
+        after: { reason: input.reason, ...counts },
+      });
+      await scope.outbox({
+        type: 'order.deleted',
+        aggregateType: 'loading_order',
+        aggregateId: id,
+        payload: { orderId: id, number: order.number, sellerOrgId: order.sellerOrgId, buyerOrgId: order.buyerOrgId },
+      });
+      return { number: order.number, files };
+    });
+    // Fora da transação: se um arquivo falhar, a ordem já foi excluída e o objeto fica órfão (sem
+    // registro que aponte para ele) — registra para limpeza, sem desfazer a exclusão.
+    const failed = (await Promise.allSettled(removed.files.map((f) => this.storage.deleteObject(f.bucket, f.key)))).filter((r) => r.status === 'rejected').length;
+    if (failed) this.logger.warn(`Ordem ${removed.number} excluída; ${failed} de ${removed.files.length} arquivo(s) não foram removidos do armazenamento.`);
+    return { number: removed.number };
+  }
+
   async cancelOrder(id: string, input: OrderReasonActionInput): Promise<OrderDetail> {
     const auth = currentAuth();
     this.assertInternal();
@@ -1053,6 +1109,7 @@ export class OrdersService {
       actions.push('buyer_cancel');
     }
     if (internal && ['PUBLISHED', 'IN_PROGRESS'].includes(status) && perms.has('order.cancel')) actions.push('complete');
+    if (internal && perms.has('order.delete')) actions.push('delete');
     if (internal && perms.has('order.cancel')) {
       if (status === 'PUBLISHED' || status === 'IN_PROGRESS') actions.push('suspend');
       if (status === 'SUSPENDED') actions.push('resume');

@@ -142,7 +142,7 @@ export async function prepareValidatedLoad(page: Page): Promise<LoadSetup> {
   await input.setInputFiles({ name: `NFe${key}.xml`, mimeType: 'application/xml', buffer: Buffer.from(nfeXml({ key, issuerDoc: setup.sellerDoc, plate: setup.plate, netKg: 10_000 })) });
   await expect.poll(async () => (await getLoad()).fiscalChecklist?.ready, { timeout: 60_000 }).toBe(true);
   await page.reload();
-  expect((await advance('Validar documentação fiscal')).ok()).toBe(true);
+  expect((await advance('Concluir validação fiscal')).ok()).toBe(true);
   return setup;
 }
 
