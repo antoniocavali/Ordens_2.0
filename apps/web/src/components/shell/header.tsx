@@ -84,9 +84,11 @@ export function Header({ onOpenMobileNav, onOpenPalette }: { onOpenMobileNav: ()
 
         <NotificationsMenu />
         <ThemeMenu />
-        <Tooltip content="Ajuda">
-          <Button variant="ghost" size="icon-sm" aria-label="Ajuda" className="hidden sm:inline-flex">
-            <HelpCircle />
+        <Tooltip content="Guia de uso">
+          <Button asChild variant="ghost" size="icon-sm" className="hidden sm:inline-flex">
+            <Link href="/guia" aria-label="Guia de uso">
+              <HelpCircle />
+            </Link>
           </Button>
         </Tooltip>
         <UserMenu />

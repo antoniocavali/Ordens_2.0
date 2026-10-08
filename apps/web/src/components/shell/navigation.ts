@@ -2,6 +2,7 @@ import type { Permission, Scope, SupportQueue } from '@ordens/contracts';
 import {
   AlertTriangle,
   BarChart3,
+  BookOpen,
   Building2,
   ClipboardList,
   FileSpreadsheet,
@@ -110,6 +111,11 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Workflow', href: '/configuracoes/workflow', icon: Settings2, permission: 'settings.manage' },
       { label: 'Parâmetros', href: '/configuracoes/parametros', icon: FolderSync, permission: 'settings.manage' },
     ],
+  },
+  {
+    label: 'Ajuda',
+    // Passo a passo por tipo de usuário; abre no capítulo do perfil de quem está logado.
+    items: [{ label: 'Guia de uso', href: '/guia', icon: BookOpen }],
   },
 ];
 
